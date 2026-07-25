@@ -58,6 +58,16 @@ windows[15]{provider,id,label,percentRemaining,resetsAt,state}:
   grok,credits,credits,67,"2026-04-01T00:00:00.000Z",fresh
   kimi,weekly,week,74,"2026-03-19T09:00:00.000Z",fresh
   kimi,five_hour,session,88,"2026-03-15T21:42:00.000Z",fresh
+effective[9]{provider,scope,effectivePercentRemaining,boundedBy,limitingWindowIds,unresolvedWindowIds,relationshipStatus}:
+  claude,all_models,64,"five_hour + seven_day",seven_day,none,known
+  claude,"model:fable",64,"five_hour + seven_day + model:fable",seven_day,none,known
+  claude,seven_day_opus,64,"five_hour + seven_day + seven_day_opus",seven_day,none,known
+  codex,all_models,47,"five_hour + weekly",weekly,none,known
+  codex,"model:gpt-5.1-codex",47,"five_hour + weekly + model:gpt-5.1-codex:5h",weekly,none,known
+  cursor,unresolved,unknown,none,unknown,"included_usage + auto_usage + api_usage",unknown
+  copilot,unresolved,unknown,none,unknown,"chat + premium_interactions",unknown
+  grok,all_products,67,credits,credits,none,known
+  kimi,all_models,74,"weekly + five_hour",weekly,none,known
 help[3]:
   Run `quota-axi --provider claude --json` for JSON output
   Run `quota-axi --full` to include account and source-attempt details
@@ -87,6 +97,14 @@ $ quota-axi --provider claude --json
           "resetsAt": "2026-03-15T21:15:00.000Z"
         },
         {
+          "id": "seven_day",
+          "label": "week",
+          "kind": "weekly",
+          "percentUsed": 36,
+          "percentRemaining": 64,
+          "resetsAt": "2026-03-19T15:00:00.000Z"
+        },
+        {
           "id": "model:fable",
           "label": "Fable week",
           "kind": "model",
@@ -95,6 +113,26 @@ $ quota-axi --provider claude --json
           "resetsAt": "2026-03-20T09:30:00.000Z"
         }
       ],
+      "quotaSemantics": {
+        "status": "known",
+        "description": "Claude account windows bound every model. A model-specific window is an additional bound, so that model's effective remaining percentage is the minimum across the named windows.",
+        "effectiveAvailability": [
+          {
+            "scope": "all_models",
+            "status": "known",
+            "effectivePercentRemaining": 64,
+            "boundedBy": ["five_hour", "seven_day"],
+            "limitingWindowIds": ["seven_day"]
+          },
+          {
+            "scope": "model:fable",
+            "status": "known",
+            "effectivePercentRemaining": 64,
+            "boundedBy": ["five_hour", "seven_day", "model:fable"],
+            "limitingWindowIds": ["seven_day"]
+          }
+        ]
+      },
       "state": {
         "status": "fresh",
         "stale": false,
@@ -224,12 +262,12 @@ It is generated from `src/skill.ts`; update it with `pnpm run build:skill` and v
 
 ### Quota report shape
 
-| Object                        | Fields                                                                                     |
-| ----------------------------- | ------------------------------------------------------------------------------------------ |
-| Quota report                  | `providers`                                                                                |
-| Provider report               | `provider`, `label`, `source`, `windows`, `state`, optional `plan`, and optional `credits` |
-| Provider report with `--full` | Optional `account` identity and per-source `attempts`                                      |
-| Account identity (`--full`)   | Optional `email`, `organization`, `accountId`, and `identityStatus`                        |
+| Object                        | Fields                                                                                                       |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| Quota report                  | `providers`                                                                                                  |
+| Provider report               | `provider`, `label`, `source`, `windows`, `quotaSemantics`, `state`, optional `plan`, and optional `credits` |
+| Provider report with `--full` | Optional `account` identity and per-source `attempts`                                                        |
+| Account identity (`--full`)   | Optional `email`, `organization`, `accountId`, and `identityStatus`                                          |
 
 Account identity and per-source `attempts` are omitted unless `--full` is passed.
 Claude `identityStatus` is `verified` only when Anthropic returns an authoritative account identifier; `email` and `organization` are display-only and must not be used for duplicate detection.
@@ -257,6 +295,12 @@ Default TOON output includes the same condition in an `advice` block with `provi
 | Required  | `id`, `label`, `kind`                                               |
 | Optional  | Percentages, reset fields, `windowSeconds`, and credit-spend fields |
 
+Do not interpret a model window's percentage in isolation. `quotaSemantics.effectiveAvailability` reports the effective percentage for each understood scope, the complete `boundedBy` window set used to compute it, and the currently limiting window IDs. `all_models` applies to any model without a more specific scope; a matching `model:*` scope includes both account and model-specific bounds. Grok uses the analogous `all_products` and `product:*` scopes.
+
+A model-specific `scope` names the model window or the shared model prefix when multiple period windows describe one Codex model.
+
+`quotaSemantics.status` is `known` only when quota-axi understands the relationships needed for the reported scopes. `partial` or `unknown` omits any non-definitive effective percentage and names `unresolvedWindowIds`, so unfamiliar vendor windows degrade to an explicit unknown instead of a plausible but unsafe answer.
+
 ### Quota enums
 
 | Name                             | Values                                                                       |
@@ -265,6 +309,7 @@ Default TOON output includes the same condition in an `advice` block with `provi
 | Provider sources                 | `oauth`, `cli-rpc`, `api`, `web`, `cache`, or `unavailable`                  |
 | Current provider adapter sources | `oauth`, `cli-rpc`, `api`, `web`, `cache`, and `unavailable`                 |
 | Window kinds                     | `session`, `weekly`, `monthly`, `model`, `credits`, or `unknown`             |
+| Quota relationship statuses      | `known`, `partial`, or `unknown`                                             |
 | Source attempt statuses          | `success`, `failed`, or `skipped`                                            |
 
 Source attempts can include `credentialPresent` when a non-secret probe confirms a credential item exists.

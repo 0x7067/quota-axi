@@ -30,7 +30,10 @@ or when comparing supported local provider headroom side by side.
 
 1. Run `npx -y quota-axi` for compact TOON output covering supported providers' quota windows.
 2. Scope to one provider with `--provider claude` or to a subset with `--provider cursor,copilot,grok,kimi`.
-3. Pass `--json` for the normalized machine-readable model instead of TOON.
+3. Pass `--json` for the normalized machine-readable model instead of TOON. Read
+   `quotaSemantics.effectiveAvailability` rather than treating a model window in isolation:
+   account windows can bound every model, and `boundedBy` names every window included in the
+   effective percentage. If relationship status is `partial` or `unknown`, do not infer one.
 4. Pass `--full` to include account identity and per-source attempt details.
 5. Run `npx -y quota-axi auth` to check local auth-source availability without printing
    secret values.

@@ -34,6 +34,34 @@ export function renderQuotaToon(
       state: provider.state.status,
     })),
   );
+  const effective = response.providers.flatMap((provider) => {
+    const semantics = provider.quotaSemantics;
+    if (!semantics || semantics.effectiveAvailability.length === 0) {
+      return [
+        {
+          provider: provider.provider,
+          scope: "unresolved",
+          effectivePercentRemaining: "unknown",
+          boundedBy: "none",
+          limitingWindowIds: "unknown",
+          unresolvedWindowIds:
+            semantics?.unresolvedWindowIds?.join(" + ") ?? "none",
+          relationshipStatus: semantics?.status ?? "unknown",
+        },
+      ];
+    }
+    return semantics.effectiveAvailability.map((availability) => ({
+      provider: provider.provider,
+      scope: availability.scope,
+      effectivePercentRemaining:
+        availability.effectivePercentRemaining ?? "unknown",
+      boundedBy: availability.boundedBy.join(" + ") || "none",
+      limitingWindowIds:
+        availability.limitingWindowIds?.join(" + ") ?? "unknown",
+      unresolvedWindowIds: semantics.unresolvedWindowIds?.join(" + ") ?? "none",
+      relationshipStatus: semantics.status,
+    }));
+  });
   const blocks = [
     encode({
       bin: collapseHome(binPath),
@@ -43,6 +71,7 @@ export function renderQuotaToon(
     }),
     encode({ providers }),
     encode({ windows }),
+    encode({ effective }),
   ];
   const advice = response.providers
     .filter((provider) => provider.state.reason && provider.state.remedyCommand)

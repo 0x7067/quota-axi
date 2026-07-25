@@ -46,6 +46,21 @@ export type QuotaWindow = {
   limitUsd?: number;
 };
 
+export type EffectiveAvailability = {
+  scope: string;
+  status: "known" | "unknown";
+  effectivePercentRemaining?: number;
+  boundedBy: string[];
+  limitingWindowIds?: string[];
+};
+
+export type QuotaSemantics = {
+  status: "known" | "partial" | "unknown";
+  description: string;
+  effectiveAvailability: EffectiveAvailability[];
+  unresolvedWindowIds?: string[];
+};
+
 export type SourceAttempt = {
   source: string;
   status: "success" | "failed" | "skipped";
@@ -65,6 +80,7 @@ export type ProviderQuota = {
     identityStatus?: "verified" | "unverified";
   };
   windows: QuotaWindow[];
+  quotaSemantics?: QuotaSemantics;
   credits?: {
     remaining?: number;
     unlimited?: boolean;
