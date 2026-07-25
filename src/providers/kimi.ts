@@ -672,9 +672,7 @@ export function normalizeKimiPayload(payload: unknown): NormalizedKimiPayload {
     diagnostics.push({ code: "limits_missing" });
     return { windows, diagnostics };
   }
-  if (
-    !Array.isArray(limitsValue)
-  ) {
+  if (!Array.isArray(limitsValue)) {
     diagnostics.push({ code: "limits_invalid" });
     return { windows, diagnostics };
   }

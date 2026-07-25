@@ -69,12 +69,21 @@ function codexSemantics(windows: QuotaWindow[]): QuotaSemantics {
       id.startsWith("code_review_weekly") ||
       id.startsWith("code_review_window:"),
   );
+  const modelWindows = windows.filter(({ kind }) => kind === "model");
   const models = new Map<string, QuotaWindow[]>();
-  for (const window of windows.filter(({ kind }) => kind === "model")) {
+  for (const window of modelWindows) {
     const scope = codexModelScope(window.id);
     const scoped = models.get(scope) ?? [];
     scoped.push(window);
     models.set(scope, scoped);
+  }
+  const recognized = new Set([...account, ...codeReview, ...modelWindows]);
+  const unresolved = windows.filter((window) => !recognized.has(window));
+  if (unresolved.length > 0) {
+    return partialSemantics(
+      unresolved,
+      "Codex base account windows bound every model and named model windows add model-specific bounds, but unfamiliar windows prevent a definitive effective percentage.",
+    );
   }
 
   const effectiveAvailability: EffectiveAvailability[] = [];
@@ -129,10 +138,7 @@ function kimiSemantics(
     ({ id }) => id !== "weekly" && id !== "five_hour",
   );
   const unresolvedWindowIds = [
-    ...new Set([
-      ...unresolved.map(({ id }) => id),
-      ...untrustedWindowIds,
-    ]),
+    ...new Set([...unresolved.map(({ id }) => id), ...untrustedWindowIds]),
   ];
   if (unresolvedWindowIds.length > 0) {
     const recognized = windows.filter(

@@ -126,10 +126,7 @@ describe("Kimi request transport", () => {
       ),
     }).fetchQuota(OPTIONS);
 
-    expect(report.windows.map(({ id }) => id)).toEqual([
-      "weekly",
-      "five_hour",
-    ]);
+    expect(report.windows.map(({ id }) => id)).toEqual(["weekly", "five_hour"]);
     expect(report.state.untrustedWindowIds).toEqual(["limit:2"]);
   });
 

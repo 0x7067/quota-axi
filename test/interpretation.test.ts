@@ -86,6 +86,21 @@ describe("quota semantics", () => {
     });
   });
 
+  it("marks unfamiliar Codex windows partial instead of ignoring them", () => {
+    const result = withQuotaSemantics(
+      provider("codex", [
+        window("weekly", "weekly", 38),
+        window("future_monthly", "monthly", 10),
+      ]),
+    );
+
+    expect(result.quotaSemantics).toMatchObject({
+      status: "partial",
+      effectiveAvailability: [],
+      unresolvedWindowIds: ["future_monthly"],
+    });
+  });
+
   it("computes all-model Kimi headroom from both account windows", () => {
     const result = withQuotaSemantics(
       provider("kimi", [

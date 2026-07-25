@@ -274,16 +274,17 @@ Claude `identityStatus` is `verified` only when Anthropic returns an authoritati
 
 ### Provider `state`
 
-| Field           | Description                          |
-| --------------- | ------------------------------------ |
-| `status`        | Provider status                      |
-| `stale`         | Whether the provider report is stale |
-| `sourcesTried`  | Sources tried for the provider       |
-| `refreshedAt`   | Optional refresh timestamp           |
-| `error`         | Optional error                       |
-| `retryAfter`    | Optional retry-after state           |
-| `reason`        | Optional reason                      |
-| `remedyCommand` | Optional remedy command              |
+| Field                | Description                                                              |
+| -------------------- | ------------------------------------------------------------------------ |
+| `status`             | Provider status                                                          |
+| `stale`              | Whether the provider report is stale                                     |
+| `sourcesTried`       | Sources tried for the provider                                           |
+| `refreshedAt`        | Optional refresh timestamp                                               |
+| `error`              | Optional error                                                           |
+| `retryAfter`         | Optional retry-after state                                               |
+| `reason`             | Optional reason                                                          |
+| `remedyCommand`      | Optional remedy command                                                  |
+| `untrustedWindowIds` | Optional identifiers for limits that could not be parsed authoritatively |
 
 When stale or unavailable quota is likely fixable by a one-time macOS Keychain grant, `state.reason` is `keychain_access_required`, `state.remedyCommand` is `quota-axi --allow-keychain-prompt`, and JSON includes an agent-directed `help` entry.
 Default TOON output includes the same condition in an `advice` block with `provider`, `reason`, and `remedyCommand`, plus the agent-directed help line.
@@ -299,7 +300,7 @@ Do not interpret a model window's percentage in isolation. `quotaSemantics.effec
 
 A model-specific `scope` names the model window or the shared model prefix when multiple period windows describe one Codex model.
 
-`quotaSemantics.status` is `known` only when quota-axi understands the relationships needed for the reported scopes. `partial` or `unknown` omits any non-definitive effective percentage and names `unresolvedWindowIds`, so unfamiliar vendor windows degrade to an explicit unknown instead of a plausible but unsafe answer.
+`quotaSemantics.status` is `known` only when quota-axi understands the relationships needed for the reported scopes. A non-definitive availability entry omits `effectivePercentRemaining`. Unfamiliar vendor windows produce `partial` or `unknown` semantics and are named in `unresolvedWindowIds`; an empty provider report is `unknown` without inventing an unresolved window.
 
 ### Quota enums
 

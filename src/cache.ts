@@ -171,8 +171,7 @@ function normalizeCachedProvider(raw: unknown): ProviderQuota | undefined {
   const credits = normalizeCachedCredits(data.credits);
   if (plan) result.plan = plan;
   if (refreshedAt) result.state.refreshedAt = refreshedAt;
-  if (untrustedWindowIds)
-    result.state.untrustedWindowIds = untrustedWindowIds;
+  if (untrustedWindowIds) result.state.untrustedWindowIds = untrustedWindowIds;
   if (credits) result.credits = credits;
   return result;
 }
