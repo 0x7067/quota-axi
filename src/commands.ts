@@ -1,6 +1,7 @@
 import { annotateQuotaAdvice } from "./advice.js";
 import { parseFlags } from "./args.js";
 import { writeCachedProviders } from "./cache.js";
+import { withQuotaSemantics } from "./interpretation.js";
 import { nowIso } from "./lib/time.js";
 import { PROVIDERS } from "./providers/index.js";
 import { redactedResponse, renderAuthToon, renderQuotaToon } from "./render.js";
@@ -63,9 +64,11 @@ async function fetchQuota(
   providers: ProviderId[],
   options: ProviderOptions,
 ): Promise<QuotaAxiResponse> {
-  const results = await Promise.all(
-    providers.map((provider) => PROVIDERS[provider].fetchQuota(options)),
-  );
+  const results = (
+    await Promise.all(
+      providers.map((provider) => PROVIDERS[provider].fetchQuota(options)),
+    )
+  ).map(withQuotaSemantics);
   return annotateQuotaAdvice({
     generatedAt: nowIso(),
     providers: results,

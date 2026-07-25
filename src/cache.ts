@@ -122,6 +122,7 @@ function toCacheProvider(provider: ProviderQuota): ProviderQuota | undefined {
       status: provider.state.status,
       stale: false,
       refreshedAt: provider.state.refreshedAt,
+      untrustedWindowIds: provider.state.untrustedWindowIds,
       sourcesTried: provider.state.sourcesTried,
     },
   });
@@ -166,9 +167,11 @@ function normalizeCachedProvider(raw: unknown): ProviderQuota | undefined {
   };
   const plan = stringValue(data.plan);
   const refreshedAt = stringValue(state.refreshedAt);
+  const untrustedWindowIds = stringArrayValue(state.untrustedWindowIds);
   const credits = normalizeCachedCredits(data.credits);
   if (plan) result.plan = plan;
   if (refreshedAt) result.state.refreshedAt = refreshedAt;
+  if (untrustedWindowIds) result.state.untrustedWindowIds = untrustedWindowIds;
   if (credits) result.credits = credits;
   return result;
 }
