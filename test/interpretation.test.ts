@@ -105,6 +105,27 @@ describe("quota semantics", () => {
     ]);
   });
 
+  it("keeps valid Kimi bounds while marking unparsed limits partial", () => {
+    const kimi = provider("kimi", [window("weekly", "weekly", 59)]);
+    kimi.state.untrustedWindowIds = ["limit:2"];
+
+    const result = withQuotaSemantics(kimi);
+
+    expect(result.quotaSemantics).toEqual({
+      status: "partial",
+      description:
+        "Kimi's valid weekly and five-hour account windows are known bounds, but unrecognized or unparsed limits may add bounds, so effective remaining is unknown.",
+      effectiveAvailability: [
+        {
+          scope: "all_models",
+          status: "unknown",
+          boundedBy: ["weekly"],
+        },
+      ],
+      unresolvedWindowIds: ["limit:2"],
+    });
+  });
+
   it("applies Grok shared credits to product windows", () => {
     const result = withQuotaSemantics(
       provider("grok", [
@@ -140,7 +161,13 @@ describe("quota semantics", () => {
     );
     expect(kimi.quotaSemantics).toMatchObject({
       status: "partial",
-      effectiveAvailability: [],
+      effectiveAvailability: [
+        {
+          scope: "all_models",
+          status: "unknown",
+          boundedBy: ["weekly"],
+        },
+      ],
       unresolvedWindowIds: ["limit:2"],
     });
   });

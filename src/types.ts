@@ -94,6 +94,7 @@ export type ProviderQuota = {
     retryAfter?: string;
     reason?: ProviderStateReason;
     remedyCommand?: string;
+    untrustedWindowIds?: string[];
     sourcesTried: string[];
   };
   attempts?: SourceAttempt[];

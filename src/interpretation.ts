@@ -18,7 +18,10 @@ function semanticsFor(provider: ProviderQuota): QuotaSemantics {
     case "grok":
       return grokSemantics(provider.windows);
     case "kimi":
-      return kimiSemantics(provider.windows);
+      return kimiSemantics(
+        provider.windows,
+        provider.state.untrustedWindowIds ?? [],
+      );
     case "cursor":
     case "copilot":
       return unknownSemantics(
@@ -118,15 +121,39 @@ function grokSemantics(windows: QuotaWindow[]): QuotaSemantics {
   );
 }
 
-function kimiSemantics(windows: QuotaWindow[]): QuotaSemantics {
+function kimiSemantics(
+  windows: QuotaWindow[],
+  untrustedWindowIds: string[],
+): QuotaSemantics {
   const unresolved = windows.filter(
     ({ id }) => id !== "weekly" && id !== "five_hour",
   );
-  if (unresolved.length > 0) {
-    return partialSemantics(
-      unresolved,
-      "Kimi's weekly and five-hour account windows jointly bound model use, but unfamiliar limits do not expose enough scope information for a definitive effective percentage.",
+  const unresolvedWindowIds = [
+    ...new Set([
+      ...unresolved.map(({ id }) => id),
+      ...untrustedWindowIds,
+    ]),
+  ];
+  if (unresolvedWindowIds.length > 0) {
+    const recognized = windows.filter(
+      ({ id }) => id === "weekly" || id === "five_hour",
     );
+    return {
+      status: "partial",
+      description:
+        "Kimi's valid weekly and five-hour account windows are known bounds, but unrecognized or unparsed limits may add bounds, so effective remaining is unknown.",
+      effectiveAvailability:
+        recognized.length > 0
+          ? [
+              {
+                scope: "all_models",
+                status: "unknown",
+                boundedBy: recognized.map(({ id }) => id),
+              },
+            ]
+          : [],
+      unresolvedWindowIds,
+    };
   }
   const effectiveAvailability =
     windows.length > 0 ? [availability("all_models", windows)] : [];
