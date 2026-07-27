@@ -6,7 +6,31 @@ import type {
 } from "./types.js";
 
 export function withQuotaSemantics(provider: ProviderQuota): ProviderQuota {
-  return { ...provider, quotaSemantics: semanticsFor(provider) };
+  const semantics = semanticsFor(provider);
+  return {
+    ...provider,
+    quotaSemantics: provider.state.stale
+      ? staleSemantics(semantics)
+      : semantics,
+  };
+}
+
+function staleSemantics(semantics: QuotaSemantics): QuotaSemantics {
+  return {
+    status: semantics.status === "partial" ? "partial" : "unknown",
+    description:
+      "The raw quota windows are stale diagnostic data, so effective remaining is unknown until the provider refreshes successfully.",
+    effectiveAvailability: semantics.effectiveAvailability.map(
+      ({ scope, boundedBy }) => ({
+        scope,
+        status: "unknown",
+        boundedBy,
+      }),
+    ),
+    ...(semantics.unresolvedWindowIds
+      ? { unresolvedWindowIds: semantics.unresolvedWindowIds }
+      : {}),
+  };
 }
 
 function semanticsFor(provider: ProviderQuota): QuotaSemantics {

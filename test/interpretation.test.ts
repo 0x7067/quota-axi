@@ -30,6 +30,38 @@ function window(
 }
 
 describe("quota semantics", () => {
+  it("keeps every stale provider's effective availability unknown", () => {
+    const cases: Array<[ProviderQuota["provider"], QuotaWindow[]]> = [
+      ["claude", [window("five_hour", "session", 66)]],
+      ["codex", [window("weekly", "weekly", 38)]],
+      ["grok", [window("credits", "credits", 44)]],
+      ["kimi", [window("weekly", "weekly", 59)]],
+      ["cursor", [window("included_usage", "monthly", 72)]],
+      ["copilot", [window("premium_interactions", "monthly", 81)]],
+    ];
+
+    for (const [providerId, windows] of cases) {
+      const stale = provider(providerId, windows);
+      stale.state = {
+        status: "stale",
+        stale: true,
+        refreshedAt: "2026-07-06T18:10:00Z",
+        sourcesTried: ["api", "cache"],
+      };
+
+      const semantics = withQuotaSemantics(stale).quotaSemantics;
+      expect(semantics?.status, providerId).not.toBe("known");
+      expect(
+        semantics?.effectiveAvailability.every(
+          (availability) =>
+            availability.status === "unknown" &&
+            availability.effectivePercentRemaining === undefined,
+        ),
+        providerId,
+      ).toBe(true);
+    }
+  });
+
   it("reports a model's effective headroom from its bounding account and model windows", () => {
     const result = withQuotaSemantics(
       provider("claude", [

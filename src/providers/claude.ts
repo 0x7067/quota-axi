@@ -2,7 +2,7 @@ import { chmodSync, existsSync, renameSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { readCachedProvider } from "../cache.js";
+import { deleteCachedProvider, readCachedProvider } from "../cache.js";
 import {
   claudeKeychainAccessMarkerPath,
   ensurePrivateParent,
@@ -17,13 +17,13 @@ import type {
   ProviderAdapter,
   ProviderOptions,
   ProviderQuota,
+  ProviderStatus,
   QuotaWindow,
   SourceAttempt,
 } from "../types.js";
 import {
   failedProvider,
   sourceNames,
-  staleFromCache,
   statusFromError,
   successProvider,
   withRemaining,
@@ -38,6 +38,8 @@ const KEYCHAIN_PROMPT_TIMEOUT_MS = 60_000;
 const KEYCHAIN_PRESENCE_TIMEOUT_MS = 5_000;
 const KEYCHAIN_ITEM_NOT_FOUND_EXIT_CODE = 44;
 const DEFAULT_KEYCHAIN_SERVICE = "Claude Code-credentials";
+const FIVE_HOURS_MS = 5 * 60 * 60 * 1_000;
+const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1_000;
 
 type ClaudeCredentials = {
   source: "oauth-file" | "keychain";
@@ -50,13 +52,19 @@ type AvailableCredentialState = {
   status: "available";
   credentials: ClaudeCredentials;
 };
+type AdvisoryExpiredCredentialState = {
+  status: "expired";
+  credentials: ClaudeCredentials;
+  source: AuthSourceReport;
+};
 type UnavailableCredentialState = {
-  status: "missing" | "invalid" | "expired";
+  status: "missing" | "invalid";
   source: AuthSourceReport;
 };
 type SkippedCredentialState = { status: "skipped"; source: AuthSourceReport };
 type CredentialState =
   | AvailableCredentialState
+  | AdvisoryExpiredCredentialState
   | UnavailableCredentialState
   | SkippedCredentialState;
 type KeychainItemPresence = "present" | "missing" | "unknown";
@@ -84,6 +92,13 @@ type ExtraUsageWindow = RawUsageWindow & {
   decimal_places?: unknown;
 };
 
+type ClaudeFailureOptions = {
+  status?: ProviderStatus;
+  definitiveAuth?: boolean;
+  staleEligible?: boolean;
+  retryAfter?: string;
+};
+
 // A scoped-limit entry as returned in the `limits` array of the OAuth usage
 // response. Unlike the fixed top-level fields (five_hour, seven_day, ...),
 // this array self-describes every limit the account currently has, including
@@ -107,14 +122,14 @@ export async function fetchQuota(
   options: ProviderOptions,
 ): Promise<ProviderQuota> {
   const attempts: SourceAttempt[] = [];
-  let finalError = "Claude quota unavailable";
-  let retryAfter: string | undefined;
 
   const credentialStates = await readCredentialStates(options);
   const credentials = credentialStates
     .filter(
-      (state): state is AvailableCredentialState =>
-        state.status === "available",
+      (
+        state,
+      ): state is AvailableCredentialState | AdvisoryExpiredCredentialState =>
+        state.status === "available" || state.status === "expired",
     )
     .map((state) => state.credentials)
     .sort((a, b) => {
@@ -126,7 +141,7 @@ export async function fetchQuota(
     });
 
   for (const state of credentialStates) {
-    if (state.status === "available") continue;
+    if (state.status === "available" || state.status === "expired") continue;
     if (state.status === "skipped") {
       const attempt: SourceAttempt = {
         source: state.source.source,
@@ -135,8 +150,6 @@ export async function fetchQuota(
       };
       if (state.source.credentialPresent) attempt.credentialPresent = true;
       attempts.push(attempt);
-      if (finalError === "Claude quota unavailable")
-        finalError = state.source.error ?? finalError;
       continue;
     }
     attempts.push({
@@ -144,8 +157,10 @@ export async function fetchQuota(
       status: "skipped",
       error: `credentials_${state.status}`,
     });
-    finalError = "Claude sign-in required";
   }
+
+  let definitiveFailure: ClaudeFailure | undefined;
+  let transientFailure: ClaudeFailure | undefined;
 
   if (credentials.length > 0) {
     for (const credential of credentials) {
@@ -174,35 +189,143 @@ export async function fetchQuota(
           attempts,
         });
       } catch (error) {
-        const message = errorMessage(error);
+        const failure = claudeFailureFor(error);
         attempts[attempts.length - 1] = {
           source: "oauth",
           status: "failed",
-          error: message,
+          error: failure.code,
         };
-        finalError = message;
-        if (error instanceof RateLimitError) retryAfter = error.retryAfter;
-        if (message === "Claude sign-in required") {
-          continue;
-        }
+        if (failure.definitiveAuth) definitiveFailure ??= failure;
+        else transientFailure = failure;
       }
+    }
+  } else {
+    const skipped = credentialStates.find(
+      (state): state is SkippedCredentialState => state.status === "skipped",
+    );
+    if (skipped) {
+      transientFailure = new ClaudeFailure(
+        skipped.source.error ?? "Claude quota unavailable",
+        { staleEligible: true },
+      );
+    } else {
+      const invalid = credentialStates.some(
+        (state) => state.status === "invalid",
+      );
+      definitiveFailure = new ClaudeFailure(
+        invalid ? "credentials_invalid" : "credentials_missing",
+        { status: "auth_required", definitiveAuth: true },
+      );
     }
   }
 
-  const cached = readCachedProvider("claude");
-  if (cached) {
-    return staleFromCache(cached, finalError, sourceNames(attempts), attempts);
+  return failureReport(
+    definitiveFailure ??
+      transientFailure ??
+      new ClaudeFailure("Claude quota unavailable", { staleEligible: true }),
+    attempts,
+  );
+}
+
+function failureReport(
+  failure: ClaudeFailure,
+  attempts: SourceAttempt[],
+): ProviderQuota {
+  if (failure.definitiveAuth) {
+    try {
+      deleteCachedProvider("claude");
+    } catch {
+      // Current authentication remains definitive when cache I/O is blocked.
+    }
+  }
+
+  if (failure.staleEligible) {
+    try {
+      const cached = readCachedProvider("claude");
+      const stale = cached
+        ? staleClaudeReport(cached, failure, attempts, Date.now())
+        : undefined;
+      if (stale) return stale;
+    } catch {
+      // Cache I/O cannot replace the current bounded provider failure.
+    }
   }
 
   return failedProvider({
     provider: "claude",
     label: "Claude",
-    status: retryAfter ? "rate_limited" : statusFromError(finalError),
-    error: finalError,
-    retryAfter,
+    status: failure.status,
+    error: failure.code,
+    retryAfter: failure.retryAfter,
     sourcesTried: sourceNames(attempts),
     attempts,
   });
+}
+
+function staleClaudeReport(
+  cached: ProviderQuota,
+  failure: ClaudeFailure,
+  attempts: SourceAttempt[],
+  now: number,
+): ProviderQuota | undefined {
+  if (
+    cached.provider !== "claude" ||
+    cached.source !== "oauth" ||
+    cached.state.status !== "fresh" ||
+    !cached.state.refreshedAt
+  ) {
+    return undefined;
+  }
+  const refreshedAt = Date.parse(cached.state.refreshedAt);
+  if (!Number.isFinite(refreshedAt) || refreshedAt > now) return undefined;
+  const ageMilliseconds = now - refreshedAt;
+  if (ageMilliseconds >= SEVEN_DAYS_MS) return undefined;
+
+  const windows = cached.windows.filter((window) => {
+    if (window.resetsAt !== undefined) {
+      const resetsAt = Date.parse(window.resetsAt);
+      return Number.isFinite(resetsAt) && resetsAt > now;
+    }
+    const maxAge = resetlessWindowMaxAge(window);
+    return maxAge !== undefined && ageMilliseconds < maxAge;
+  });
+  if (windows.length === 0) return undefined;
+
+  return {
+    provider: "claude",
+    label: "Claude",
+    source: "cache",
+    ...(cached.plan ? { plan: cached.plan } : {}),
+    windows,
+    state: {
+      status: "stale",
+      stale: true,
+      refreshedAt: cached.state.refreshedAt,
+      error: failure.code,
+      ...(failure.retryAfter ? { retryAfter: failure.retryAfter } : {}),
+      sourcesTried: [...new Set([...sourceNames(attempts), "cache"])],
+    },
+    attempts,
+  };
+}
+
+function resetlessWindowMaxAge(window: QuotaWindow): number | undefined {
+  if (window.kind === "weekly" || window.kind === "model") {
+    return SEVEN_DAYS_MS;
+  }
+  if (
+    window.kind === "session" ||
+    window.kind === "monthly" ||
+    window.kind === "credits"
+  ) {
+    return FIVE_HOURS_MS;
+  }
+  return undefined;
+}
+
+function claudeFailureFor(error: unknown): ClaudeFailure {
+  if (error instanceof ClaudeFailure) return error;
+  return new ClaudeFailure(errorMessage(error), { staleEligible: true });
 }
 
 export async function inspectAuth(
@@ -569,13 +692,19 @@ function extractCredentialState(
   if (!accessToken)
     return { status: "invalid", source: { source, path, status: "invalid" } };
   const expiresAt = expiresAtMillis(oauth.expiresAt);
-  if (expiresAt !== undefined && expiresAt <= Date.now())
-    return { status: "expired", source: { source, path, status: "expired" } };
   const plan =
     stringValue(oauth.subscriptionType) ?? stringValue(data.subscriptionType);
+  const credentials = { source, accessToken, plan, expiresAt };
+  if (expiresAt !== undefined && expiresAt <= Date.now()) {
+    return {
+      status: "expired",
+      credentials,
+      source: { source, path, status: "expired" },
+    };
+  }
   return {
     status: "available",
-    credentials: { source, accessToken, plan, expiresAt },
+    credentials,
   };
 }
 
@@ -665,15 +794,22 @@ function unverifiedClaudeIdentity(error: string): ClaudeIdentityResult {
 // delay in seconds or an HTTP-date).
 function rejectUnusableUsageResponse(response: Response): void {
   if (response.status === 401 || response.status === 403) {
-    throw new Error("Claude sign-in required");
+    throw new ClaudeFailure("Claude sign-in required", {
+      status: "auth_required",
+      definitiveAuth: true,
+    });
   }
   if (response.status === 429) {
-    throw new RateLimitError(
-      retryAfterToIso(response.headers.get("retry-after")),
-    );
+    throw new ClaudeFailure("Claude quota endpoint rate limited", {
+      status: "rate_limited",
+      staleEligible: true,
+      retryAfter: retryAfterToIso(response.headers.get("retry-after")),
+    });
   }
   if (!response.ok) {
-    throw new Error(`Claude quota unavailable (${response.status})`);
+    throw new ClaudeFailure(`Claude quota unavailable (${response.status})`, {
+      staleEligible: true,
+    });
   }
 }
 
@@ -755,8 +891,21 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Claude quota unavailable";
 }
 
-class RateLimitError extends Error {
-  constructor(readonly retryAfter: string | undefined) {
-    super("Claude quota endpoint rate limited");
+class ClaudeFailure extends Error {
+  readonly status: ProviderStatus;
+  readonly definitiveAuth: boolean;
+  readonly staleEligible: boolean;
+  readonly retryAfter: string | undefined;
+
+  constructor(
+    readonly code: string,
+    options: ClaudeFailureOptions = {},
+  ) {
+    super(code);
+    this.name = "ClaudeFailure";
+    this.status = options.status ?? statusFromError(code);
+    this.definitiveAuth = options.definitiveAuth ?? false;
+    this.staleEligible = options.staleEligible ?? false;
+    this.retryAfter = options.retryAfter;
   }
 }

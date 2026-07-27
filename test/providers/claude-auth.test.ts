@@ -9,6 +9,7 @@ import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { ProviderQuota } from "../../src/types.js";
 
 const originalHome = process.env.HOME;
 const originalUserProfile = process.env.USERPROFILE;
@@ -37,6 +38,7 @@ afterEach(() => {
   if (originalClaudeConfigDir === undefined)
     delete process.env.CLAUDE_CONFIG_DIR;
   else process.env.CLAUDE_CONFIG_DIR = originalClaudeConfigDir;
+  process.exitCode = undefined;
   if (tempDir) rmSync(tempDir, { recursive: true, force: true });
   tempDir = undefined;
 });
@@ -213,7 +215,7 @@ describe("Claude credential-state reporting", () => {
     });
   });
 
-  it("surfaces expired file credentials as a skipped attempt and auth_required", async () => {
+  it("treats expiry metadata as advisory and lets a 401 decide authentication", async () => {
     const home = useTempHome();
     mkdirSync(join(home, ".claude"), { recursive: true });
     writeFileSync(
@@ -222,22 +224,26 @@ describe("Claude credential-state reporting", () => {
         claudeAiOauth: { accessToken: "expired-token", expiresAt: 0 },
       }),
     );
+    const fetchMock = vi.fn(async () => new Response(null, { status: 401 }));
+    vi.stubGlobal("fetch", fetchMock);
 
-    const { fetchQuota } = await import("../../src/providers/claude.js");
+    const { fetchQuota, inspectAuth } =
+      await import("../../src/providers/claude.js");
+    const auth = await inspectAuth({ allowKeychainPrompt: false });
     const result = await fetchQuota({ allowKeychainPrompt: false });
 
+    expect(auth.sources[0]).toMatchObject({ status: "expired" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(result.state.status).toBe("auth_required");
     expect(result.state.error).toBe("Claude sign-in required");
     expect(result.attempts).toContainEqual({
-      source: "oauth-file",
-      status: "skipped",
-      error: "credentials_expired",
+      source: "oauth",
+      status: "failed",
+      error: "Claude sign-in required",
     });
   });
 
-  it("surfaces expired ISO-string file credentials without probing usage", async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date("2040-01-01T00:00:00.000Z"));
+  it("returns fresh quota when an advisory-expired file token still succeeds", async () => {
     const home = useTempHome();
     mkdirSync(join(home, ".claude"), { recursive: true });
     writeFileSync(
@@ -245,11 +251,16 @@ describe("Claude credential-state reporting", () => {
       JSON.stringify({
         claudeAiOauth: {
           accessToken: "expired-token",
-          expiresAt: "2035-01-01T00:00:00.000Z",
+          expiresAt: "2000-01-01T00:00:00.000Z",
         },
       }),
     );
-    const fetchMock = vi.fn(async () => new Response(null, { status: 401 }));
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ five_hour: { utilization: 12 } }), {
+          status: 200,
+        }),
+    );
     vi.stubGlobal("fetch", fetchMock);
 
     const { fetchQuota, inspectAuth } =
@@ -262,12 +273,273 @@ describe("Claude credential-state reporting", () => {
       path: join(home, ".claude", ".credentials.json"),
       status: "expired",
     });
-    expect(fetchMock).not.toHaveBeenCalled();
-    expect(result.state.status).toBe("auth_required");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(result.state.status).toBe("fresh");
+    expect(result.source).toBe("oauth");
     expect(result.attempts).toContainEqual({
-      source: "oauth-file",
-      status: "skipped",
-      error: "credentials_expired",
+      source: "oauth",
+      status: "success",
+    });
+  });
+
+  it("verifies advisory expiry and retires stale cache after a definitive 401 through the real CLI", async () => {
+    const home = useTempHome();
+    mkdirSync(join(home, ".claude"), { recursive: true });
+    writeFileSync(
+      join(home, ".claude", ".credentials.json"),
+      JSON.stringify({
+        claudeAiOauth: {
+          accessToken: "expired-token",
+          expiresAt: "2000-01-01T00:00:00.000Z",
+        },
+      }),
+    );
+    const fetchMock = vi.fn(async () => new Response(null, { status: 401 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { readCachedProvider, writeCachedProviders } =
+      await import("../../src/cache.js");
+    writeCachedProviders([cachedClaudeQuota(34)]);
+    const chunks: string[] = [];
+    const { main } = await import("../../src/cli.js");
+
+    await main({
+      argv: ["--provider", "claude", "--json", "--full"],
+      binPath: "quota-axi",
+      stdout: {
+        write(chunk) {
+          chunks.push(String(chunk));
+          return true;
+        },
+      },
+    });
+
+    const output = JSON.parse(chunks.join("")) as {
+      providers: Array<{
+        source: string;
+        windows: unknown[];
+        state: { status: string; stale: boolean; error?: string };
+        attempts?: Array<{ source: string; status: string; error?: string }>;
+      }>;
+    };
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(output.providers[0]).toMatchObject({
+      source: "unavailable",
+      windows: [],
+      state: {
+        status: "auth_required",
+        stale: false,
+        error: "Claude sign-in required",
+      },
+    });
+    expect(output.providers[0]?.attempts).toContainEqual({
+      source: "oauth",
+      status: "failed",
+      error: "Claude sign-in required",
+    });
+    expect(readCachedProvider("claude")).toBeUndefined();
+    expect(process.exitCode).toBe(1);
+  });
+
+  it.each([
+    ["missing", undefined, "credentials_missing"],
+    [
+      "invalid",
+      JSON.stringify({ claudeAiOauth: { expiresAt: "2035-01-01" } }),
+      "credentials_invalid",
+    ],
+  ])(
+    "retires stale cache for %s credentials without a usable token",
+    async (_label, credentialFile, expectedError) => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-07-06T20:00:00.000Z"));
+      const home = useTempHome();
+      if (credentialFile !== undefined) {
+        mkdirSync(join(home, ".claude"), { recursive: true });
+        writeFileSync(
+          join(home, ".claude", ".credentials.json"),
+          credentialFile,
+        );
+      }
+      const fetchMock = vi.fn();
+      vi.stubGlobal("fetch", fetchMock);
+      const { readCachedProvider, writeCachedProviders } =
+        await import("../../src/cache.js");
+      writeCachedProviders([cachedClaudeQuota(34)]);
+
+      const { fetchQuota } = await import("../../src/providers/claude.js");
+      const result = await fetchQuota({ allowKeychainPrompt: false });
+
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(result).toMatchObject({
+        source: "unavailable",
+        windows: [],
+        state: {
+          status: "auth_required",
+          stale: false,
+          error: expectedError,
+        },
+      });
+      expect(result.attempts).toContainEqual({
+        source: "oauth-file",
+        status: "skipped",
+        error: expectedError,
+      });
+      expect(readCachedProvider("claude")).toBeUndefined();
+    },
+  );
+
+  it.each([401, 403])(
+    "bypasses and retires stale cache after usage HTTP %i",
+    async (status) => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-07-06T20:00:00.000Z"));
+      const home = useTempHome();
+      writeClaudeCredential(home, {
+        accessToken: "future-token",
+        expiresAt: "2035-01-01T00:00:00.000Z",
+      });
+      const fetchMock = vi.fn(async () => new Response(null, { status }));
+      vi.stubGlobal("fetch", fetchMock);
+      const { readCachedProvider, writeCachedProviders } =
+        await import("../../src/cache.js");
+      writeCachedProviders([cachedClaudeQuota(34)]);
+
+      const { fetchQuota } = await import("../../src/providers/claude.js");
+      const result = await fetchQuota({ allowKeychainPrompt: false });
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(result).toMatchObject({
+        source: "unavailable",
+        windows: [],
+        state: {
+          status: "auth_required",
+          stale: false,
+          error: "Claude sign-in required",
+        },
+      });
+      expect(readCachedProvider("claude")).toBeUndefined();
+    },
+  );
+
+  it("uses an eligible bounded snapshot for timeout, network, 429, and 5xx failures", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-06T20:00:00.000Z"));
+    const home = useTempHome();
+    writeClaudeCredential(home, {
+      accessToken: "advisory-expired-token",
+      expiresAt: "2000-01-01T00:00:00.000Z",
+    });
+    const { writeCachedProviders } = await import("../../src/cache.js");
+    writeCachedProviders([cachedClaudeQuota(34)]);
+    const { fetchQuota } = await import("../../src/providers/claude.js");
+    const failures: Array<[string, () => Promise<Response>]> = [
+      [
+        "timeout",
+        async () => {
+          const error = new Error("aborted");
+          error.name = "AbortError";
+          throw error;
+        },
+      ],
+      [
+        "network",
+        async () => {
+          throw new TypeError("network unavailable");
+        },
+      ],
+      [
+        "429",
+        async () =>
+          new Response(null, {
+            status: 429,
+            headers: { "retry-after": "60" },
+          }),
+      ],
+      ["5xx", async () => new Response(null, { status: 503 })],
+    ];
+
+    for (const [label, failure] of failures) {
+      vi.stubGlobal("fetch", vi.fn(failure));
+      const result = await fetchQuota({ allowKeychainPrompt: false });
+
+      expect(result.source, label).toBe("cache");
+      expect(result.state.status, label).toBe("stale");
+      expect(
+        result.windows.map(({ id }) => id),
+        label,
+      ).toEqual(["five_hour"]);
+    }
+  });
+
+  it("prunes reset-expired windows while retaining an eligible active window", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-06T20:00:00.000Z"));
+    const home = useTempHome();
+    writeClaudeCredential(home, {
+      accessToken: "future-token",
+      expiresAt: "2035-01-01T00:00:00.000Z",
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new TypeError("network unavailable");
+      }),
+    );
+    const cached = cachedClaudeQuota(34);
+    cached.state.refreshedAt = "2026-07-06T19:00:00.000Z";
+    cached.windows = [
+      {
+        id: "five_hour",
+        label: "session",
+        kind: "session",
+        percentUsed: 34,
+        percentRemaining: 66,
+        resetsAt: "2026-07-06T19:30:00.000Z",
+      },
+      {
+        id: "seven_day",
+        label: "week",
+        kind: "weekly",
+        percentUsed: 20,
+        percentRemaining: 80,
+        resetsAt: "2026-07-10T20:00:00.000Z",
+      },
+    ];
+    const { writeCachedProviders } = await import("../../src/cache.js");
+    writeCachedProviders([cached]);
+
+    const { fetchQuota } = await import("../../src/providers/claude.js");
+    const result = await fetchQuota({ allowKeychainPrompt: false });
+
+    expect(result.source).toBe("cache");
+    expect(result.windows.map(({ id }) => id)).toEqual(["seven_day"]);
+  });
+
+  it("returns the transient failure when every resetless window is over age", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-07T01:00:00.000Z"));
+    const home = useTempHome();
+    writeClaudeCredential(home, {
+      accessToken: "future-token",
+      expiresAt: "2035-01-01T00:00:00.000Z",
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new TypeError("network unavailable");
+      }),
+    );
+    const { writeCachedProviders } = await import("../../src/cache.js");
+    writeCachedProviders([cachedClaudeQuota(34)]);
+
+    const { fetchQuota } = await import("../../src/providers/claude.js");
+    const result = await fetchQuota({ allowKeychainPrompt: false });
+
+    expect(result).toMatchObject({
+      source: "unavailable",
+      windows: [],
+      state: { status: "error", stale: false, error: "network unavailable" },
     });
   });
 
@@ -406,7 +678,7 @@ describe("Claude credential-state reporting", () => {
     const result = await fetchQuota({ allowKeychainPrompt: false });
 
     expect(result.state.status).toBe("auth_required");
-    expect(result.state.error).toBe("Claude sign-in required");
+    expect(result.state.error).toBe("credentials_missing");
     expect(result.attempts).toContainEqual({
       source: "oauth-file",
       status: "skipped",
@@ -499,6 +771,44 @@ describe("Claude credential-state reporting", () => {
           authorization: "Bearer fresh-keychain-token",
         }),
       }),
+    );
+  });
+
+  it("attempts read-only usage for a readable Keychain token with advisory expiry", async () => {
+    usePlatform("darwin");
+    useTempHome();
+    await writeKeychainAccessMarker();
+    const execFileText = vi.fn(async () =>
+      JSON.stringify({
+        claudeAiOauth: {
+          accessToken: "expired-keychain-token",
+          expiresAt: "2000-01-01T00:00:00.000Z",
+        },
+      }),
+    );
+    vi.doMock("../../src/lib/process.js", () => ({ execFileText }));
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ five_hour: { utilization: 12 } }), {
+          status: 200,
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { fetchQuota, inspectAuth } =
+      await import("../../src/providers/claude.js");
+    const auth = await inspectAuth({ allowKeychainPrompt: false });
+    const result = await fetchQuota({ allowKeychainPrompt: false });
+
+    expect(auth.sources).toContainEqual({
+      source: "keychain",
+      status: "expired",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(result.state.status).toBe("fresh");
+    expect(result.source).toBe("oauth");
+    expect(result.attempts).not.toContainEqual(
+      expect.objectContaining({ error: "keychain_prompt_required" }),
     );
   });
 
@@ -641,7 +951,18 @@ async function writeKeychainAccessMarker(): Promise<string> {
   return marker;
 }
 
-function cachedClaudeQuota(percentUsed: number) {
+function writeClaudeCredential(
+  home: string,
+  oauth: Record<string, unknown>,
+): void {
+  mkdirSync(join(home, ".claude"), { recursive: true });
+  writeFileSync(
+    join(home, ".claude", ".credentials.json"),
+    JSON.stringify({ claudeAiOauth: oauth }),
+  );
+}
+
+function cachedClaudeQuota(percentUsed: number): ProviderQuota {
   return {
     provider: "claude" as const,
     label: "Claude",
