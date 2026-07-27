@@ -26,7 +26,7 @@ It is data only: it never routes, recommends, proxies, intercepts, logs in, impo
 ## Quick Start
 
 **macOS + Claude note:** Claude Code keeps its live token in the macOS Keychain.
-quota-axi will not read that token unless the user grants permission, so Claude quota reads can stay stale until the user grants access after on-disk credentials expire.
+quota-axi will not read that token unless the user grants permission, so Claude quota reads can stay stale when no usable on-disk access token is available.
 Run `quota-axi --allow-keychain-prompt` once and approve Keychain access with "Always Allow".
 After a successful Keychain read, future non-interactive quota reads use that existing grant and refresh live Claude data without requiring the flag.
 
