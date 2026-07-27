@@ -236,6 +236,20 @@ describe("CLI quota rendering", () => {
     expect(claude?.state.remedyCommand).toBe(
       "quota-axi --allow-keychain-prompt",
     );
+    expect(claude?.quotaSemantics).toMatchObject({
+      status: "unknown",
+      effectiveAvailability: [
+        {
+          scope: "all_models",
+          status: "unknown",
+          boundedBy: ["five_hour"],
+        },
+      ],
+    });
+    expect(
+      claude?.quotaSemantics?.effectiveAvailability[0]
+        ?.effectivePercentRemaining,
+    ).toBeUndefined();
     expect(output.help).toContain(
       'Tell your user: run `quota-axi --allow-keychain-prompt` once and approve Keychain access ("Always Allow") so quota-axi can read claude\'s live quota.',
     );
@@ -321,7 +335,7 @@ describe("CLI quota rendering", () => {
         {
           source: "oauth-file",
           status: "skipped",
-          error: "credentials_expired",
+          error: "credentials_missing",
         },
         {
           source: "keychain",
@@ -594,14 +608,14 @@ function staleClaudeQuota(): ProviderQuota {
       status: "stale",
       stale: true,
       refreshedAt: "2026-07-06T18:10:00Z",
-      error: "Claude sign-in required",
+      error: "keychain_prompt_required",
       sourcesTried: ["oauth-file", "keychain", "cache"],
     },
     attempts: [
       {
         source: "oauth-file",
         status: "skipped",
-        error: "credentials_expired",
+        error: "credentials_missing",
       },
       {
         source: "keychain",

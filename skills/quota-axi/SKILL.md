@@ -34,6 +34,8 @@ or when comparing supported local provider headroom side by side.
    `quotaSemantics.effectiveAvailability` rather than treating a model window in isolation:
    account windows can bound every model, and `boundedBy` names every window included in the
    effective percentage. If relationship status is `partial` or `unknown`, do not infer one.
+   Stale reports keep raw windows for diagnostics, but effective availability is always unknown;
+   never route from a stale raw percentage as though it were current headroom.
 4. Pass `--full` to include account identity and per-source attempt details.
 5. Run `npx -y quota-axi auth` to check local auth-source availability without printing
    secret values.
@@ -83,4 +85,7 @@ examples:
   non-secret snapshots.
   Fresh provider reports with no windows clear stale provider snapshots instead of caching
   empty quota.
+  Claude local expiry metadata is advisory when an access token exists: the existing read-only
+  usage request decides validity. Missing or invalid credentials without a usable token and HTTP
+  401/403 retire Claude cache; only transient failures may use bounded, reset-pruned stale data.
   The Claude Keychain access marker lives alongside it and contains no credential values.

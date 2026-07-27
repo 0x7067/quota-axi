@@ -26,7 +26,7 @@ It is data only: it never routes, recommends, proxies, intercepts, logs in, impo
 ## Quick Start
 
 **macOS + Claude note:** Claude Code keeps its live token in the macOS Keychain.
-quota-axi will not read that token unless the user grants permission, so Claude quota reads can stay stale until the user grants access after on-disk credentials expire.
+quota-axi will not read that token unless the user grants permission, so Claude quota reads can stay stale when no usable on-disk access token is available.
 Run `quota-axi --allow-keychain-prompt` once and approve Keychain access with "Always Allow".
 After a successful Keychain read, future non-interactive quota reads use that existing grant and refresh live Claude data without requiring the flag.
 
@@ -289,6 +289,8 @@ Claude `identityStatus` is `verified` only when Anthropic returns an authoritati
 When stale or unavailable quota is likely fixable by a one-time macOS Keychain grant, `state.reason` is `keychain_access_required`, `state.remedyCommand` is `quota-axi --allow-keychain-prompt`, and JSON includes an agent-directed `help` entry.
 Default TOON output includes the same condition in an `advice` block with `provider`, `reason`, and `remedyCommand`, plus the agent-directed help line.
 
+Claude credential failures without a usable access token preserve the precise `credentials_missing` or `credentials_invalid` error. A usage response with HTTP 401/403 reports `Claude sign-in required`. These definitive failures return no windows and retire the Claude cache instead of masking current authentication state with stale quota.
+
 ### Quota windows
 
 | Field set | Fields                                                              |
@@ -301,6 +303,8 @@ Do not interpret a model window's percentage in isolation. `quotaSemantics.effec
 A model-specific `scope` names the model window or the shared model prefix when multiple period windows describe one Codex model.
 
 `quotaSemantics.status` is `known` only when quota-axi understands the relationships needed for the reported scopes. A non-definitive availability entry omits `effectivePercentRemaining`. Unfamiliar vendor windows produce `partial` or `unknown` semantics and are named in `unresolvedWindowIds`; an empty provider report is `unknown` without inventing an unresolved window.
+
+For every stale provider report, raw windows remain available for diagnostics but effective availability is always `unknown` and omits `effectivePercentRemaining` and `limitingWindowIds`. Routing agents must not treat a stale raw percentage as current headroom.
 
 ### Quota enums
 
@@ -363,6 +367,8 @@ Auth source entries can include `credentialPresent` when a non-secret probe conf
 - quota-axi records the non-secret access marker after any successful Keychain value read.
 - When that marker exists, plain calls read the Keychain value again so an already-approved "Always Allow" grant keeps live Claude quota fresh.
 - Without the flag or marker, quota-axi may perform a non-secret Keychain item presence check so it only suggests Keychain access when a Claude credential item exists.
+- When an access token exists, local `expiresAt` metadata is advisory. quota-axi sends that token only to Anthropic's existing read-only usage request; success returns fresh quota, while HTTP 401/403 is the definitive authentication result.
+- Missing or invalid credentials without a usable access token and usage HTTP 401/403 bypass and best-effort retire Claude cache. Timeout, network, rate-limit, server, and response-compatibility failures may use only a formerly fresh Claude snapshot less than seven days old. Reset-expired windows are removed; resetless session, monthly, and credit windows expire after five hours, resetless weekly and model windows expire after seven days, and resetless unknown windows are rejected.
 - After a successful usage read, quota-axi queries Anthropic's first-party OAuth profile endpoint with the same credential. Its authoritative root `account.uuid` is exposed as `account.accountId` only in `--full` output; if that field is absent, `identityStatus` is `unverified` instead of deriving an identity from email, organization data, or cached account metadata.
 
 **Codex**
@@ -415,6 +421,7 @@ Auth source entries can include `credentialPresent` when a non-secret probe conf
 | Cached reports                         | Only fresh provider snapshots with windows are cached.                                                                                                                                                                                        |
 | Fresh provider reports with no windows | Clear any cached snapshot for that provider, so entitlement-only reports do not leave stale quota windows behind.                                                                                                                             |
 | Reports and details not cached         | Failed providers, stale providers, account identity, and source attempts are not cached.                                                                                                                                                      |
+| Claude cache fallback                  | Definitive missing/invalid credential and HTTP 401/403 failures retire the snapshot. Only transient failures may use a formerly fresh snapshot, with a seven-day provider bound plus reset and resetless-window pruning.                      |
 | Codex cache identities                 | Cached Codex windows are accepted only when ID, label, kind, duration, and duplicate suffix order agree; stale snapshots with mismatched identities are rejected.                                                                             |
 | Grok cache provenance                  | Only snapshots produced by the current `web` consumer operation can be used as Grok stale fallback; legacy `api` billing-proxy snapshots are rejected.                                                                                        |
 
