@@ -48,11 +48,21 @@ export function cacheFilePath(): string {
   return join(cacheDirPath(), "quotas.json");
 }
 
-export function claudeKeychainAccessMarkerPath(configDir?: string): string {
-  const suffix = configDir
+export function claudeKeychainAccessMarkerPath(
+  account: string,
+  configDir?: string,
+): string {
+  const profileSuffix = configDir
     ? `-${createHash("sha256").update(configDir).digest("hex").slice(0, 8)}`
     : "";
-  return join(cacheDirPath(), `claude-keychain-access-granted${suffix}`);
+  const accountSuffix = createHash("sha256")
+    .update(account)
+    .digest("hex")
+    .slice(0, 16);
+  return join(
+    cacheDirPath(),
+    `claude-keychain-access-granted${profileSuffix}-account-${accountSuffix}`,
+  );
 }
 
 function cacheDirPath(): string {
