@@ -1,6 +1,6 @@
 import { chmodSync, existsSync, renameSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
-import { homedir } from "node:os";
+import { homedir, userInfo } from "node:os";
 import { join } from "node:path";
 import { deleteCachedProvider, readCachedProvider } from "../cache.js";
 import {
@@ -38,6 +38,8 @@ const KEYCHAIN_PROMPT_TIMEOUT_MS = 60_000;
 const KEYCHAIN_PRESENCE_TIMEOUT_MS = 5_000;
 const KEYCHAIN_ITEM_NOT_FOUND_EXIT_CODE = 44;
 const DEFAULT_KEYCHAIN_SERVICE = "Claude Code-credentials";
+const DEFAULT_KEYCHAIN_ACCOUNT = "claude-code-user";
+const SAFE_KEYCHAIN_ACCOUNT = /^[a-zA-Z0-9._-]+$/;
 const FIVE_HOURS_MS = 5 * 60 * 60 * 1_000;
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1_000;
 
@@ -75,6 +77,7 @@ type ClaudeIdentityResult = {
 };
 type ClaudeProfileLocations = {
   credentialFile: string;
+  keychainAccount: string;
   keychainService: string;
   keychainAccessMarker: string;
 };
@@ -164,10 +167,13 @@ export async function fetchQuota(
 
   if (credentials.length > 0) {
     for (const credential of credentials) {
-      attempts.push({ source: "oauth", status: "failed" });
+      attempts.push({ source: credential.source, status: "failed" });
       try {
         const quota = await fetchOauthUsage(credential);
-        attempts[attempts.length - 1] = { source: "oauth", status: "success" };
+        attempts[attempts.length - 1] = {
+          source: credential.source,
+          status: "success",
+        };
         attempts.push(
           quota.identityError
             ? {
@@ -191,7 +197,7 @@ export async function fetchQuota(
       } catch (error) {
         const failure = claudeFailureFor(error);
         attempts[attempts.length - 1] = {
-          source: "oauth",
+          source: credential.source,
           status: "failed",
           error: failure.code,
         };
@@ -539,7 +545,13 @@ async function readKeychainItemPresence(
   try {
     await execFileText(
       "security",
-      ["find-generic-password", "-s", locations.keychainService],
+      [
+        "find-generic-password",
+        "-a",
+        locations.keychainAccount,
+        "-s",
+        locations.keychainService,
+      ],
       KEYCHAIN_PRESENCE_TIMEOUT_MS,
     );
     return "present";
@@ -555,7 +567,14 @@ async function readKeychainCredentialState(
   try {
     blob = await execFileText(
       "security",
-      ["find-generic-password", "-s", locations.keychainService, "-w"],
+      [
+        "find-generic-password",
+        "-a",
+        locations.keychainAccount,
+        "-w",
+        "-s",
+        locations.keychainService,
+      ],
       KEYCHAIN_PROMPT_TIMEOUT_MS,
     );
   } catch (error) {
@@ -607,16 +626,35 @@ export function claudeKeychainService(): string {
   return resolveClaudeProfileLocations().keychainService;
 }
 
+export function claudeKeychainAccount(): string {
+  let candidate = process.env.USER;
+  if (!candidate) {
+    try {
+      candidate = userInfo().username;
+    } catch {
+      candidate = undefined;
+    }
+  }
+  return candidate && SAFE_KEYCHAIN_ACCOUNT.test(candidate)
+    ? candidate
+    : DEFAULT_KEYCHAIN_ACCOUNT;
+}
+
 function resolveClaudeProfileLocations(): ClaudeProfileLocations {
   const configuredDir = process.env.CLAUDE_CONFIG_DIR;
   const configDir = (configuredDir ?? join(homedir(), ".claude")).normalize(
     "NFC",
   );
   const keychainConfigDir = configuredDir ? configDir : undefined;
+  const keychainAccount = claudeKeychainAccount();
   return {
     credentialFile: join(configDir, ".credentials.json"),
+    keychainAccount,
     keychainService: keychainServiceForConfigDir(keychainConfigDir),
-    keychainAccessMarker: claudeKeychainAccessMarkerPath(keychainConfigDir),
+    keychainAccessMarker: claudeKeychainAccessMarkerPath(
+      keychainAccount,
+      keychainConfigDir,
+    ),
   };
 }
 

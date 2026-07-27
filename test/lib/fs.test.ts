@@ -56,14 +56,22 @@ describe("cache paths", () => {
     process.env.XDG_CACHE_HOME = "/tmp/quota-cache";
 
     expect(cacheFilePath()).toBe("/tmp/quota-cache/quota-axi/quotas.json");
-    expect(claudeKeychainAccessMarkerPath()).toBe(
-      "/tmp/quota-cache/quota-axi/claude-keychain-access-granted",
+    const defaultAlice = claudeKeychainAccessMarkerPath("alice");
+    const defaultBob = claudeKeychainAccessMarkerPath("bob");
+    const managedAlice = claudeKeychainAccessMarkerPath(
+      "alice",
+      "/tmp/claude-profile",
     );
-    expect(claudeKeychainAccessMarkerPath("/tmp/claude-profile")).toMatch(
-      /^\/tmp\/quota-cache\/quota-axi\/claude-keychain-access-granted-[0-9a-f]{8}$/,
+
+    expect(defaultAlice).toMatch(
+      /^\/tmp\/quota-cache\/quota-axi\/claude-keychain-access-granted-account-[0-9a-f]{16}$/,
     );
-    expect(claudeKeychainAccessMarkerPath("")).toBe(
-      "/tmp/quota-cache/quota-axi/claude-keychain-access-granted",
+    expect(managedAlice).toMatch(
+      /^\/tmp\/quota-cache\/quota-axi\/claude-keychain-access-granted-[0-9a-f]{8}-account-[0-9a-f]{16}$/,
     );
+    expect(claudeKeychainAccessMarkerPath("alice", "")).toBe(defaultAlice);
+    expect(defaultBob).not.toBe(defaultAlice);
+    expect(defaultAlice).not.toContain("alice");
+    expect(defaultBob).not.toContain("bob");
   });
 });

@@ -81,11 +81,13 @@ or when comparing supported local provider headroom side by side.
 4. Pass \`--full\` to include account identity and per-source attempt details.
 5. Run \`npx -y quota-axi auth\` to check local auth-source availability without printing
    secret values.
-6. On macOS, Claude Keychain value reads are skipped by default until the user grants access once.
+6. On macOS, Claude Keychain value reads are pinned to the same validated current-user account
+   Claude Code selects and are skipped by default until the user grants access once.
    If quota output reports \`reason: keychain_access_required\`, tell your user to run
    \`quota-axi --allow-keychain-prompt\` once and approve Keychain access ("Always Allow").
    After that successful grant, plain \`quota-axi\` calls reuse the existing Keychain access
-   marker to refresh live Claude quota without requiring the flag.
+   marker, scoped to both profile and account, to refresh live Claude quota without requiring
+   the flag. Legacy markers are not reused, so an upgrade may require this one-time grant again.
 7. For a managed Codex installation, set \`QUOTA_AXI_CODEX_BINARY\` to its absolute executable
    path. quota-axi uses that exact executable for auth inspection and the read-only app-server
    fallback, and fails closed if the override is invalid.
@@ -119,6 +121,7 @@ ${TOP_HELP.trimEnd()}
   Claude local expiry metadata is advisory when an access token exists: the existing read-only
   usage request decides validity. Missing or invalid credentials without a usable token and HTTP
   401/403 retire Claude cache; only transient failures may use bounded, reset-pruned stale data.
-  The Claude Keychain access marker lives alongside it and contains no credential values.
+  The Claude Keychain access marker lives alongside it, is scoped by hashed profile and
+  account hashes, and contains no credential values or raw account name.
 `;
 }
