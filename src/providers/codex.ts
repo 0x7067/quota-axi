@@ -446,10 +446,12 @@ function extractCredentialState(
       source: { source: "auth-json", path, status: "invalid" },
     };
 
+  // Access-token usability is authoritative for bearer API access. Identity
+  // token expiry alone is diagnostic metadata and must not skip OAuth.
   const idToken = stringValue(tokens.id_token) ?? stringValue(tokens.idToken);
   const idPayload = decodeJwtPayload(idToken);
   const accessPayload = decodeJwtPayload(accessToken);
-  if (isExpiredJwtPayload(idPayload) || isExpiredJwtPayload(accessPayload)) {
+  if (isExpiredJwtPayload(accessPayload)) {
     return {
       status: "expired",
       source: { source: "auth-json", path, status: "expired" },

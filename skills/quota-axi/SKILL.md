@@ -62,19 +62,26 @@ or when comparing supported local provider headroom side by side.
    After that successful grant, plain `quota-axi` calls reuse the existing Keychain access
    marker, scoped to both profile and account, to refresh live Claude quota without requiring
    the flag. Legacy markers are not reused, so an upgrade may require this one-time grant again.
-7. If Grok reports `reason: credentials_expired` (or `error: Grok access token expired`), the
-   local session is still signed in but the short-lived access token expired. Tell your user to
-   open the Grok CLI (`grok`) once so Grok can refresh its local session token. Do not treat that
-   as a full sign-out, and do not ask quota-axi to refresh credentials - it never launches Grok or
-   writes auth files. Reserve true sign-in recovery for `Grok sign-in required`.
+7. For Grok, read `state.authStatus` before any logout wording. `expired_refreshable` (also
+   exposed as `reason: credentials_expired` / `error: Grok access token expired`) means a local
+   session still looks signed in but short-lived access expired - tell your user to open the Grok
+   CLI (`grok`) once so Grok can refresh its CLI session token. Do not treat that as full
+   sign-out, and do not ask quota-axi to refresh credentials - it never launches Grok or Pi or
+   writes auth files. `authStatus: usable` with empty windows means model auth is present (Grok
+   CLI and/or Pi `xai`) while consumer credit windows are unknown - not logged out. Reserve true
+   sign-in recovery for `authStatus: unusable` / `Grok sign-in required`.
 8. For a managed Codex installation, set `QUOTA_AXI_CODEX_BINARY` to its absolute executable
    path. quota-axi uses that exact executable for auth inspection and the read-only app-server
-   fallback, and fails closed if the override is invalid.
+   fallback, and fails closed if the override is invalid. Codex OAuth availability follows the
+   access token, not id_token expiry alone.
 9. For Kimi, quota-axi prefers a literal Pi-managed `kimi-coding` API key from
    `$PI_CODING_AGENT_DIR/auth.json` (default `~/.pi/agent/auth.json`). If it is
    unavailable, quota-axi may reuse a fresh official Kimi Code CLI access token from
    `$KIMI_CODE_HOME/credentials/kimi-code.json` (default
    `$HOME/.kimi-code/credentials/kimi-code.json`) without refreshing or writing credentials.
+   Grok also reads that same Pi auth file for an independent `xai` OAuth or literal API-key
+   entry and treats Grok as usable when either the Grok CLI session or Pi `xai` credential is
+   valid.
 
 ## Usage
 

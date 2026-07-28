@@ -328,21 +328,23 @@ Claude `identityStatus` is `verified` only when Anthropic returns an authoritati
 
 ### Provider `state`
 
-| Field                | Description                                                              |
-| -------------------- | ------------------------------------------------------------------------ |
-| `status`             | Provider status                                                          |
-| `stale`              | Whether the provider report is stale                                     |
-| `sourcesTried`       | Sources tried for the provider                                           |
-| `refreshedAt`        | Optional refresh timestamp                                               |
-| `error`              | Optional error                                                           |
-| `retryAfter`         | Optional retry-after state                                               |
-| `reason`             | Optional reason                                                          |
-| `remedyCommand`      | Optional remedy command                                                  |
-| `untrustedWindowIds` | Optional identifiers for limits that could not be parsed authoritatively |
+| Field                | Description                                                                                                                                                 |
+| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `status`             | Provider status                                                                                                                                             |
+| `stale`              | Whether the provider report is stale                                                                                                                        |
+| `sourcesTried`       | Sources tried for the provider                                                                                                                              |
+| `refreshedAt`        | Optional refresh timestamp                                                                                                                                  |
+| `error`              | Optional error                                                                                                                                              |
+| `retryAfter`         | Optional retry-after state                                                                                                                                  |
+| `reason`             | Optional reason                                                                                                                                             |
+| `remedyCommand`      | Optional remedy command                                                                                                                                     |
+| `untrustedWindowIds` | Optional identifiers for limits that could not be parsed authoritatively                                                                                    |
+| `authStatus`         | Optional machine-readable local auth usability: `usable`, `expired_refreshable`, or `unusable`. Distinct from quota freshness and from human `error` prose. |
 
 When stale or unavailable quota is likely fixable by a one-time macOS Keychain grant, `state.reason` is `keychain_access_required`, `state.remedyCommand` is `quota-axi --allow-keychain-prompt`, and JSON includes an agent-directed `help` entry.
-When Grok's local OIDC session still has a refreshable record but the access token's `expires_at` is past, `state.error` is `Grok access token expired`, `state.reason` is `credentials_expired`, `state.remedyCommand` is `grok`, and JSON includes an agent-directed `help` entry telling the user to open the Grok CLI once so Grok can refresh its local session token. Default JSON exposes that `reason` and `remedyCommand` without requiring `--full`; full output still includes `attempts[].error: credentials_expired`.
-Default TOON output includes the same conditions in an `advice` block with `provider`, `reason`, and `remedyCommand`, plus the agent-directed help line.
+When every applicable Grok auth source is missing a usable access token but at least one still looks refreshable (Grok CLI OIDC with a refresh token, and/or Pi `xai` OAuth with a refresh token), `state.authStatus` is `expired_refreshable`, `state.status` is `unavailable` (not `auth_required`), `state.error` is `Grok access token expired`, `state.reason` is `credentials_expired`, `state.remedyCommand` is `grok`, and JSON includes an agent-directed `help` entry telling the user to open the Grok CLI once so Grok can refresh its local session token. Default JSON exposes `authStatus`, `reason`, and `remedyCommand` without requiring `--full`; compact TOON includes `authStatus` on provider rows plus an `advice` block. Full output still includes `attempts[].error: credentials_expired`.
+True Grok sign-out or definitive remote rejection uses `state.authStatus: unusable` with `state.status: auth_required` and `state.error: Grok sign-in required` (no `credentials_expired` reason). Callers must branch on `authStatus` / `reason`, not on human error prose alone, and must not treat `expired_refreshable` as logged out.
+When Pi's `xai` credential (or a still-valid Grok CLI session) establishes model usability but consumer credit windows cannot be read, `state.authStatus` is `usable`, windows stay empty, and `state.error` is `Grok consumer quota unavailable` rather than sign-in required.
 
 Claude credential failures without a usable access token preserve the precise `credentials_missing` or `credentials_invalid` error. A usage response with HTTP 401/403 reports `Claude sign-in required`. These definitive failures return no windows and retire the Claude cache instead of masking current authentication state with stale quota.
 
@@ -439,10 +441,10 @@ Source attempts can include `credentialPresent` when a non-secret probe confirms
 
 Auth source entries can include `credentialPresent` when a non-secret probe confirms a credential item exists.
 
-| Name                 | Values                                                                                                                          |
-| -------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| Auth source statuses | `available`, `missing`, `invalid`, `expired`, or `skipped`                                                                      |
-| Auth source names    | `oauth-file`, `keychain`, `auth-json`, `auth-env`, `apps-json`, `state-vscdb`, `cli-rpc`, `pi:kimi-coding`, and `kimi-code-cli` |
+| Name                 | Values                                                                                                                                    |
+| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| Auth source statuses | `available`, `missing`, `invalid`, `expired`, or `skipped`                                                                                |
+| Auth source names    | `oauth-file`, `keychain`, `auth-json`, `auth-env`, `apps-json`, `state-vscdb`, `cli-rpc`, `pi:kimi-coding`, `pi:xai`, and `kimi-code-cli` |
 
 ## Security Posture
 
@@ -454,7 +456,7 @@ Auth source entries can include `credentialPresent` when a non-secret probe conf
 | Codex          | `$CODEX_HOME/auth.json` or `~/.codex/auth.json` before the read-only CLI fallback; `$QUOTA_AXI_CODEX_BINARY` can pin that fallback to an absolute executable path                                                                                                                                                                    |
 | Cursor         | `$CURSOR_STATE_DB` when set or the platform Cursor state database path                                                                                                                                                                                                                                                               |
 | GitHub Copilot | `$GITHUB_COPILOT_APPS_JSON` when set or the local Copilot apps auth file                                                                                                                                                                                                                                                             |
-| Grok           | `$GROK_AUTH_JSON`, inline `$GROK_AUTH`, `$GROK_AUTH_PATH`, or `$GROK_HOME/auth.json` / `~/.grok/auth.json`                                                                                                                                                                                                                           |
+| Grok           | Grok CLI session auth from `$GROK_AUTH_JSON`, inline `$GROK_AUTH`, `$GROK_AUTH_PATH`, or `$GROK_HOME/auth.json` / `~/.grok/auth.json`, plus Pi's independent `$PI_CODING_AGENT_DIR/auth.json` `xai` entry (default `~/.pi/agent/auth.json`) for OAuth or literal API-key model auth                                                  |
 | Kimi           | Pi's `$PI_CODING_AGENT_DIR/auth.json` (default `~/.pi/agent/auth.json`) for a literal `kimi-coding` API key first, then a fresh official Kimi Code CLI access token from `$KIMI_CODE_HOME/credentials/kimi-code.json` (default `$HOME/.kimi-code/credentials/kimi-code.json`)                                                        |
 
 ### Provider notes
@@ -473,6 +475,7 @@ Auth source entries can include `credentialPresent` when a non-secret probe conf
 **Codex**
 
 - Codex `auth.json` support is OAuth-token only; API key values such as `OPENAI_API_KEY` are treated as invalid for quota usage calls and are not sent to ChatGPT usage endpoints.
+- Access-token JWT usability is authoritative for the OAuth bearer probe. An expired `id_token` alone does not mark `auth-json` expired or skip OAuth; identity-token expiry is diagnostic metadata only. A missing or expired `access_token` still skips OAuth and preserves the read-only CLI fallback.
 - It may run `codex -s read-only -a untrusted app-server` for Codex JSON-RPC fallback.
 - Set `QUOTA_AXI_CODEX_BINARY` to an absolute executable path when the fallback must use a specific Codex installation. Auth inspection and the app-server probe resolve the same path, and an invalid override fails closed instead of consulting `PATH`.
 
@@ -488,9 +491,12 @@ Auth source entries can include `credentialPresent` when a non-secret probe conf
 
 **Grok**
 
-- It selects session-scoped auth instead of API-key entries and sends a read-only gRPC-web request to Grok's consumer `grok_api_v2.GrokBuildBilling.GetGrokCreditsConfig` operation.
+- It checks two independent usability sources: Grok CLI session auth and Pi's `xai` credential in `$PI_CODING_AGENT_DIR/auth.json` (default `~/.pi/agent/auth.json`). Grok is locally usable when either source is valid, including asymmetric cases where the other source is absent, malformed, stale, or expired. True sign-out/`authStatus: unusable` requires every applicable source to be unavailable or definitively rejected.
+- Grok CLI session-scoped auth is preferred for the consumer credits probe. It selects session-scoped entries instead of API-key entries and sends a read-only gRPC-web request to Grok's consumer `grok_api_v2.GrokBuildBilling.GetGrokCreditsConfig` operation. Observed Grok CLI OIDC access tokens are short-lived (about six hours on current CLI sessions) while a refresh token remains present for CLI-owned recovery.
 - Session-scoped Grok auth includes web/session scopes and OIDC records scoped to `auth.x.ai` with `auth_mode` or `authMode` set to `oidc`, including scope keys with `::<client id>` suffixes.
-- The Grok CLI owns OIDC access-token refresh and rewrites `~/.grok/auth.json`; quota-axi only reads the resulting session and never refreshes tokens itself. Expired-session classification and recovery fields are documented under [Provider `state`](#provider-state).
+- Pi `xai` auth follows Pi's auth-file contract: `type: "oauth"` with literal `access` / optional `refresh` / `expires`, or `type: "api_key"` with a literal `key`. Environment, template, and command references are not resolved. Ambient `XAI_API_KEY` is not a quota-axi credential source. A valid Pi credential establishes model usability even when it cannot expose consumer quota windows; that case is `authStatus: usable` with empty windows, not logged out.
+- The Grok CLI owns OIDC access-token refresh and rewrites `~/.grok/auth.json`; Pi owns refresh of its own `auth.json` OAuth entries. quota-axi only reads the resulting sessions and never refreshes tokens, launches Grok or Pi, or writes either auth file. Expired-session classification and recovery fields are documented under [Provider `state`](#provider-state).
+- Source availability is distinct from remote validity: local expiry gates which bearer is offered to the consumer probe, while HTTP 401/403 and auth-class gRPC codes are definitive rejection. Transient network/rate-limit failures stay non-auth and remain stale-cache eligible for same-source web snapshots.
 - It does not send browser cookies, launch the Grok CLI, refresh credentials, perform OAuth, retain raw response bodies, or derive usage from monetary fields.
 
 **Kimi**

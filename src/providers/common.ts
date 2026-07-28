@@ -81,10 +81,13 @@ export function staleFromCache(
 }
 
 export function statusFromError(error: string): ProviderStatus {
+  // Soft local expiry stays distinct from definitive sign-in required so
+  // callers do not treat a refreshable session as logged out.
+  if (/access token expired/i.test(error)) return "unavailable";
   if (
     error === "keychain_prompt_required" ||
     error === "credentials_expired" ||
-    /sign-in|required|reauth|access token expired/i.test(error)
+    /sign-in|required|reauth/i.test(error)
   )
     return "auth_required";
   if (/rate.?limit/i.test(error)) return "rate_limited";

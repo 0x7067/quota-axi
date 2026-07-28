@@ -31,6 +31,12 @@ export type ProviderStatus =
   | "rate_limited"
   | "error";
 
+/**
+ * Machine-readable local auth usability, distinct from quota freshness.
+ * Callers must not infer logout from provider status alone when this is set.
+ */
+export type ProviderAuthStatus = "usable" | "expired_refreshable" | "unusable";
+
 export type ProviderStateReason =
   | "keychain_access_required"
   | "credentials_expired";
@@ -150,6 +156,12 @@ export type ProviderQuota = {
     refreshedAt?: string;
     error?: string;
     retryAfter?: string;
+    /**
+     * Local credential usability independent of quota windows.
+     * `expired_refreshable` is soft expiry (not sign-out); `usable` may still
+     * have unknown consumer quota (for example Pi xAI model auth only).
+     */
+    authStatus?: ProviderAuthStatus;
     reason?: ProviderStateReason;
     remedyCommand?: string;
     untrustedWindowIds?: string[];

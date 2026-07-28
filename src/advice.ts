@@ -76,6 +76,7 @@ function needsGrokTokenRefreshAdvice(provider: ProviderQuota): boolean {
   return (
     provider.provider === "grok" &&
     provider.state.status !== "fresh" &&
+    provider.state.authStatus === "expired_refreshable" &&
     provider.state.error === GROK_ACCESS_TOKEN_EXPIRED_ERROR
   );
 }
