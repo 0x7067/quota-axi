@@ -185,6 +185,7 @@ export function normalizeGrokConsumerPayload(
       kind: "credits",
       percentUsed,
       percentRemaining: 100 - percentUsed,
+      ...(periodStart ? { startsAt: periodStart } : {}),
       resetsAt,
     });
   }
@@ -206,6 +207,7 @@ export function normalizeGrokConsumerPayload(
       kind: "credits",
       percentUsed,
       percentRemaining: 100 - percentUsed,
+      ...(periodStart ? { startsAt: periodStart } : {}),
       resetsAt,
     });
   }

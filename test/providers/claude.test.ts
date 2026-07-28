@@ -23,6 +23,7 @@ describe("Claude quota parsing", () => {
         percentUsed: 18,
         percentRemaining: 82,
         resetsAt: "2026-07-06T22:15:00Z",
+        windowSeconds: 18_000,
       },
       {
         id: "seven_day",
@@ -30,12 +31,14 @@ describe("Claude quota parsing", () => {
         percentUsed: 36,
         percentRemaining: 64,
         resetsAt: "2026-07-10T16:00:00Z",
+        windowSeconds: 604_800,
       },
       {
         id: "seven_day_opus",
         kind: "model",
         percentUsed: 7,
         percentRemaining: 93,
+        windowSeconds: 604_800,
       },
       {
         id: "extra_usage",
@@ -46,6 +49,10 @@ describe("Claude quota parsing", () => {
         limitUsd: 20,
       },
     ]);
+    expect(
+      result?.windows.find((window) => window.id === "extra_usage")
+        ?.windowSeconds,
+    ).toBeUndefined();
   });
 
   it("prefers the scoped `limits` array and surfaces model-scoped windows like Fable", () => {
@@ -62,6 +69,7 @@ describe("Claude quota parsing", () => {
         percentUsed: 22,
         percentRemaining: 78,
         resetsAt: "2026-07-06T22:15:00.317709+00:00",
+        windowSeconds: 18_000,
       },
       {
         id: "seven_day",
@@ -69,6 +77,7 @@ describe("Claude quota parsing", () => {
         percentUsed: 41,
         percentRemaining: 59,
         resetsAt: "2026-07-10T16:00:00.317732+00:00",
+        windowSeconds: 604_800,
       },
       {
         id: "model:fable",
@@ -77,6 +86,7 @@ describe("Claude quota parsing", () => {
         percentUsed: 63,
         percentRemaining: 37,
         resetsAt: "2026-07-11T09:30:00.318030+00:00",
+        windowSeconds: 604_800,
       },
       {
         id: "extra_usage",

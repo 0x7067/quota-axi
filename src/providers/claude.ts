@@ -42,6 +42,8 @@ const DEFAULT_KEYCHAIN_ACCOUNT = "claude-code-user";
 const SAFE_KEYCHAIN_ACCOUNT = /^[a-zA-Z0-9._-]+$/;
 const FIVE_HOURS_MS = 5 * 60 * 60 * 1_000;
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1_000;
+const FIVE_HOURS_SECONDS = 18_000;
+const SEVEN_DAYS_SECONDS = 604_800;
 
 type ClaudeCredentials = {
   source: "oauth-file" | "keychain";
@@ -443,6 +445,7 @@ function normalizeScopedLimitEntry(raw: unknown): QuotaWindow | undefined {
       kind: "model",
       percentUsed: clampPercent(percent),
       resetsAt,
+      windowSeconds: SEVEN_DAYS_SECONDS,
     });
   }
 
@@ -454,6 +457,7 @@ function normalizeScopedLimitEntry(raw: unknown): QuotaWindow | undefined {
       kind: "session",
       percentUsed: clampPercent(percent),
       resetsAt,
+      windowSeconds: FIVE_HOURS_SECONDS,
     });
   }
   if (group === "weekly") {
@@ -463,6 +467,7 @@ function normalizeScopedLimitEntry(raw: unknown): QuotaWindow | undefined {
       kind: "weekly",
       percentUsed: clampPercent(percent),
       resetsAt,
+      windowSeconds: SEVEN_DAYS_SECONDS,
     });
   }
 
@@ -862,13 +867,31 @@ function normalizeWindow(
   const used =
     typeof data.utilization === "number" ? data.utilization : undefined;
   if (used === undefined) return undefined;
+  const windowSeconds = trustedClaudeWindowSeconds(id, kind);
   return withRemaining({
     id,
     label,
     kind,
     percentUsed: clampPercent(used),
     resetsAt: stringValue(data.resets_at) ?? stringValue(data.reset_at),
+    ...(windowSeconds !== undefined ? { windowSeconds } : {}),
   });
+}
+
+function trustedClaudeWindowSeconds(
+  id: string,
+  kind: QuotaWindow["kind"],
+): number | undefined {
+  if (id === "five_hour" || kind === "session") return FIVE_HOURS_SECONDS;
+  if (
+    id === "seven_day" ||
+    id === "seven_day_opus" ||
+    kind === "weekly" ||
+    kind === "model"
+  ) {
+    return SEVEN_DAYS_SECONDS;
+  }
+  return undefined;
 }
 
 function normalizeExtraUsage(raw: unknown): QuotaWindow | undefined {

@@ -663,6 +663,7 @@ export function normalizeKimiPayload(payload: unknown): NormalizedKimiPayload {
       kind: "weekly",
       percentUsed: principal.percentUsed,
       percentRemaining: principal.percentRemaining,
+      windowSeconds: WEEK_SECONDS,
       ...(principal.resetsAt ? { resetsAt: principal.resetsAt } : {}),
     },
   ];

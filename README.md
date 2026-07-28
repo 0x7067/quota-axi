@@ -43,32 +43,32 @@ providers[6]{provider,plan,source,status,refreshedAt}:
   copilot,individual,api,fresh,"2026-03-15T16:42:00.000Z"
   grok,unknown,web,fresh,"2026-03-15T16:42:00.000Z"
   kimi,unknown,api,fresh,"2026-03-15T16:42:00.000Z"
-windows[15]{provider,id,label,percentRemaining,resetsAt,state}:
-  claude,five_hour,session,82,"2026-03-15T21:15:00.000Z",fresh
-  claude,seven_day,week,64,"2026-03-19T15:00:00.000Z",fresh
-  claude,seven_day_opus,opus week,93,"2026-03-20T09:30:00.000Z",fresh
-  claude,"model:fable",Fable week,71,"2026-03-20T09:30:00.000Z",fresh
-  codex,five_hour,session,58,"2026-03-15T20:45:00.000Z",fresh
-  codex,weekly,week,47,"2026-03-19T09:00:00.000Z",fresh
-  codex,"model:gpt-5.1-codex:5h",GPT-5.1-Codex session,100,"2026-03-16T01:41:58.000Z",fresh
-  cursor,included_usage,included usage,72,"2026-04-01T00:00:00.000Z",fresh
-  cursor,auto_usage,auto usage,91,"2026-04-01T00:00:00.000Z",fresh
-  cursor,api_usage,API usage,100,"2026-04-01T00:00:00.000Z",fresh
-  copilot,chat,chat,84,"2026-04-01T00:00:00.000Z",fresh
-  copilot,premium_interactions,premium interactions,53,"2026-04-01T00:00:00.000Z",fresh
-  grok,credits,credits,67,"2026-04-01T00:00:00.000Z",fresh
-  kimi,weekly,week,74,"2026-03-19T09:00:00.000Z",fresh
-  kimi,five_hour,session,88,"2026-03-15T21:42:00.000Z",fresh
-effective[9]{provider,scope,effectivePercentRemaining,boundedBy,limitingWindowIds,unresolvedWindowIds,relationshipStatus}:
-  claude,all_models,64,"five_hour + seven_day",seven_day,none,known
-  claude,"model:fable",64,"five_hour + seven_day + model:fable",seven_day,none,known
-  claude,seven_day_opus,64,"five_hour + seven_day + seven_day_opus",seven_day,none,known
-  codex,all_models,47,"five_hour + weekly",weekly,none,known
-  codex,"model:gpt-5.1-codex",47,"five_hour + weekly + model:gpt-5.1-codex:5h",weekly,none,known
-  cursor,unresolved,unknown,none,unknown,"included_usage + auto_usage + api_usage",unknown
-  copilot,unresolved,unknown,none,unknown,"chat + premium_interactions",unknown
-  grok,all_products,67,credits,credits,none,known
-  kimi,all_models,74,"weekly + five_hour",weekly,none,known
+windows[15]{provider,id,label,percentRemaining,resetsAt,pace,reserve,state}:
+  claude,five_hour,session,82,"2026-03-15T21:15:00.000Z",behind,12.4,fresh
+  claude,seven_day,week,64,"2026-03-19T15:00:00.000Z",ahead,-8.2,fresh
+  claude,seven_day_opus,opus week,93,"2026-03-20T09:30:00.000Z",behind,21.1,fresh
+  claude,"model:fable",Fable week,71,"2026-03-20T09:30:00.000Z",behind,4.5,fresh
+  codex,five_hour,session,58,"2026-03-15T20:45:00.000Z",on_pace,-0.3,fresh
+  codex,weekly,week,47,"2026-03-19T09:00:00.000Z",ahead,-6.1,fresh
+  codex,"model:gpt-5.1-codex:5h",GPT-5.1-Codex session,100,"2026-03-16T01:41:58.000Z",behind,18.0,fresh
+  cursor,included_usage,included usage,72,"2026-04-01T00:00:00.000Z",unknown,unknown,fresh
+  cursor,auto_usage,auto usage,91,"2026-04-01T00:00:00.000Z",unknown,unknown,fresh
+  cursor,api_usage,API usage,100,"2026-04-01T00:00:00.000Z",unknown,unknown,fresh
+  copilot,chat,chat,84,"2026-04-01T00:00:00.000Z",unknown,unknown,fresh
+  copilot,premium_interactions,premium interactions,53,"2026-04-01T00:00:00.000Z",unknown,unknown,fresh
+  grok,credits,credits,67,"2026-04-01T00:00:00.000Z",behind,3.6,fresh
+  kimi,weekly,week,74,"2026-03-19T09:00:00.000Z",behind,5.2,fresh
+  kimi,five_hour,session,88,"2026-03-15T21:42:00.000Z",behind,7.0,fresh
+effective[9]{provider,scope,effectivePercentRemaining,boundedBy,limitingWindowIds,pace,aheadWindows,unknownPace,worstReserve,unresolvedWindowIds,relationshipStatus}:
+  claude,all_models,64,"five_hour + seven_day",seven_day,ahead,seven_day,none,-8.2,none,known
+  claude,"model:fable",64,"five_hour + seven_day + model:fable",seven_day,ahead,seven_day,none,-8.2,none,known
+  claude,seven_day_opus,64,"five_hour + seven_day + seven_day_opus",seven_day,ahead,seven_day,none,-8.2,none,known
+  codex,all_models,47,"five_hour + weekly",weekly,ahead,weekly,none,-6.1,none,known
+  codex,"model:gpt-5.1-codex",47,"five_hour + weekly + model:gpt-5.1-codex:5h",weekly,ahead,weekly,none,-6.1,none,known
+  cursor,unresolved,unknown,none,unknown,unknown,none,none,unknown,"included_usage + auto_usage + api_usage",unknown
+  copilot,unresolved,unknown,none,unknown,unknown,none,none,unknown,"chat + premium_interactions",unknown
+  grok,all_products,67,credits,credits,behind,none,none,3.6,none,known
+  kimi,all_models,74,"weekly + five_hour",weekly,behind,none,none,5.2,none,known
 help[3]:
   Run `quota-axi --provider claude --json` for JSON output
   Run `quota-axi --full` to include account and source-attempt details
@@ -81,7 +81,7 @@ help[3]:
 $ quota-axi --provider claude --json
 {
   "generatedAt": "2026-03-15T16:42:03.000Z",
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "providers": [
     {
       "provider": "claude",
@@ -95,7 +95,17 @@ $ quota-axi --provider claude --json
           "kind": "session",
           "percentUsed": 18,
           "percentRemaining": 82,
-          "resetsAt": "2026-03-15T21:15:00.000Z"
+          "resetsAt": "2026-03-15T21:15:00.000Z",
+          "windowSeconds": 18000,
+          "pace": {
+            "status": "behind",
+            "timeRemainingPercent": 69.6,
+            "elapsedPercent": 30.4,
+            "reservePercentPoints": 12.4,
+            "burnMultiple": 0.5921,
+            "cycleBasis": "window_seconds",
+            "cycleSeconds": 18000
+          }
         },
         {
           "id": "seven_day",
@@ -103,7 +113,20 @@ $ quota-axi --provider claude --json
           "kind": "weekly",
           "percentUsed": 36,
           "percentRemaining": 64,
-          "resetsAt": "2026-03-19T15:00:00.000Z"
+          "resetsAt": "2026-03-19T15:00:00.000Z",
+          "windowSeconds": 604800,
+          "pace": {
+            "status": "ahead",
+            "timeRemainingPercent": 72.2,
+            "elapsedPercent": 27.8,
+            "reservePercentPoints": -8.2,
+            "burnMultiple": 1.295,
+            "projectedExhaustedAt": "2026-03-18T09:12:00.000Z",
+            "projectionConfidence": "established",
+            "projectionBasis": "cycle_average",
+            "cycleBasis": "window_seconds",
+            "cycleSeconds": 604800
+          }
         },
         {
           "id": "model:fable",
@@ -111,7 +134,17 @@ $ quota-axi --provider claude --json
           "kind": "model",
           "percentUsed": 29,
           "percentRemaining": 71,
-          "resetsAt": "2026-03-20T09:30:00.000Z"
+          "resetsAt": "2026-03-20T09:30:00.000Z",
+          "windowSeconds": 604800,
+          "pace": {
+            "status": "behind",
+            "timeRemainingPercent": 66.5,
+            "elapsedPercent": 33.5,
+            "reservePercentPoints": 4.5,
+            "burnMultiple": 0.8657,
+            "cycleBasis": "window_seconds",
+            "cycleSeconds": 604800
+          }
         }
       ],
       "quotaSemantics": {
@@ -123,14 +156,28 @@ $ quota-axi --provider claude --json
             "status": "known",
             "effectivePercentRemaining": 64,
             "boundedBy": ["five_hour", "seven_day"],
-            "limitingWindowIds": ["seven_day"]
+            "limitingWindowIds": ["seven_day"],
+            "pace": {
+              "status": "ahead",
+              "aheadWindowIds": ["seven_day"],
+              "behindWindowIds": ["five_hour"],
+              "worstReservePercentPoints": -8.2,
+              "worstReserveWindowId": "seven_day"
+            }
           },
           {
             "scope": "model:fable",
             "status": "known",
             "effectivePercentRemaining": 64,
             "boundedBy": ["five_hour", "seven_day", "model:fable"],
-            "limitingWindowIds": ["seven_day"]
+            "limitingWindowIds": ["seven_day"],
+            "pace": {
+              "status": "ahead",
+              "aheadWindowIds": ["seven_day"],
+              "behindWindowIds": ["five_hour", "model:fable"],
+              "worstReservePercentPoints": -8.2,
+              "worstReserveWindowId": "seven_day"
+            }
           }
         ]
       },
@@ -259,7 +306,7 @@ It is generated from `src/skill.ts`; update it with `pnpm run build:skill` and v
 
 ## Output Model
 
-`--json` emits `schemaVersion: 2`.
+`--json` emits `schemaVersion: 3`.
 
 ### Quota report shape
 
@@ -295,10 +342,10 @@ Claude credential failures without a usable access token preserve the precise `c
 
 ### Quota windows
 
-| Field set | Fields                                                              |
-| --------- | ------------------------------------------------------------------- |
-| Required  | `id`, `label`, `kind`                                               |
-| Optional  | Percentages, reset fields, `windowSeconds`, and credit-spend fields |
+| Field set | Fields                                                                                          |
+| --------- | ----------------------------------------------------------------------------------------------- |
+| Required  | `id`, `label`, `kind`                                                                           |
+| Optional  | Percentages, `startsAt`, reset fields, `windowSeconds`, credit-spend fields, and derived `pace` |
 
 Do not interpret a model window's percentage in isolation. `quotaSemantics.effectiveAvailability` reports the effective percentage for each understood scope, the complete `boundedBy` window set used to compute it, and the currently limiting window IDs. `all_models` applies to any model without a more specific scope; a matching `model:*` scope includes both account and model-specific bounds. Grok uses the analogous `all_products` and `product:*` scopes.
 
@@ -306,7 +353,45 @@ A model-specific `scope` names the model window or the shared model prefix when 
 
 `quotaSemantics.status` is `known` only when quota-axi understands the relationships needed for the reported scopes. A non-definitive availability entry omits `effectivePercentRemaining`. Unfamiliar vendor windows produce `partial` or `unknown` semantics and are named in `unresolvedWindowIds`; an empty provider report is `unknown` without inventing an unresolved window.
 
-For every stale provider report, raw windows remain available for diagnostics but effective availability is always `unknown` and omits `effectivePercentRemaining` and `limitingWindowIds`. Routing agents must not treat a stale raw percentage as current headroom.
+For every stale provider report, raw windows remain available for diagnostics but effective availability is always `unknown` and omits `effectivePercentRemaining` and `limitingWindowIds`. Window and effective `pace` are also `unknown` with reason `stale`. Routing agents must not treat a stale raw percentage as current headroom.
+
+### Pace signals
+
+Each window may include a derived `pace` object that compares cumulative usage to elapsed cycle time using the response `generatedAt` clock:
+
+```text
+timeRemainingPercent = 100 * (resetsAt - generatedAt) / cycleDuration
+reservePercentPoints = percentRemaining - timeRemainingPercent
+```
+
+| `reservePercentPoints` | Meaning                                                                      |
+| ---------------------- | ---------------------------------------------------------------------------- |
+| Negative               | Usage is **ahead** of the reset clock (burning faster than linear); conserve |
+| Positive               | Usage is **behind** the reset clock                                          |
+| Within ±1.0            | `on_pace` deadband for API rounding noise                                    |
+
+| Pace field                                | Meaning                                                                                                                 |
+| ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `status`                                  | `ahead`, `on_pace`, `behind`, or `unknown`                                                                              |
+| `reason`                                  | Why pace is unknown (`stale`, `missing_usage`, `missing_cycle`, `invalid_cycle`, `future_cycle_start`, `expired_reset`) |
+| `timeRemainingPercent` / `elapsedPercent` | Cycle progress from `generatedAt`                                                                                       |
+| `reservePercentPoints`                    | Signed residual capacity vs the linear clock                                                                            |
+| `burnMultiple`                            | `percentUsed / elapsedPercent` when elapsed > 0                                                                         |
+| `projectedExhaustedAt`                    | Linear cycle-average exhaustion timestamp when defined                                                                  |
+| `projectionConfidence`                    | `early` when elapsed < 10% of the cycle; otherwise `established`                                                        |
+| `projectionBasis`                         | Always `cycle_average` in v1                                                                                            |
+| `cycleBasis`                              | `starts_at_resets_at` when both boundaries are trusted; otherwise `window_seconds` with `resetsAt`                      |
+| `cycleSeconds`                            | Trusted cycle duration used for the math                                                                                |
+
+Pace is calculated only from trusted cycle evidence:
+
+- Prefer provider-reported `startsAt` + `resetsAt` (Grok current period).
+- Otherwise use provider-owned `windowSeconds` with `resetsAt` (Codex durations; Claude fixed 5h/7d; Kimi fixed 5h/weekly).
+- Do not infer monthly, rolling, or unlabeled periods.
+
+Default TOON keeps token cost low: window rows expose `pace` status and signed `reserve` only. Full projection evidence is in `--json`. Pace is recomputed on every report from `generatedAt` and is not written to the quota cache.
+
+Each `effectiveAvailability` entry also carries a compact `pace` summary over **every** bounding window for that scope (not only the current lowest-remaining limiter): `aheadWindowIds`, `unknownWindowIds`, and `worstReservePercentPoints` / `worstReserveWindowId` (most negative signed reserve among known-pace windows). Different windows keep their own reset horizons; quota-axi does not invent one synthetic reset for a scope. This is factual inspectable data, never a provider/model routing recommendation.
 
 ### Quota enums
 
@@ -316,6 +401,10 @@ For every stale provider report, raw windows remain available for diagnostics bu
 | Provider sources                 | `oauth`, `cli-rpc`, `api`, `web`, `cache`, or `unavailable`                  |
 | Current provider adapter sources | `oauth`, `cli-rpc`, `api`, `web`, `cache`, and `unavailable`                 |
 | Window kinds                     | `session`, `weekly`, `monthly`, `model`, `credits`, or `unknown`             |
+| Window pace statuses             | `ahead`, `on_pace`, `behind`, or `unknown`                                   |
+| Effective pace statuses          | `ahead`, `on_pace`, `behind`, `mixed`, or `unknown`                          |
+| Pace projection confidence       | `early` or `established`                                                     |
+| Pace cycle basis                 | `starts_at_resets_at` or `window_seconds`                                    |
 | Quota relationship statuses      | `known`, `partial`, or `unknown`                                             |
 | Source attempt statuses          | `success`, `failed`, or `skipped`                                            |
 
@@ -325,14 +414,14 @@ Source attempts can include `credentialPresent` when a non-secret probe confirms
 
 | Provider               | Windows and capabilities                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Claude                 | Can report `five_hour`, `seven_day`, optional `seven_day_opus`, and optional `extra_usage` windows.                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| Claude scoped `limits` | When the account's usage response includes a scoped `limits` list, quota-axi surfaces every active window it describes instead, including model-scoped ones (e.g. Fable) as a `model:<slug>` window.                                                                                                                                                                                                                                                                                                                                                                   |
+| Claude                 | Can report `five_hour`, `seven_day`, optional `seven_day_opus`, and optional `extra_usage` windows. Trusted session/weekly/model windows emit fixed `windowSeconds` (18,000 or 604,800) for pace; `extra_usage` does not invent a monthly duration.                                                                                                                                                                                                                                                                                                                    |
+| Claude scoped `limits` | When the account's usage response includes a scoped `limits` list, quota-axi surfaces every active window it describes instead, including model-scoped ones (e.g. Fable) as a `model:<slug>` window with the same trusted weekly duration.                                                                                                                                                                                                                                                                                                                             |
 | Codex                  | Identifies exact 18,000-second and 604,800-second periods as `five_hour` and `weekly`, regardless of source slot; periods without a duration retain their positional identity. Additional model- or feature-scoped limits use `model:<id>:5h` / `model:<id>:7d`, and code-review limits use `code_review_five_hour` / `code_review_weekly`. Unfamiliar durations remain honest `<hours>h` windows instead of being classified as known periods. Duplicate derived IDs are preserved with `_2`, `_3`, and later suffixes. Optional credit balance data can also appear. |
-| Cursor                 | Can report `included_usage`, `auto_usage`, `api_usage`, and optional `spend_limit` windows.                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| GitHub Copilot         | Can report quota snapshot windows such as `chat`, `completions`, and `premium_interactions`; when the first-party endpoint exposes entitlement but no numeric quota windows, quota-axi reports a fresh provider state with an empty `windows` list rather than inventing percentages.                                                                                                                                                                                                                                                                                  |
-| Grok                   | Reports the shared `credits` window, optional product-scoped `product:<slug>` windows, the current-period reset, and optional prepaid credit balance from the consumer Usage-page operation. Top-level `credits.remaining` is prepaid/on-demand balance, distinct from the shared period `windows` credits percentage used for effective availability.                                                                                                                                                                                                                 |
+| Cursor                 | Can report `included_usage`, `auto_usage`, `api_usage`, and optional `spend_limit` windows. Monthly labels alone are not trusted cycle evidence, so pace stays `unknown` unless a future provider duration appears.                                                                                                                                                                                                                                                                                                                                                    |
+| GitHub Copilot         | Can report quota snapshot windows such as `chat`, `completions`, and `premium_interactions`; when the first-party endpoint exposes entitlement but no numeric quota windows, quota-axi reports a fresh provider state with an empty `windows` list rather than inventing percentages. Pace stays `unknown` without trusted cycle boundaries.                                                                                                                                                                                                                           |
+| Grok                   | Reports the shared `credits` window, optional product-scoped `product:<slug>` windows, the current-period `startsAt` and reset, and optional prepaid credit balance from the consumer Usage-page operation. Top-level `credits.remaining` is prepaid/on-demand balance, distinct from the shared period `windows` credits percentage used for effective availability. Pace prefers the startsAt/resetsAt pair.                                                                                                                                                         |
 | Grok proto3 zero       | For the exact consumer operation only, an omitted usage float is the official proto3 zero when a valid weekly or monthly current period proves the config is present; quota-axi reports `0` used and `100` remaining rather than deriving usage from money.                                                                                                                                                                                                                                                                                                            |
-| Kimi                   | Reports the principal `weekly` subscription window plus every valid self-described limit in wire order. Only a limit whose normalized duration is exactly 18,000 seconds is identified as `five_hour`; future limits remain `limit:<index>` unknown windows.                                                                                                                                                                                                                                                                                                           |
+| Kimi                   | Reports the principal `weekly` subscription window (with trusted 604,800s duration) plus every valid self-described limit in wire order. Only a limit whose normalized duration is exactly 18,000 seconds is identified as `five_hour`; future limits remain `limit:<index>` unknown windows.                                                                                                                                                                                                                                                                          |
 
 ### `auth --json` shape
 

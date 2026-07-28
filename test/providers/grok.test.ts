@@ -270,6 +270,7 @@ describe("Grok consumer quota parsing", () => {
         kind: "credits",
         percentUsed: 18.25,
         percentRemaining: 81.75,
+        startsAt: "2026-07-20T20:00:00.000Z",
         resetsAt: "2026-07-27T20:00:00.000Z",
       },
       {
@@ -278,6 +279,7 @@ describe("Grok consumer quota parsing", () => {
         kind: "credits",
         percentUsed: 33.25,
         percentRemaining: 66.75,
+        startsAt: "2026-07-20T20:00:00.000Z",
         resetsAt: "2026-07-27T20:00:00.000Z",
       },
       {
@@ -286,6 +288,7 @@ describe("Grok consumer quota parsing", () => {
         kind: "credits",
         percentUsed: 100,
         percentRemaining: 0,
+        startsAt: "2026-07-20T20:00:00.000Z",
         resetsAt: "2026-07-27T20:00:00.000Z",
       },
     ]);

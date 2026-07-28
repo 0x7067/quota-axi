@@ -5,11 +5,15 @@
 //   pnpm run build:skill -- --check # fail (exit 1) if the committed file is stale
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
+import { format } from "prettier";
 
 import { createSkillMarkdown } from "../src/skill.js";
 
 const target = new URL("../skills/quota-axi/SKILL.md", import.meta.url);
-const expected = createSkillMarkdown();
+const targetPath = fileURLToPath(target);
+const expected = await format(createSkillMarkdown(), {
+  filepath: targetPath,
+});
 const check = process.argv.includes("--check");
 
 if (check) {
@@ -31,5 +35,5 @@ if (check) {
     recursive: true,
   });
   await writeFile(target, expected);
-  console.log(`Wrote ${fileURLToPath(target)}`);
+  console.log(`Wrote ${targetPath}`);
 }

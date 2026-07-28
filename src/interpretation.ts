@@ -1,3 +1,4 @@
+import { computeWindowPace, summarizeEffectivePace } from "./pace.js";
 import type {
   EffectiveAvailability,
   ProviderQuota,
@@ -5,10 +6,20 @@ import type {
   QuotaWindow,
 } from "./types.js";
 
-export function withQuotaSemantics(provider: ProviderQuota): ProviderQuota {
-  const semantics = semanticsFor(provider);
+export function withQuotaSemantics(
+  provider: ProviderQuota,
+  generatedAt: string,
+): ProviderQuota {
+  const windows = provider.windows.map((window) => ({
+    ...window,
+    pace: computeWindowPace(window, generatedAt, {
+      stale: provider.state.stale,
+    }),
+  }));
+  const withWindows = { ...provider, windows };
+  const semantics = semanticsFor(withWindows);
   return {
-    ...provider,
+    ...withWindows,
     quotaSemantics: provider.state.stale
       ? staleSemantics(semantics)
       : semantics,
@@ -21,10 +32,29 @@ function staleSemantics(semantics: QuotaSemantics): QuotaSemantics {
     description:
       "The raw quota windows are stale diagnostic data, so effective remaining is unknown until the provider refreshes successfully.",
     effectiveAvailability: semantics.effectiveAvailability.map(
-      ({ scope, boundedBy }) => ({
+      ({ scope, boundedBy, pace }) => ({
         scope,
         status: "unknown",
         boundedBy,
+        ...(pace
+          ? {
+              pace: {
+                status: "unknown" as const,
+                ...(pace.unknownWindowIds
+                  ? { unknownWindowIds: pace.unknownWindowIds }
+                  : boundedBy.length > 0
+                    ? { unknownWindowIds: boundedBy }
+                    : {}),
+              },
+            }
+          : boundedBy.length > 0
+            ? {
+                pace: {
+                  status: "unknown" as const,
+                  unknownWindowIds: boundedBy,
+                },
+              }
+            : {}),
       }),
     ),
     ...(semantics.unresolvedWindowIds
@@ -179,6 +209,7 @@ function kimiSemantics(
                 scope: "all_models",
                 status: "unknown",
                 boundedBy: recognized.map(({ id }) => id),
+                pace: summarizeEffectivePace(recognized),
               },
             ]
           : [],
@@ -199,11 +230,12 @@ function availability(
 ): EffectiveAvailability {
   const boundedBy = windows.map(({ id }) => id);
   const remaining = windows.map(({ percentRemaining }) => percentRemaining);
+  const pace = summarizeEffectivePace(windows);
   if (
     remaining.length === 0 ||
     remaining.some((value) => value === undefined)
   ) {
-    return { scope, status: "unknown", boundedBy };
+    return { scope, status: "unknown", boundedBy, pace };
   }
   const effectivePercentRemaining = Math.min(...(remaining as number[]));
   return {
@@ -217,6 +249,7 @@ function availability(
           percentRemaining === effectivePercentRemaining,
       )
       .map(({ id }) => id),
+    pace,
   };
 }
 
