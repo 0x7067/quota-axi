@@ -285,10 +285,10 @@ async function inspectAuthWithDependencies(
           ? "missing"
           : piInspection.status === "error"
             ? "error"
-          : piInspection.status === "unsupported" ||
-              piInspection.status === "invalid"
-            ? "invalid"
-            : "missing";
+            : piInspection.status === "unsupported" ||
+                piInspection.status === "invalid"
+              ? "invalid"
+              : "missing";
   return {
     provider: "grok",
     sources: [
