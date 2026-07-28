@@ -22,6 +22,7 @@ export function renderQuotaToon(
     plan: provider.plan ?? "unknown",
     source: provider.source,
     status: provider.state.status,
+    authStatus: provider.state.authStatus ?? "unknown",
     refreshedAt: provider.state.refreshedAt ?? "none",
   }));
   const windows = response.providers.flatMap((provider) =>

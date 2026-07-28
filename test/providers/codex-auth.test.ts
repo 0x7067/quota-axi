@@ -179,6 +179,79 @@ describe("Codex credential-state reporting", () => {
     });
   });
 
+  it("treats access-token usability as authoritative when id_token is expired", async () => {
+    // Counterfactual: the previous OR-expiry check treated id_token exp as
+    // credential expiry and skipped OAuth even with a valid access token.
+    const futureExp = Math.floor(Date.now() / 1000) + 3600;
+    writeAuth({
+      tokens: {
+        id_token: jwt({ exp: 1, email: "codex-fixture@example.invalid" }),
+        access_token: jwt({ exp: futureExp }),
+      },
+    });
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            rate_limit: {
+              primary_window: {
+                used_percent: 10,
+                reset_after_seconds: 1000,
+                limit_window_seconds: 18_000,
+              },
+            },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { fetchQuota, inspectAuth } =
+      await import("../../src/providers/codex.js");
+    const auth = await inspectAuth({ allowKeychainPrompt: false });
+    const result = await fetchQuota({ allowKeychainPrompt: false });
+
+    expect(auth.sources[0]).toMatchObject({
+      source: "auth-json",
+      path: authFile(),
+      status: "available",
+    });
+    expect(fetchMock).toHaveBeenCalled();
+    expect(result.source).toBe("oauth");
+    expect(result.state.status).toBe("fresh");
+    expect(result.attempts).toContainEqual({
+      source: "oauth",
+      status: "success",
+    });
+    expect(JSON.stringify(result)).not.toContain(
+      "codex-fixture@example.invalid",
+    );
+  });
+
+  it("still skips OAuth when the access token JWT itself is expired", async () => {
+    writeAuth({
+      tokens: {
+        id_token: jwt({ exp: Math.floor(Date.now() / 1000) + 3600 }),
+        access_token: jwt({ exp: 1 }),
+      },
+    });
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { fetchQuota, inspectAuth } =
+      await import("../../src/providers/codex.js");
+    const auth = await inspectAuth({ allowKeychainPrompt: false });
+    const result = await fetchQuota({ allowKeychainPrompt: false });
+
+    expect(auth.sources[0]?.status).toBe("expired");
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(result.attempts).toContainEqual({
+      source: "oauth",
+      status: "skipped",
+      error: "credentials_expired",
+    });
+  });
+
   it("surfaces malformed auth JSON as invalid", async () => {
     writeAuth("{not-json");
 
