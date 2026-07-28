@@ -31,33 +31,43 @@ export function renderQuotaToon(
       label: window.label,
       percentRemaining: window.percentRemaining ?? "unknown",
       resetsAt: window.resetsAt ?? window.resetText ?? "unknown",
+      pace: window.pace?.status ?? "unknown",
+      reserve: window.pace?.reservePercentPoints ?? "unknown",
       state: provider.state.status,
     })),
   );
   const effective = response.providers.flatMap((provider) => {
     const semantics = provider.quotaSemantics;
     if (!semantics || semantics.effectiveAvailability.length === 0) {
-      return [
-        {
-          provider: provider.provider,
-          scope: "unresolved",
-          effectivePercentRemaining: "unknown",
-          boundedBy: "none",
-          limitingWindowIds: "unknown",
-          unresolvedWindowIds:
-            semantics?.unresolvedWindowIds?.join(" + ") ?? "none",
-          relationshipStatus: semantics?.status ?? "unknown",
-        },
-      ];
+      const row = {
+        provider: provider.provider,
+        scope: "unresolved",
+        effectivePercentRemaining: "unknown" as string | number,
+        boundedBy: "none",
+        limitingWindowIds: "unknown",
+        pace: "unknown",
+        aheadWindows: "none",
+        unknownPace: "none",
+        worstReserve: "unknown" as string | number,
+        unresolvedWindowIds:
+          semantics?.unresolvedWindowIds?.join(" + ") ?? "none",
+        relationshipStatus: semantics?.status ?? ("unknown" as const),
+      };
+      return [row];
     }
     return semantics.effectiveAvailability.map((availability) => ({
       provider: provider.provider,
       scope: availability.scope,
       effectivePercentRemaining:
-        availability.effectivePercentRemaining ?? "unknown",
+        availability.effectivePercentRemaining ?? ("unknown" as const),
       boundedBy: availability.boundedBy.join(" + ") || "none",
       limitingWindowIds:
         availability.limitingWindowIds?.join(" + ") ?? "unknown",
+      pace: availability.pace?.status ?? "unknown",
+      aheadWindows: availability.pace?.aheadWindowIds?.join(" + ") ?? "none",
+      unknownPace: availability.pace?.unknownWindowIds?.join(" + ") ?? "none",
+      worstReserve:
+        availability.pace?.worstReservePercentPoints ?? ("unknown" as const),
       unresolvedWindowIds: semantics.unresolvedWindowIds?.join(" + ") ?? "none",
       relationshipStatus: semantics.status,
     }));

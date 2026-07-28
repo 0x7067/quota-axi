@@ -231,7 +231,7 @@ describe("CLI quota rendering", () => {
     const codex = output.providers.find(
       (provider) => provider.provider === "codex",
     );
-    expect(output.schemaVersion).toBe(2);
+    expect(output.schemaVersion).toBe(3);
     expect(claude?.state.reason).toBe("keychain_access_required");
     expect(claude?.state.remedyCommand).toBe(
       "quota-axi --allow-keychain-prompt",
@@ -243,8 +243,16 @@ describe("CLI quota rendering", () => {
           scope: "all_models",
           status: "unknown",
           boundedBy: ["five_hour"],
+          pace: {
+            status: "unknown",
+            unknownWindowIds: ["five_hour"],
+          },
         },
       ],
+    });
+    expect(claude?.windows[0]?.pace).toEqual({
+      status: "unknown",
+      reason: "stale",
     });
     expect(
       claude?.quotaSemantics?.effectiveAvailability[0]
@@ -408,6 +416,10 @@ describe("CLI quota rendering", () => {
       effectivePercentRemaining: 3,
       boundedBy: ["five_hour", "seven_day", "model:fable"],
       limitingWindowIds: ["seven_day"],
+      pace: {
+        status: "unknown",
+        unknownWindowIds: ["five_hour", "seven_day", "model:fable"],
+      },
     });
   });
 
@@ -418,27 +430,67 @@ describe("CLI quota rendering", () => {
     const toon = await capture(["--provider", "kimi"]);
     expect(toon).toContain("kimi,unknown,api,fresh");
     expect(toon).toContain(
-      'kimi,five_hour,session,81.25,"2027-02-03T09:05:06.000Z",fresh',
+      "windows[2]{provider,id,label,percentRemaining,resetsAt,pace,reserve,state}:",
+    );
+    expect(toon).toMatch(
+      /kimi,five_hour,session,81\.25,"2027-02-03T09:05:06\.000Z",[^,]+,[^,]+,fresh/,
+    );
+    expect(toon).toMatch(
+      /kimi,weekly,week,67\.5,"2027-02-08T04:05:06\.000Z",[^,]+,[^,]+,fresh/,
     );
     expect(toon).toContain(
-      'kimi,weekly,week,67.5,"2027-02-08T04:05:06.000Z",fresh',
+      "effective[1]{provider,scope,effectivePercentRemaining,boundedBy,limitingWindowIds,pace,aheadWindows,unknownPace,worstReserve,unresolvedWindowIds,relationshipStatus}:",
     );
     expect(toon).not.toContain("synthetic-kimi-key");
+    expect(toon).not.toMatch(/recommend|prefer provider|switch to/i);
 
     const json = JSON.parse(
       await capture(["--provider", "kimi", "--json"]),
     ) as QuotaAxiResponse;
+    expect(json.schemaVersion).toBe(3);
     expect(json.providers).toEqual([
       expect.objectContaining({
         provider: "kimi",
         label: "Kimi",
         source: "api",
-        windows: freshKimiQuota().windows,
+        windows: [
+          expect.objectContaining({
+            id: "weekly",
+            percentRemaining: 67.5,
+            windowSeconds: 604_800,
+            pace: expect.objectContaining({
+              status: expect.stringMatching(/^(ahead|on_pace|behind|unknown)$/),
+            }),
+          }),
+          expect.objectContaining({
+            id: "five_hour",
+            percentRemaining: 81.25,
+            windowSeconds: 18_000,
+            pace: expect.objectContaining({
+              status: expect.stringMatching(/^(ahead|on_pace|behind|unknown)$/),
+            }),
+          }),
+        ],
+        quotaSemantics: expect.objectContaining({
+          effectiveAvailability: [
+            expect.objectContaining({
+              scope: "all_models",
+              pace: expect.objectContaining({
+                status: expect.stringMatching(
+                  /^(ahead|on_pace|behind|mixed|unknown)$/,
+                ),
+              }),
+            }),
+          ],
+        }),
         state: expect.objectContaining({ status: "fresh", stale: false }),
       }),
     ]);
     expect(json.providers[0].account).toBeUndefined();
     expect(json.providers[0].attempts).toBeUndefined();
+    expect(JSON.stringify(json)).not.toMatch(
+      /recommend|prefer provider|switch to|route to/i,
+    );
   });
 });
 
@@ -497,7 +549,7 @@ describe("response redaction", () => {
   it("hides account identity and attempts unless --full is set", () => {
     const response: QuotaAxiResponse = {
       generatedAt: "2026-07-06T18:10:00Z",
-      schemaVersion: 2,
+      schemaVersion: 3,
       providers: [
         {
           provider: "claude",
@@ -640,6 +692,7 @@ function freshKimiQuota(): ProviderQuota {
         percentUsed: 32.5,
         percentRemaining: 67.5,
         resetsAt: "2027-02-08T04:05:06.000Z",
+        windowSeconds: 604_800,
       },
       {
         id: "five_hour",

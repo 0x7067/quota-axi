@@ -21,7 +21,7 @@ This file is the project's committed home for project-intrinsic agent knowledge:
 - `quota` is the implicit default command: `runAxiCli` routes on `argv[0]` and rejects a leading flag, so `src/cli.ts` `normalizeArgv` prepends `quota` for a bare call or flag-first call (`quota-axi --json`) while leaving `auth`, `update`, and the single-token `--help`/version through to the SDK. Validation errors throw `AxiError("...", "VALIDATION_ERROR")` (exit 2); the all-providers-failed path sets `process.exitCode = 1` and still renders.
 - Default stdout is compact TOON.
 - `--json` emits the normalized model, and `--full` is required before account identity or per-source attempts are shown.
-- JSON report shape and quota interpretation, including stale effective availability, are documented in [README Output Model](README.md#output-model). `state.retryAfter` can appear for provider rate limits, and `state.reason: keychain_access_required` plus `state.remedyCommand` can appear when a stale or unavailable Claude result is blocked by a skipped macOS Keychain prompt.
+- JSON report shape and quota interpretation, including stale effective availability and per-window cycle-average pace signals (`schemaVersion: 3`), are documented in [README Output Model](README.md#output-model) and [README Pace signals](README.md#pace-signals). Pace is derived in `src/pace.ts` from trusted `startsAt`/`resetsAt` or `windowSeconds` plus `generatedAt`; negative `reservePercentPoints` means usage is ahead of the reset clock. Pace is not cached. `state.retryAfter` can appear for provider rate limits, and `state.reason: keychain_access_required` plus `state.remedyCommand` can appear when a stale or unavailable Claude result is blocked by a skipped macOS Keychain prompt.
 - macOS Claude Keychain presence and value reads mirror Claude Code's validated current-user account selector and never fall back to an ambiguous service-only query. Value reads are skipped on plain calls until a successful value read records the profile-and-account-scoped non-secret access marker under the quota-axi cache directory; after that, plain calls may reuse the existing grant and read live Claude quota.
 - Managed-profile, Claude identity, and Codex executable-override contracts are documented in [README Security Posture](README.md#security-posture).
 - `--allow-keychain-prompt` is the first-time opt-in that permits the Claude Keychain value read which can prompt, and agents should relay the one-time "Always Allow" grant when `keychain_access_required` advice appears.
@@ -33,7 +33,7 @@ This file is the project's committed home for project-intrinsic agent knowledge:
 - The Claude Keychain access marker is stored alongside the cache, is `0600`, is keyed by hashed profile/account identity, and contains no credential material or raw account name. Legacy service-only markers are ignored without being deleted.
 - Quota cache files must be `0600` and contain only normalized non-secret snapshots.
 - Only fresh provider snapshots with windows are cached; fresh provider reports with no windows clear any existing cached snapshot for that provider.
-- Failed providers, stale providers, account identity, and source attempts are not cached.
+- Failed providers, stale providers, account identity, source attempts, and derived `pace` objects are not cached.
 - Do not cache raw provider responses or credential headers.
 
 ## Development

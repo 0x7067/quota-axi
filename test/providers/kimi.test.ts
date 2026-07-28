@@ -550,6 +550,7 @@ describe("Kimi payload normalization", () => {
           kind: "weekly",
           percentUsed: 22,
           percentRemaining: 78,
+          windowSeconds: 604_800,
         },
       ],
       diagnostics: [{ code: "limits_missing" }],

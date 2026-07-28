@@ -64,13 +64,14 @@ async function fetchQuota(
   providers: ProviderId[],
   options: ProviderOptions,
 ): Promise<QuotaAxiResponse> {
+  const generatedAt = nowIso();
   const results = (
     await Promise.all(
       providers.map((provider) => PROVIDERS[provider].fetchQuota(options)),
     )
-  ).map(withQuotaSemantics);
+  ).map((provider) => withQuotaSemantics(provider, generatedAt));
   return annotateQuotaAdvice({
-    generatedAt: nowIso(),
+    generatedAt,
     providers: results,
   });
 }
