@@ -103,7 +103,7 @@ async function resolveCredential(
   try {
     parsed = JSON.parse(contents.toString("utf8")) as unknown;
   } catch {
-    return { status: "invalid" };
+    return { status: "error" };
   }
 
   const root = objectValue(parsed);
@@ -129,7 +129,7 @@ async function resolveCredential(
     if (expiresMs !== undefined && expiresMs <= dependencies.now()) {
       return {
         status: "expired",
-        refreshable: hasNonEmptyString(entry.refresh),
+        refreshable: usableLiteralSecret(entry.refresh) !== undefined,
       };
     }
     return { status: "available", kind: "oauth", credential: access };
@@ -193,10 +193,6 @@ function timestampMs(value: unknown): number | undefined {
     return Number.isNaN(parsed) ? undefined : parsed;
   }
   return undefined;
-}
-
-function hasNonEmptyString(value: unknown): boolean {
-  return typeof value === "string" && value.length > 0;
 }
 
 async function readBoundedFile(

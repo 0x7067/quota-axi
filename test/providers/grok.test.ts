@@ -1205,7 +1205,7 @@ describe("Grok dual-source CLI and Pi xAI usability", () => {
     expect(result.state.status).not.toBe("auth_required");
   });
 
-  it("classifies malformed Pi records as unusable when CLI auth is also missing", async () => {
+  it("preserves malformed Pi auth JSON as a resolution error", async () => {
     const piAuthPath = join(process.env.PI_CODING_AGENT_DIR!, "auth.json");
     mkdirSync(dirname(piAuthPath), { recursive: true });
     writeFileSync(piAuthPath, "{not-json");
@@ -1213,13 +1213,38 @@ describe("Grok dual-source CLI and Pi xAI usability", () => {
 
     const result = await fetchQuota({ allowKeychainPrompt: false });
 
-    expect(result.state.authStatus).toBe("unusable");
-    expect(result.state.status).toBe("auth_required");
+    expect(result.state).toMatchObject({
+      authStatus: "unusable",
+      status: "error",
+      error: "Grok Pi credential resolution failed",
+    });
     expect(result.attempts).toContainEqual({
       source: "pi:xai",
-      status: "skipped",
-      error: "credentials_invalid",
+      status: "failed",
+      error: "credential_resolution_failed",
     });
+  });
+
+  it("does not treat an unusable Pi refresh reference as refreshable", async () => {
+    writePiXaiAuth({
+      xai: {
+        type: "oauth",
+        access: "expired-pi-access",
+        refresh: "$XAI_REFRESH_TOKEN",
+        expires: Date.now() - 60_000,
+      },
+    });
+    vi.stubGlobal("fetch", vi.fn());
+
+    const result = await fetchQuota({ allowKeychainPrompt: false });
+
+    expect(result.state).toMatchObject({
+      status: "auth_required",
+      error: "Grok sign-in required",
+      authStatus: "unusable",
+    });
+    expect(result.state.reason).toBeUndefined();
+    expect(result.state.remedyCommand).toBeUndefined();
   });
 
   it("preserves Pi credential read failures without claiming sign-out", async () => {

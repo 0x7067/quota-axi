@@ -114,6 +114,44 @@ describe("Pi xAI credential broker", () => {
     });
   });
 
+  it.each([" ", "$REFRESH_TOKEN", "!op read refresh", "refresh\u0000token"])(
+    "rejects unusable refresh credential %s",
+    async (refresh) => {
+      const fixture = piAuthFixture({
+        type: "oauth",
+        access: "expired-access",
+        refresh,
+        expires: Date.now() - 1_000,
+      });
+      const broker = createPiXaiCredentialBroker({
+        environment: { PI_CODING_AGENT_DIR: dirname(fixture) },
+        homeDirectory: () => temporaryDirectory(),
+      });
+
+      await expect(broker.resolve()).resolves.toEqual({
+        status: "expired",
+        refreshable: false,
+      });
+    },
+  );
+
+  it("classifies malformed JSON as a resolution error", async () => {
+    const home = temporaryDirectory();
+    const authPath = join(home, ".pi", "agent", "auth.json");
+    mkdirSync(dirname(authPath), { recursive: true });
+    writeFileSync(authPath, "{not-json", { mode: 0o600 });
+    const broker = createPiXaiCredentialBroker({
+      environment: { PI_CODING_AGENT_DIR: dirname(authPath) },
+      homeDirectory: () => home,
+    });
+
+    await expect(broker.resolve()).resolves.toEqual({ status: "error" });
+    await expect(broker.inspect()).resolves.toEqual({
+      status: "error",
+      error: "credential_resolution_failed",
+    });
+  });
+
   it.each([null, "not-a-timestamp", {}, Number.NaN])(
     "rejects malformed oauth expiry %s",
     async (expires) => {

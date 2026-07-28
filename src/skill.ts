@@ -93,14 +93,15 @@ or when comparing supported local provider headroom side by side.
    After that successful grant, plain \`quota-axi\` calls reuse the existing Keychain access
    marker, scoped to both profile and account, to refresh live Claude quota without requiring
    the flag. Legacy markers are not reused, so an upgrade may require this one-time grant again.
-7. For Grok, read \`state.authStatus\` before any logout wording. \`expired_refreshable\` (also
-   exposed as \`reason: credentials_expired\` / \`error: Grok access token expired\`) means a local
-   session still looks signed in but short-lived access expired - tell your user to open the Grok
-   CLI (\`grok\`) once so Grok can refresh its CLI session token. Do not treat that as full
-   sign-out, and do not ask quota-axi to refresh credentials - it never launches Grok or Pi or
-   writes auth files. \`authStatus: usable\` with empty windows means model auth is present (Grok
-   CLI and/or Pi \`xai\`) while consumer credit windows are unknown - not logged out. Reserve true
-   sign-in recovery for \`authStatus: unusable\` / \`Grok sign-in required\`.
+7. For Grok, read \`state.authStatus\` before any logout wording. \`expired_refreshable\` means a
+   local session still looks signed in but short-lived access expired. Only when quota-axi also
+   emits \`reason: credentials_expired\` / \`remedyCommand: grok\` should you tell your user to
+   open the Grok CLI once; Pi-only expiry has no Grok remedy because Grok cannot refresh Pi-owned
+   credentials. Do not treat soft expiry as full sign-out, and do not ask quota-axi to refresh
+   credentials - it never launches Grok or Pi or writes auth files. \`authStatus: usable\` with
+   empty windows means model auth is present (Grok CLI and/or Pi \`xai\`) while consumer credit
+   windows are unknown - not logged out. Reserve true sign-in recovery for
+   \`authStatus: unusable\` / \`Grok sign-in required\`.
 8. For a managed Codex installation, set \`QUOTA_AXI_CODEX_BINARY\` to its absolute executable
    path. quota-axi uses that exact executable for auth inspection and the read-only app-server
    fallback, and fails closed if the override is invalid. Codex OAuth availability follows the
