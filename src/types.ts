@@ -191,7 +191,13 @@ export type ProviderAdapter = {
 export type AuthSourceReport = {
   source: string;
   path?: string;
-  status: "available" | "missing" | "invalid" | "expired" | "skipped";
+  status:
+    | "available"
+    | "missing"
+    | "invalid"
+    | "expired"
+    | "skipped"
+    | "error";
   error?: string;
   credentialPresent?: boolean;
 };

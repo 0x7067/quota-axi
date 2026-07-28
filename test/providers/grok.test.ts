@@ -1222,6 +1222,100 @@ describe("Grok dual-source CLI and Pi xAI usability", () => {
     });
   });
 
+  it("preserves Pi credential read failures without claiming sign-out", async () => {
+    const adapter = createGrokAdapter({
+      piXaiBroker: {
+        resolve: async () => ({ status: "error" }),
+        inspect: async () => ({
+          status: "error",
+          error: "credential_resolution_failed",
+        }),
+      },
+    });
+
+    const result = await adapter.fetchQuota({ allowKeychainPrompt: false });
+    const auth = await adapter.inspectAuth({ allowKeychainPrompt: false });
+
+    expect(result).toMatchObject({
+      state: {
+        status: "error",
+        error: "Grok Pi credential resolution failed",
+        authStatus: "unusable",
+      },
+      attempts: [
+        {
+          source: "auth-json",
+          status: "skipped",
+          error: "credentials_missing",
+        },
+        {
+          source: "pi:xai",
+          status: "failed",
+          error: "credential_resolution_failed",
+        },
+      ],
+    });
+    expect(result.state.error).not.toMatch(/sign-in/i);
+    expect(auth.sources[1]).toEqual({
+      source: "pi:xai",
+      status: "error",
+      error: "credential_resolution_failed",
+    });
+  });
+
+  it("keeps Grok usable when Pi credential resolution fails", async () => {
+    writeValidAuth();
+    stubSuccessfulFetch();
+    const adapter = createGrokAdapter({
+      piXaiBroker: {
+        resolve: async () => ({ status: "error" }),
+        inspect: async () => ({
+          status: "error",
+          error: "credential_resolution_failed",
+        }),
+      },
+    });
+
+    const result = await adapter.fetchQuota({ allowKeychainPrompt: false });
+
+    expect(result.state).toMatchObject({
+      status: "fresh",
+      authStatus: "usable",
+    });
+    expect(result.attempts).toContainEqual({
+      source: "pi:xai",
+      status: "failed",
+      error: "credential_resolution_failed",
+    });
+  });
+
+  it("omits the Grok CLI remedy for Pi-only refreshable expiry", async () => {
+    writePiXaiAuth({
+      xai: {
+        type: "oauth",
+        access: "expired-pi-access",
+        refresh: "expired-pi-refresh",
+        expires: Date.now() - 60_000,
+      },
+    });
+    vi.stubGlobal("fetch", vi.fn());
+
+    const jsonText = await captureCli(["--provider", "grok", "--json"]);
+    const json = JSON.parse(jsonText) as QuotaAxiResponse;
+    const grok = json.providers[0];
+
+    expect(grok).toMatchObject({
+      state: {
+        status: "unavailable",
+        error: "Pi xAI access token expired",
+        authStatus: "expired_refreshable",
+      },
+    });
+    expect(grok?.state.reason).toBeUndefined();
+    expect(grok?.state.remedyCommand).toBeUndefined();
+    expect(json.help?.join("\n") ?? "").not.toContain("open the Grok CLI");
+  });
+
   it("keeps transient consumer failures distinct from auth rejection when CLI auth is valid", async () => {
     writeValidAuth();
     const fetchMock = vi.fn(async () => {

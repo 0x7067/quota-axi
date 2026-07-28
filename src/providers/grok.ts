@@ -36,6 +36,8 @@ const EMPTY_GRPC_REQUEST = Uint8Array.from([0, 0, 0, 0, 0]);
 const GROK_SOURCE = "web" as const;
 const PI_XAI_CREDENTIAL_SOURCE = "pi:xai";
 const GROK_CONSUMER_QUOTA_UNAVAILABLE_ERROR = "Grok consumer quota unavailable";
+const GROK_PI_CREDENTIAL_RESOLUTION_ERROR =
+  "Grok Pi credential resolution failed";
 const PI_MODEL_AUTH_ONLY_ERROR = "model_auth_only";
 
 const PRODUCT_NAMES: Record<number, { id: string; label: string }> = {
@@ -233,7 +235,12 @@ async function fetchQuotaWithDependencies(
   }
 
   if (authStatus === "expired_refreshable") {
-    finalError = GROK_ACCESS_TOKEN_EXPIRED_ERROR;
+    finalError =
+      cliState.status === "expired" && cliState.refreshable
+        ? GROK_ACCESS_TOKEN_EXPIRED_ERROR
+        : "Pi xAI access token expired";
+  } else if (piResolution.status === "error") {
+    finalError = GROK_PI_CREDENTIAL_RESOLUTION_ERROR;
   } else if (consumerAuthRejected && authStatus === "unusable") {
     finalError = GROK_SIGN_IN_REQUIRED_ERROR;
   } else {
@@ -276,9 +283,10 @@ async function inspectAuthWithDependencies(
         ? "expired"
         : piInspection.status === "missing"
           ? "missing"
+          : piInspection.status === "error"
+            ? "error"
           : piInspection.status === "unsupported" ||
-              piInspection.status === "invalid" ||
-              piInspection.status === "error"
+              piInspection.status === "invalid"
             ? "invalid"
             : "missing";
   return {

@@ -114,6 +114,23 @@ describe("Pi xAI credential broker", () => {
     });
   });
 
+  it.each([null, "not-a-timestamp", {}, Number.NaN])(
+    "rejects malformed oauth expiry %s",
+    async (expires) => {
+      const fixture = piAuthFixture({
+        type: "oauth",
+        access: "fixture-access",
+        expires,
+      });
+      const broker = createPiXaiCredentialBroker({
+        environment: { PI_CODING_AGENT_DIR: dirname(fixture) },
+        homeDirectory: () => temporaryDirectory(),
+      });
+
+      await expect(broker.resolve()).resolves.toEqual({ status: "invalid" });
+    },
+  );
+
   it("rejects environment and command references without resolving them", async () => {
     for (const key of ["$XAI_API_KEY", "!op read secret"]) {
       const fixture = piAuthFixture({ type: "api_key", key });

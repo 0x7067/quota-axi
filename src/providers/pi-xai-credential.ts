@@ -123,7 +123,10 @@ async function resolveCredential(
   if (type === "oauth") {
     const access = usableLiteralSecret(entry.access);
     if (access === undefined) return { status: "invalid" };
-    if (isExpiredTimestamp(entry.expires, dependencies.now())) {
+    const hasExpiry = Object.hasOwn(entry, "expires");
+    const expiresMs = timestampMs(entry.expires);
+    if (hasExpiry && expiresMs === undefined) return { status: "invalid" };
+    if (expiresMs !== undefined && expiresMs <= dependencies.now()) {
       return {
         status: "expired",
         refreshable: hasNonEmptyString(entry.refresh),
@@ -174,11 +177,6 @@ function usableLiteralSecret(value: unknown): string | undefined {
     return undefined;
   }
   return value;
-}
-
-function isExpiredTimestamp(value: unknown, nowMs: number): boolean {
-  const expiresMs = timestampMs(value);
-  return expiresMs !== undefined && expiresMs <= nowMs;
 }
 
 function timestampMs(value: unknown): number | undefined {
