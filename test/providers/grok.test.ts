@@ -12,6 +12,7 @@ import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { writeCachedProviders } from "../../src/cache.js";
 import { main } from "../../src/cli.js";
+import { statusFromError } from "../../src/providers/common.js";
 import {
   createGrokAdapter,
   fetchQuota,
@@ -886,6 +887,8 @@ describe("Grok expired access-token classification", () => {
     });
     expect(result.state.error).not.toMatch(/sign-in/i);
     expect(result.state.status).not.toBe("auth_required");
+    // Shared helper still maps the phrase to auth_required; Grok owns soft expiry.
+    expect(statusFromError(result.state.error!)).toBe("auth_required");
     expect(fetchMock).not.toHaveBeenCalled();
     expect(existsSync(marker)).toBe(false);
     expect(readFileSync(authPath)).toEqual(before);
