@@ -70,12 +70,15 @@ export function computeWindowPace(
     const burnPerMs = percentUsed / elapsedMs;
     if (burnPerMs > 0 && remainingBudget >= 0) {
       const msToExhaust = remainingBudget / burnPerMs;
-      pace.projectedExhaustedAt = new Date(
-        generatedAtMs + msToExhaust,
-      ).toISOString();
-      pace.projectionConfidence =
-        elapsedPercent < PACE_EARLY_ELAPSED_PERCENT ? "early" : "established";
-      pace.projectionBasis = "cycle_average";
+      const projectedExhaustedAtMs = generatedAtMs + msToExhaust;
+      if (isRepresentableDateMs(projectedExhaustedAtMs)) {
+        pace.projectedExhaustedAt = new Date(
+          projectedExhaustedAtMs,
+        ).toISOString();
+        pace.projectionConfidence =
+          elapsedPercent < PACE_EARLY_ELAPSED_PERCENT ? "early" : "established";
+        pace.projectionBasis = "cycle_average";
+      }
     }
   }
 
@@ -176,7 +179,14 @@ function resolveCycle(
     return { ok: false, reason: "missing_cycle" };
   if (!(windowSeconds > 0)) return { ok: false, reason: "invalid_cycle" };
 
-  const impliedStartsAtMs = resetsAtMs - windowSeconds * 1000;
+  const cycleDurationMs = windowSeconds * 1000;
+  if (!Number.isFinite(cycleDurationMs)) {
+    return { ok: false, reason: "invalid_cycle" };
+  }
+  const impliedStartsAtMs = resetsAtMs - cycleDurationMs;
+  if (!isRepresentableDateMs(impliedStartsAtMs)) {
+    return { ok: false, reason: "invalid_cycle" };
+  }
   if (impliedStartsAtMs > generatedAtMs) {
     return { ok: false, reason: "future_cycle_start" };
   }
@@ -238,6 +248,10 @@ function finiteNumber(value: number | undefined): number | undefined {
   return typeof value === "number" && Number.isFinite(value)
     ? value
     : undefined;
+}
+
+function isRepresentableDateMs(value: number): boolean {
+  return Number.isFinite(value) && !Number.isNaN(new Date(value).getTime());
 }
 
 function roundPace(value: number): number {

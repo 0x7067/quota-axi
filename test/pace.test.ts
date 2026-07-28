@@ -157,6 +157,26 @@ describe("computeWindowPace", () => {
     expect(usedAtStart.projectedExhaustedAt).toBeUndefined();
   });
 
+  it("omits projections outside the representable timestamp range", () => {
+    const pace = computeWindowPace(
+      window({
+        id: "credits",
+        kind: "credits",
+        percentUsed: 0.000001,
+        percentRemaining: 99.999999,
+        startsAt: startsBefore(1 / 7),
+        resetsAt: resetsAfter(1 / 7),
+      }),
+      GENERATED_AT,
+    );
+
+    expect(pace.status).toBe("behind");
+    expect(pace.burnMultiple).toBeDefined();
+    expect(pace.projectedExhaustedAt).toBeUndefined();
+    expect(pace.projectionConfidence).toBeUndefined();
+    expect(pace.projectionBasis).toBeUndefined();
+  });
+
   it("returns unknown for stale, missing, expired, rolling, and invalid cycles", () => {
     expect(
       computeWindowPace(
@@ -228,6 +248,19 @@ describe("computeWindowPace", () => {
           percentUsed: 10,
           percentRemaining: 90,
           windowSeconds: 0,
+          resetsAt: resetsAfter(0.2),
+        }),
+        GENERATED_AT,
+      ),
+    ).toEqual({ status: "unknown", reason: "invalid_cycle" });
+
+    expect(
+      computeWindowPace(
+        window({
+          id: "weekly",
+          percentUsed: 10,
+          percentRemaining: 90,
+          windowSeconds: Number.MAX_VALUE,
           resetsAt: resetsAfter(0.2),
         }),
         GENERATED_AT,
