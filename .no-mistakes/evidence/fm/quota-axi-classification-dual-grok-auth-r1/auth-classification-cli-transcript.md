@@ -111,8 +111,10 @@ the synthetic API key:
 SHA-256 values before and after the auth inspection were identical:
 
 ```text
-b58fc106b1f9684b88f072ee60d94f3f2c11f74dfa54654c6e57fad101f27ad2  pi-valid/auth.json
-6d6b58edd1e0d01b8f260927da8ae10dc0a3013e8490f2e3849b3f118febe0e0  pi-expired/auth.json
+before  5670155c4584079b19f67992dd2b72ddb1f58b71df4c7eae8698b7dbc4c91649  pi-valid/auth.json
+after   5670155c4584079b19f67992dd2b72ddb1f58b71df4c7eae8698b7dbc4c91649  pi-valid/auth.json
+before  f9be4fb2a9729e7ce4d08a08b499cc766a178eb6f941073178146e3584df855d  pi-expired/auth.json
+after   f9be4fb2a9729e7ce4d08a08b499cc766a178eb6f941073178146e3584df855d  pi-expired/auth.json
 ```
 
 The focused automated tests additionally assert that Codex identity metadata
