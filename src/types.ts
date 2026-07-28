@@ -65,7 +65,7 @@ export type QuotaPace = {
   /** Linear cycle-average exhaustion timestamp when defined. */
   projectedExhaustedAt?: string;
   projectionConfidence?: "early" | "established";
-  /** Always cycle-average in v1; reserved for future bases. */
+  /** Currently cycle-average; reserved for future bases. */
   projectionBasis?: "cycle_average";
   cycleBasis?: "starts_at_resets_at" | "window_seconds";
   cycleSeconds?: number;

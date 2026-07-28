@@ -185,6 +185,35 @@ describe("quota cache", () => {
     ]);
   });
 
+  it("retains trusted cycle evidence but never caches derived pace", () => {
+    useTempCache();
+    const claude = quota("claude", 40);
+    claude.windows[0] = {
+      ...claude.windows[0],
+      percentRemaining: 60,
+      startsAt: "2026-07-06T15:00:00Z",
+      resetsAt: "2026-07-06T20:00:00Z",
+      windowSeconds: 18_000,
+      pace: {
+        status: "ahead",
+        reservePercentPoints: -20,
+        projectionBasis: "cycle_average",
+      },
+    };
+
+    writeCachedProviders([claude]);
+
+    const bytes = readFileSync(cacheFilePath(), "utf8");
+    const cachedWindow = readCachedProvider("claude")?.windows[0];
+    expect(bytes).not.toContain('"pace"');
+    expect(cachedWindow).toMatchObject({
+      startsAt: "2026-07-06T15:00:00Z",
+      resetsAt: "2026-07-06T20:00:00Z",
+      windowSeconds: 18_000,
+    });
+    expect(cachedWindow?.pace).toBeUndefined();
+  });
+
   it("deletes a definitive-auth provider while retaining other snapshots", () => {
     useTempCache();
     writeCachedProviders([quota("claude", 10), quota("kimi", 20)]);

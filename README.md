@@ -44,27 +44,27 @@ providers[6]{provider,plan,source,status,refreshedAt}:
   grok,unknown,web,fresh,"2026-03-15T16:42:00.000Z"
   kimi,unknown,api,fresh,"2026-03-15T16:42:00.000Z"
 windows[15]{provider,id,label,percentRemaining,resetsAt,pace,reserve,state}:
-  claude,five_hour,session,82,"2026-03-15T21:15:00.000Z",behind,12.4,fresh
-  claude,seven_day,week,64,"2026-03-19T15:00:00.000Z",ahead,-8.2,fresh
-  claude,seven_day_opus,opus week,93,"2026-03-20T09:30:00.000Z",behind,21.1,fresh
-  claude,"model:fable",Fable week,71,"2026-03-20T09:30:00.000Z",behind,4.5,fresh
-  codex,five_hour,session,58,"2026-03-15T20:45:00.000Z",on_pace,-0.3,fresh
-  codex,weekly,week,47,"2026-03-19T09:00:00.000Z",ahead,-6.1,fresh
-  codex,"model:gpt-5.1-codex:5h",GPT-5.1-Codex session,100,"2026-03-16T01:41:58.000Z",behind,18.0,fresh
+  claude,five_hour,session,82,"2026-03-15T20:10:48.000Z",behind,12.4,fresh
+  claude,seven_day,week,64,"2026-03-20T17:59:45.600Z",ahead,-8.2,fresh
+  claude,seven_day_opus,opus week,93,"2026-03-20T17:29:31.200Z",behind,21.1,fresh
+  claude,"model:fable",Fable week,71,"2026-03-20T08:25:12.000Z",behind,4.5,fresh
+  codex,five_hour,session,58,"2026-03-15T19:36:54.000Z",on_pace,-0.3,fresh
+  codex,weekly,week,47,"2026-03-19T09:54:28.800Z",ahead,-6.1,fresh
+  codex,"model:gpt-5.1-codex:5h",GPT-5.1-Codex session,100,"2026-03-15T20:48:00.000Z",behind,18.0,fresh
   cursor,included_usage,included usage,72,"2026-04-01T00:00:00.000Z",unknown,unknown,fresh
   cursor,auto_usage,auto usage,91,"2026-04-01T00:00:00.000Z",unknown,unknown,fresh
   cursor,api_usage,API usage,100,"2026-04-01T00:00:00.000Z",unknown,unknown,fresh
   copilot,chat,chat,84,"2026-04-01T00:00:00.000Z",unknown,unknown,fresh
   copilot,premium_interactions,premium interactions,53,"2026-04-01T00:00:00.000Z",unknown,unknown,fresh
   grok,credits,credits,67,"2026-04-01T00:00:00.000Z",behind,3.6,fresh
-  kimi,weekly,week,74,"2026-03-19T09:00:00.000Z",behind,5.2,fresh
-  kimi,five_hour,session,88,"2026-03-15T21:42:00.000Z",behind,7.0,fresh
+  kimi,weekly,week,74,"2026-03-20T12:17:02.400Z",behind,5.2,fresh
+  kimi,five_hour,session,88,"2026-03-15T20:45:00.000Z",behind,7.0,fresh
 effective[9]{provider,scope,effectivePercentRemaining,boundedBy,limitingWindowIds,pace,aheadWindows,unknownPace,worstReserve,unresolvedWindowIds,relationshipStatus}:
-  claude,all_models,64,"five_hour + seven_day",seven_day,ahead,seven_day,none,-8.2,none,known
-  claude,"model:fable",64,"five_hour + seven_day + model:fable",seven_day,ahead,seven_day,none,-8.2,none,known
-  claude,seven_day_opus,64,"five_hour + seven_day + seven_day_opus",seven_day,ahead,seven_day,none,-8.2,none,known
+  claude,all_models,64,"five_hour + seven_day",seven_day,mixed,seven_day,none,-8.2,none,known
+  claude,"model:fable",64,"five_hour + seven_day + model:fable",seven_day,mixed,seven_day,none,-8.2,none,known
+  claude,seven_day_opus,64,"five_hour + seven_day + seven_day_opus",seven_day,mixed,seven_day,none,-8.2,none,known
   codex,all_models,47,"five_hour + weekly",weekly,ahead,weekly,none,-6.1,none,known
-  codex,"model:gpt-5.1-codex",47,"five_hour + weekly + model:gpt-5.1-codex:5h",weekly,ahead,weekly,none,-6.1,none,known
+  codex,"model:gpt-5.1-codex",47,"five_hour + weekly + model:gpt-5.1-codex:5h",weekly,mixed,weekly,none,-6.1,none,known
   cursor,unresolved,unknown,none,unknown,unknown,none,none,unknown,"included_usage + auto_usage + api_usage",unknown
   copilot,unresolved,unknown,none,unknown,unknown,none,none,unknown,"chat + premium_interactions",unknown
   grok,all_products,67,credits,credits,behind,none,none,3.6,none,known
@@ -80,7 +80,7 @@ help[3]:
 ```sh
 $ quota-axi --provider claude --json
 {
-  "generatedAt": "2026-03-15T16:42:03.000Z",
+  "generatedAt": "2026-03-15T16:42:00.000Z",
   "schemaVersion": 3,
   "providers": [
     {
@@ -95,7 +95,7 @@ $ quota-axi --provider claude --json
           "kind": "session",
           "percentUsed": 18,
           "percentRemaining": 82,
-          "resetsAt": "2026-03-15T21:15:00.000Z",
+          "resetsAt": "2026-03-15T20:10:48.000Z",
           "windowSeconds": 18000,
           "pace": {
             "status": "behind",
@@ -103,6 +103,9 @@ $ quota-axi --provider claude --json
             "elapsedPercent": 30.4,
             "reservePercentPoints": 12.4,
             "burnMultiple": 0.5921,
+            "projectedExhaustedAt": "2026-03-15T23:37:28.000Z",
+            "projectionConfidence": "established",
+            "projectionBasis": "cycle_average",
             "cycleBasis": "window_seconds",
             "cycleSeconds": 18000
           }
@@ -113,7 +116,7 @@ $ quota-axi --provider claude --json
           "kind": "weekly",
           "percentUsed": 36,
           "percentRemaining": 64,
-          "resetsAt": "2026-03-19T15:00:00.000Z",
+          "resetsAt": "2026-03-20T17:59:45.600Z",
           "windowSeconds": 604800,
           "pace": {
             "status": "ahead",
@@ -121,7 +124,7 @@ $ quota-axi --provider claude --json
             "elapsedPercent": 27.8,
             "reservePercentPoints": -8.2,
             "burnMultiple": 1.295,
-            "projectedExhaustedAt": "2026-03-18T09:12:00.000Z",
+            "projectedExhaustedAt": "2026-03-19T03:43:45.600Z",
             "projectionConfidence": "established",
             "projectionBasis": "cycle_average",
             "cycleBasis": "window_seconds",
@@ -134,7 +137,7 @@ $ quota-axi --provider claude --json
           "kind": "model",
           "percentUsed": 29,
           "percentRemaining": 71,
-          "resetsAt": "2026-03-20T09:30:00.000Z",
+          "resetsAt": "2026-03-20T08:25:12.000Z",
           "windowSeconds": 604800,
           "pace": {
             "status": "behind",
@@ -142,6 +145,9 @@ $ quota-axi --provider claude --json
             "elapsedPercent": 33.5,
             "reservePercentPoints": 4.5,
             "burnMultiple": 0.8657,
+            "projectedExhaustedAt": "2026-03-21T10:29:20.275Z",
+            "projectionConfidence": "established",
+            "projectionBasis": "cycle_average",
             "cycleBasis": "window_seconds",
             "cycleSeconds": 604800
           }
@@ -158,7 +164,7 @@ $ quota-axi --provider claude --json
             "boundedBy": ["five_hour", "seven_day"],
             "limitingWindowIds": ["seven_day"],
             "pace": {
-              "status": "ahead",
+              "status": "mixed",
               "aheadWindowIds": ["seven_day"],
               "behindWindowIds": ["five_hour"],
               "worstReservePercentPoints": -8.2,
@@ -172,7 +178,7 @@ $ quota-axi --provider claude --json
             "boundedBy": ["five_hour", "seven_day", "model:fable"],
             "limitingWindowIds": ["seven_day"],
             "pace": {
-              "status": "ahead",
+              "status": "mixed",
               "aheadWindowIds": ["seven_day"],
               "behindWindowIds": ["five_hour", "model:fable"],
               "worstReservePercentPoints": -8.2,
@@ -353,7 +359,7 @@ A model-specific `scope` names the model window or the shared model prefix when 
 
 `quotaSemantics.status` is `known` only when quota-axi understands the relationships needed for the reported scopes. A non-definitive availability entry omits `effectivePercentRemaining`. Unfamiliar vendor windows produce `partial` or `unknown` semantics and are named in `unresolvedWindowIds`; an empty provider report is `unknown` without inventing an unresolved window.
 
-For every stale provider report, raw windows remain available for diagnostics but effective availability is always `unknown` and omits `effectivePercentRemaining` and `limitingWindowIds`. Window and effective `pace` are also `unknown` with reason `stale`. Routing agents must not treat a stale raw percentage as current headroom.
+For every stale provider report, raw windows remain available for diagnostics but effective availability is always `unknown` and omits `effectivePercentRemaining` and `limitingWindowIds`. Window pace is `unknown` with reason `stale`, and each effective pace summary is also `unknown`. Routing agents must not treat a stale raw percentage as current headroom.
 
 ### Pace signals
 
@@ -370,18 +376,18 @@ reservePercentPoints = percentRemaining - timeRemainingPercent
 | Positive               | Usage is **behind** the reset clock                                          |
 | Within ±1.0            | `on_pace` deadband for API rounding noise                                    |
 
-| Pace field                                | Meaning                                                                                                                 |
-| ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| `status`                                  | `ahead`, `on_pace`, `behind`, or `unknown`                                                                              |
-| `reason`                                  | Why pace is unknown (`stale`, `missing_usage`, `missing_cycle`, `invalid_cycle`, `future_cycle_start`, `expired_reset`) |
-| `timeRemainingPercent` / `elapsedPercent` | Cycle progress from `generatedAt`                                                                                       |
-| `reservePercentPoints`                    | Signed residual capacity vs the linear clock                                                                            |
-| `burnMultiple`                            | `percentUsed / elapsedPercent` when elapsed > 0                                                                         |
-| `projectedExhaustedAt`                    | Linear cycle-average exhaustion timestamp when defined                                                                  |
-| `projectionConfidence`                    | `early` when elapsed < 10% of the cycle; otherwise `established`                                                        |
-| `projectionBasis`                         | Always `cycle_average` in v1                                                                                            |
-| `cycleBasis`                              | `starts_at_resets_at` when both boundaries are trusted; otherwise `window_seconds` with `resetsAt`                      |
-| `cycleSeconds`                            | Trusted cycle duration used for the math                                                                                |
+| Pace field                                | Meaning                                                                                                                                       |
+| ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `status`                                  | `ahead`, `on_pace`, `behind`, or `unknown`                                                                                                    |
+| `reason`                                  | Why pace is unknown (`stale`, `missing_usage`, `missing_cycle`, `invalid_cycle`, `future_cycle_start`, `expired_reset`, `unsupported_period`) |
+| `timeRemainingPercent` / `elapsedPercent` | Cycle progress from `generatedAt`                                                                                                             |
+| `reservePercentPoints`                    | Signed residual capacity vs the linear clock                                                                                                  |
+| `burnMultiple`                            | `percentUsed / elapsedPercent` when elapsed > 0                                                                                               |
+| `projectedExhaustedAt`                    | Linear cycle-average exhaustion timestamp when defined                                                                                        |
+| `projectionConfidence`                    | `early` when elapsed < 10% of the cycle; otherwise `established`                                                                              |
+| `projectionBasis`                         | Currently always `cycle_average`                                                                                                              |
+| `cycleBasis`                              | `starts_at_resets_at` when both boundaries are trusted; otherwise `window_seconds` with `resetsAt`                                            |
+| `cycleSeconds`                            | Trusted cycle duration used for the math                                                                                                      |
 
 Pace is calculated only from trusted cycle evidence:
 
@@ -391,7 +397,7 @@ Pace is calculated only from trusted cycle evidence:
 
 Default TOON keeps token cost low: window rows expose `pace` status and signed `reserve` only. Full projection evidence is in `--json`. Pace is recomputed on every report from `generatedAt` and is not written to the quota cache.
 
-Each `effectiveAvailability` entry also carries a compact `pace` summary over **every** bounding window for that scope (not only the current lowest-remaining limiter): `aheadWindowIds`, `unknownWindowIds`, and `worstReservePercentPoints` / `worstReserveWindowId` (most negative signed reserve among known-pace windows). Different windows keep their own reset horizons; quota-axi does not invent one synthetic reset for a scope. This is factual inspectable data, never a provider/model routing recommendation.
+Each `effectiveAvailability` entry also carries a compact `pace` summary over **every** bounding window for that scope (not only the current lowest-remaining limiter): per-status window lists, including `aheadWindowIds` and `unknownWindowIds`, plus `worstReservePercentPoints` / `worstReserveWindowId` (most negative signed reserve among known-pace windows). Different windows keep their own reset horizons; quota-axi does not invent one synthetic reset for a scope. This is factual inspectable data, never a provider/model routing recommendation.
 
 ### Quota enums
 
