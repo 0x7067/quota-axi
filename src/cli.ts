@@ -8,6 +8,8 @@ export const DESCRIPTION =
 export const TOP_HELP = `usage: quota-axi [auth] [flags]
 commands[2]:
   (none)=quota, auth
+output:
+  Default TOON reports effective headroom and usable-runway evidence; use --full or --json for reserve diagnostics.
 flags[6]:
   --provider <claude,codex,cursor,copilot,grok,kimi>, --json, --full, --allow-keychain-prompt, --help, -v/--version
 examples:

@@ -163,6 +163,45 @@ describe("quota semantics", () => {
     ).toBe("ahead");
   });
 
+  it("uses a model-specific bound when it projects earlier exhaustion than its account bounds", () => {
+    const fiveHourResetsAt = new Date(
+      Date.parse(GENERATED_AT) + 0.75 * 18_000 * 1000,
+    ).toISOString();
+    const result = withQuotaSemantics(
+      provider("claude", [
+        window("five_hour", "session", 90, {
+          windowSeconds: 18_000,
+          resetsAt: fiveHourResetsAt,
+        }),
+        window("seven_day", "weekly", 50, {
+          windowSeconds: WEEK_SECONDS,
+          resetsAt: weeklyResetsAt(0.25),
+        }),
+        window("model:fable", "model", 25, {
+          windowSeconds: WEEK_SECONDS,
+          resetsAt: weeklyResetsAt(0.25),
+        }),
+      ]),
+      GENERATED_AT,
+    );
+
+    expect(
+      result.quotaSemantics?.effectiveAvailability.find(
+        ({ scope }) => scope === "model:fable",
+      ),
+    ).toMatchObject({
+      status: "known",
+      boundedBy: ["five_hour", "seven_day", "model:fable"],
+      runway: {
+        status: "projected_exhaustion",
+        limitingWindowId: "model:fable",
+        usableRunwaySeconds: 50_400,
+        projectionConfidence: "established",
+        projectionBasis: "cycle_average",
+      },
+    });
+  });
+
   it("applies Codex base windows to named model windows", () => {
     const result = withQuotaSemantics(
       provider("codex", [
@@ -249,6 +288,10 @@ describe("quota semantics", () => {
           pace: {
             status: "unknown",
             unknownWindowIds: ["weekly"],
+          },
+          runway: {
+            status: "unknown",
+            unmeasurableWindowIds: ["weekly", "limit:2"],
           },
         },
       ],
