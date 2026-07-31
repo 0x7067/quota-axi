@@ -33,7 +33,6 @@ export function renderQuotaToon(
       percentRemaining: window.percentRemaining ?? "unknown",
       resetsAt: window.resetsAt ?? window.resetText ?? "unknown",
       pace: window.pace?.status ?? "unknown",
-      reserve: window.pace?.reservePercentPoints ?? "unknown",
       state: provider.state.status,
     })),
   );
@@ -46,10 +45,12 @@ export function renderQuotaToon(
         effectivePercentRemaining: "unknown" as string | number,
         boundedBy: "none",
         limitingWindowIds: "unknown",
-        pace: "unknown",
-        aheadWindows: "none",
-        unknownPace: "none",
-        worstReserve: "unknown" as string | number,
+        runway: "unknown",
+        usableRunwaySeconds: "unknown" as string | number,
+        projectedExhaustedAt: "unknown",
+        limitingWindowId: "unknown",
+        projectionConfidence: "unknown",
+        unmeasurableWindowIds: "none",
         unresolvedWindowIds:
           semantics?.unresolvedWindowIds?.join(" + ") ?? "none",
         relationshipStatus: semantics?.status ?? ("unknown" as const),
@@ -64,11 +65,17 @@ export function renderQuotaToon(
       boundedBy: availability.boundedBy.join(" + ") || "none",
       limitingWindowIds:
         availability.limitingWindowIds?.join(" + ") ?? "unknown",
-      pace: availability.pace?.status ?? "unknown",
-      aheadWindows: availability.pace?.aheadWindowIds?.join(" + ") ?? "none",
-      unknownPace: availability.pace?.unknownWindowIds?.join(" + ") ?? "none",
-      worstReserve:
-        availability.pace?.worstReservePercentPoints ?? ("unknown" as const),
+      runway: availability.runway?.status ?? "unknown",
+      usableRunwaySeconds:
+        availability.runway?.usableRunwaySeconds ?? ("unknown" as const),
+      projectedExhaustedAt:
+        availability.runway?.projectedExhaustedAt ?? ("unknown" as const),
+      limitingWindowId:
+        availability.runway?.limitingWindowId ?? ("unknown" as const),
+      projectionConfidence:
+        availability.runway?.projectionConfidence ?? ("unknown" as const),
+      unmeasurableWindowIds:
+        availability.runway?.unmeasurableWindowIds?.join(" + ") ?? "none",
       unresolvedWindowIds: semantics.unresolvedWindowIds?.join(" + ") ?? "none",
       relationshipStatus: semantics.status,
     }));
@@ -94,6 +101,37 @@ export function renderQuotaToon(
   if (advice.length > 0) blocks.push(encode({ advice }));
 
   if (full) {
+    const windowPace = response.providers.flatMap((provider) =>
+      provider.windows.map((window) => ({
+        provider: provider.provider,
+        id: window.id,
+        reserve: window.pace?.reservePercentPoints ?? "unknown",
+        burnMultiple: window.pace?.burnMultiple ?? "unknown",
+        projectedExhaustedAt:
+          window.pace?.projectedExhaustedAt ?? ("unknown" as const),
+        projectionConfidence:
+          window.pace?.projectionConfidence ?? ("unknown" as const),
+        projectionBasis: window.pace?.projectionBasis ?? ("unknown" as const),
+      })),
+    );
+    const effectivePace = response.providers.flatMap((provider) =>
+      (provider.quotaSemantics?.effectiveAvailability ?? []).map(
+        (availability) => ({
+          provider: provider.provider,
+          scope: availability.scope,
+          pace: availability.pace?.status ?? "unknown",
+          aheadWindowIds:
+            availability.pace?.aheadWindowIds?.join(" + ") ?? "none",
+          unknownWindowIds:
+            availability.pace?.unknownWindowIds?.join(" + ") ?? "none",
+          worstReserve:
+            availability.pace?.worstReservePercentPoints ??
+            ("unknown" as const),
+          worstReserveWindowId:
+            availability.pace?.worstReserveWindowId ?? ("unknown" as const),
+        }),
+      ),
+    );
     const accounts = response.providers.map((provider) => ({
       provider: provider.provider,
       email: provider.account?.email ?? "hidden",
@@ -104,6 +142,8 @@ export function renderQuotaToon(
     const attempts = response.providers.flatMap((provider) =>
       (provider.attempts ?? []).map((attempt) => attemptRow(provider, attempt)),
     );
+    blocks.push(encode({ windowPace }));
+    blocks.push(encode({ effectivePace }));
     blocks.push(encode({ accounts }));
     blocks.push(encode({ attempts }));
   }

@@ -77,6 +77,32 @@ export type QuotaPace = {
   cycleSeconds?: number;
 };
 
+export type EffectiveRunway = {
+  /**
+   * `through_reset` means every authoritative bounding window's current-cycle
+   * observation reaches its own reset before exhaustion. It is not a finite
+   * exhaustion deadline. `unknown` preserves uncertainty rather than deriving
+   * a synthetic scope reset from windows with different cycles.
+   */
+  status:
+    | "exhausted_now"
+    | "projected_exhaustion"
+    | "through_reset"
+    | "unknown";
+  /** Present for `exhausted_now` and `projected_exhaustion`, never negative. */
+  usableRunwaySeconds?: number;
+  /** Present for a finite exhaustion result when the snapshot clock is valid. */
+  projectedExhaustedAt?: string;
+  /** The authoritative bound responsible for a finite effective result. */
+  limitingWindowId?: string;
+  /** Present for cycle-average projected results, including `through_reset`. */
+  projectionConfidence?: "early" | "established";
+  /** Present when the conclusion follows the current cycle-average observation. */
+  projectionBasis?: "cycle_average";
+  /** Bounds that prevent a sound aggregate conclusion when status is `unknown`. */
+  unmeasurableWindowIds?: string[];
+};
+
 export type EffectivePaceSummary = {
   /**
    * Aggregate across every bounding window for this scope.
@@ -116,6 +142,11 @@ export type EffectiveAvailability = {
   limitingWindowIds?: string[];
   /** Compact pace over every bounding window, not only the current limiter. */
   pace?: EffectivePaceSummary;
+  /**
+   * Effective usable runway across every authoritative bounding window, derived
+   * from this report's single generatedAt clock. Not cached.
+   */
+  runway?: EffectiveRunway;
 };
 
 export type QuotaSemantics = {

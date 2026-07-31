@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { parseFlags } from "../src/args.js";
 import { main, normalizeArgv } from "../src/cli.js";
 import { PROVIDERS } from "../src/providers/index.js";
@@ -33,6 +33,7 @@ afterEach(() => {
   if (tempDir) rmSync(tempDir, { recursive: true, force: true });
   tempDir = undefined;
   process.exitCode = undefined;
+  vi.useRealTimers();
 });
 
 describe("CLI flag parsing", () => {
@@ -420,7 +421,78 @@ describe("CLI quota rendering", () => {
         status: "unknown",
         unknownWindowIds: ["five_hour", "seven_day", "model:fable"],
       },
+      runway: {
+        status: "unknown",
+        unmeasurableWindowIds: ["five_hour", "seven_day", "model:fable"],
+      },
     });
+  });
+
+  it("makes effective usable runway primary without hiding reserve diagnostics", async () => {
+    useTempCache();
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-15T12:00:00.000Z"));
+    PROVIDERS.claude = providerWithQuota({
+      provider: "claude",
+      label: "Claude",
+      source: "oauth",
+      windows: [
+        {
+          id: "five_hour",
+          label: "session",
+          kind: "session",
+          percentUsed: 99,
+          percentRemaining: 1,
+          windowSeconds: 18_000,
+          resetsAt: "2026-07-15T12:06:00.000Z",
+        },
+      ],
+      state: { status: "fresh", stale: false, sourcesTried: ["oauth"] },
+    });
+    PROVIDERS.codex = providerWithQuota({
+      provider: "codex",
+      label: "Codex",
+      source: "oauth",
+      windows: [
+        {
+          id: "weekly",
+          label: "week",
+          kind: "weekly",
+          percentUsed: 45,
+          percentRemaining: 55,
+          windowSeconds: 604_800,
+          resetsAt: "2026-07-20T01:12:00.000Z",
+        },
+      ],
+      state: { status: "fresh", stale: false, sourcesTried: ["oauth"] },
+    });
+
+    const compact = await capture(["--provider", "claude,codex"]);
+    expect(compact).toContain(
+      "windows[2]{provider,id,label,percentRemaining,resetsAt,pace,state}:",
+    );
+    expect(compact).toContain(
+      "effective[2]{provider,scope,effectivePercentRemaining,boundedBy,limitingWindowIds,runway,usableRunwaySeconds,projectedExhaustedAt,limitingWindowId,projectionConfidence,unmeasurableWindowIds,unresolvedWindowIds,relationshipStatus}:",
+    );
+    expect(compact).toContain(
+      'claude,all_models,1,five_hour,five_hour,projected_exhaustion,178,"2026-07-15T12:02:58.181Z",five_hour,established,none,none,known',
+    );
+    expect(compact).toContain(
+      'codex,all_models,55,weekly,weekly,projected_exhaustion,258720,"2026-07-18T11:52:00.000Z",weekly,established,none,none,known',
+    );
+    expect(compact).not.toContain("windowPace[");
+    expect(compact).not.toContain("worstReserve");
+
+    const full = await capture(["--provider", "claude,codex", "--full"]);
+    expect(full).toContain(
+      "windowPace[2]{provider,id,reserve,burnMultiple,projectedExhaustedAt,projectionConfidence,projectionBasis}:",
+    );
+    expect(full).toContain("claude,five_hour,-1,1.0102");
+
+    const json = JSON.parse(
+      await capture(["--provider", "claude,codex", "--json"]),
+    ) as QuotaAxiResponse;
+    expect(json.providers[0]?.windows[0]?.pace?.reservePercentPoints).toBe(-1);
   });
 
   it("renders Kimi remaining quota in compact TOON and normalized JSON", async () => {
@@ -430,16 +502,16 @@ describe("CLI quota rendering", () => {
     const toon = await capture(["--provider", "kimi"]);
     expect(toon).toContain("kimi,unknown,api,fresh");
     expect(toon).toContain(
-      "windows[2]{provider,id,label,percentRemaining,resetsAt,pace,reserve,state}:",
+      "windows[2]{provider,id,label,percentRemaining,resetsAt,pace,state}:",
     );
     expect(toon).toMatch(
-      /kimi,five_hour,session,81\.25,"2027-02-03T09:05:06\.000Z",[^,]+,[^,]+,fresh/,
+      /kimi,five_hour,session,81\.25,"2027-02-03T09:05:06\.000Z",[^,]+,fresh/,
     );
     expect(toon).toMatch(
-      /kimi,weekly,week,67\.5,"2027-02-08T04:05:06\.000Z",[^,]+,[^,]+,fresh/,
+      /kimi,weekly,week,67\.5,"2027-02-08T04:05:06\.000Z",[^,]+,fresh/,
     );
     expect(toon).toContain(
-      "effective[1]{provider,scope,effectivePercentRemaining,boundedBy,limitingWindowIds,pace,aheadWindows,unknownPace,worstReserve,unresolvedWindowIds,relationshipStatus}:",
+      "effective[1]{provider,scope,effectivePercentRemaining,boundedBy,limitingWindowIds,runway,usableRunwaySeconds,projectedExhaustedAt,limitingWindowId,projectionConfidence,unmeasurableWindowIds,unresolvedWindowIds,relationshipStatus}:",
     );
     expect(toon).not.toContain("synthetic-kimi-key");
     expect(toon).not.toMatch(/recommend|prefer provider|switch to/i);

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  computeEffectiveRunway,
   computeWindowPace,
   PACE_EARLY_ELAPSED_PERCENT,
   PACE_ON_PACE_DEADBAND_PERCENT_POINTS,
@@ -372,6 +373,116 @@ describe("computeWindowPace", () => {
     );
     expect(pace.status).toBe("on_pace");
     expect(pace.cycleSeconds).toBe(FIVE_HOURS_SECONDS);
+  });
+});
+
+describe("computeEffectiveRunway", () => {
+  function pacedWindow(
+    id: string,
+    percentRemaining: number,
+    elapsedFraction: number,
+    extra: Partial<QuotaWindow> = {},
+  ): QuotaWindow {
+    const value = window({
+      id,
+      percentUsed: 100 - percentRemaining,
+      percentRemaining,
+      windowSeconds: WEEK_SECONDS,
+      resetsAt: resetsAfter(elapsedFraction),
+      ...extra,
+    });
+    return { ...value, pace: computeWindowPace(value, GENERATED_AT) };
+  }
+
+  it("uses the earliest projected exhaustion across joint authoritative bounds", () => {
+    const first = pacedWindow("weekly", 50, 0.25);
+    const second = pacedWindow("five_hour", 50, 0.4);
+
+    expect(computeEffectiveRunway([first, second], GENERATED_AT)).toMatchObject(
+      {
+        status: "projected_exhaustion",
+        usableRunwaySeconds: 151_200,
+        limitingWindowId: "weekly",
+        projectionConfidence: "established",
+        projectionBasis: "cycle_average",
+        projectedExhaustedAt: first.pace?.projectedExhaustedAt,
+      },
+    );
+  });
+
+  it("reports zero remaining as exhausted now without requiring a cycle projection", () => {
+    expect(
+      computeEffectiveRunway(
+        [
+          window({
+            id: "weekly",
+            percentUsed: 100,
+            percentRemaining: 0,
+          }),
+        ],
+        GENERATED_AT,
+      ),
+    ).toEqual({
+      status: "exhausted_now",
+      usableRunwaySeconds: 0,
+      projectedExhaustedAt: GENERATED_AT,
+      limitingWindowId: "weekly",
+    });
+  });
+
+  it("reports through_reset when every bound reaches its own reset", () => {
+    const zeroUse = pacedWindow("five_hour", 100, 0.5);
+    const sustainable = pacedWindow("weekly", 90, 0.5);
+
+    expect(
+      computeEffectiveRunway([zeroUse, sustainable], GENERATED_AT),
+    ).toEqual({
+      status: "through_reset",
+      projectionConfidence: "established",
+      projectionBasis: "cycle_average",
+    });
+  });
+
+  it("preserves uncertainty when a bounding projection is stale or malformed", () => {
+    const projected = pacedWindow("weekly", 50, 0.25);
+    const stale = pacedWindow("five_hour", 50, 0.25);
+    stale.pace = { status: "unknown", reason: "stale" };
+
+    expect(computeEffectiveRunway([projected, stale], GENERATED_AT)).toEqual({
+      status: "unknown",
+      unmeasurableWindowIds: ["five_hour"],
+    });
+
+    const invalidTimestamp = pacedWindow("invalid", 50, 0.25, {
+      resetsAt: "not-a-timestamp",
+    });
+    expect(computeEffectiveRunway([invalidTimestamp], GENERATED_AT)).toEqual({
+      status: "unknown",
+      unmeasurableWindowIds: ["invalid"],
+    });
+  });
+
+  it("keeps early confidence and exact snapshot-clock edges deterministic", () => {
+    const early = pacedWindow("weekly", 50, 0.05);
+    expect(computeEffectiveRunway([early], GENERATED_AT)).toMatchObject({
+      status: "projected_exhaustion",
+      projectionConfidence: "early",
+      projectionBasis: "cycle_average",
+      usableRunwaySeconds: 30_240,
+    });
+
+    const resetAtSnapshot = window({
+      id: "weekly",
+      percentUsed: 0,
+      percentRemaining: 100,
+      windowSeconds: WEEK_SECONDS,
+      resetsAt: GENERATED_AT,
+    });
+    resetAtSnapshot.pace = computeWindowPace(resetAtSnapshot, GENERATED_AT);
+    expect(computeEffectiveRunway([resetAtSnapshot], GENERATED_AT)).toEqual({
+      status: "unknown",
+      unmeasurableWindowIds: ["weekly"],
+    });
   });
 });
 

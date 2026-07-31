@@ -1,6 +1,6 @@
 ---
 name: quota-axi
-description: "Report local Claude, Codex, Cursor, GitHub Copilot, Grok, and Kimi quota windows via the quota-axi CLI - remaining percentages, reset times, cycle-average pace vs the reset clock, and provider status read from local auth sources, with no routing, recommendation, or provider mutation. Use before deciding whether it is safe to keep spending a provider's quota, when the user asks about usage, rate limits, pace, or remaining quota, or when comparing local provider headroom."
+description: "Report local Claude, Codex, Cursor, GitHub Copilot, Grok, and Kimi quota windows via the quota-axi CLI - remaining effective usable runway, percentages, reset times, cycle-average pace vs the reset clock, and provider status read from local auth sources, with no routing, recommendation, or provider mutation. Use before deciding whether it is safe to keep spending a provider's quota, when the user asks about usage, rate limits, pace, or remaining quota, or when comparing local provider headroom."
 user-invocable: false
 author: Kun Chen (kunchenguid)
 metadata:
@@ -45,14 +45,17 @@ or when comparing supported local provider headroom side by side.
 3. Pass `--json` for the normalized machine-readable model instead of TOON. Read
    `quotaSemantics.effectiveAvailability` rather than treating a model window in isolation:
    account windows can bound every model, and `boundedBy` names every window included in the
-   effective percentage. Read each window's `pace` (and the effective scope's pace summary) to
-   distinguish raw remaining capacity from whether usage is ahead of or behind the reset clock:
-   negative `reservePercentPoints` means ahead/conserve. Default TOON already shows `pace` and
-   signed `reserve` on window rows. If relationship status is `partial` or `unknown`, do not
-   infer one. Stale reports keep raw windows for diagnostics, but effective availability and pace
-   are always unknown; never route from a stale raw percentage as though it were current headroom.
-   quota-axi never recommends a provider, model, or route.
-4. Pass `--full` to include account identity and per-source attempt details.
+   effective percentage. Read `effectiveAvailability[].runway` first for completion-risk evidence
+   across every authoritative bound: `projected_exhaustion` supplies the earliest finite
+   `usableRunwaySeconds`, `projectedExhaustedAt`, limiting window, and confidence; `through_reset`
+   deliberately has no synthetic deadline; `exhausted_now` is zero runway; and `unknown` names
+   unmeasurable bounds instead of inventing a conclusion. Read each window's `pace` (and the
+   effective scope's pace summary) for diagnostics. Default TOON omits raw numeric reserve;
+   `--json` and `--full` retain it. If relationship status is `partial` or `unknown`, do not infer
+   one. Stale reports keep raw windows for diagnostics, but effective availability, pace, and
+   runway are always unknown; never route from a stale raw percentage as though it were current
+   headroom. quota-axi never recommends a provider, model, or route.
+4. Pass `--full` to include account identity, per-source attempts, and raw reserve diagnostics.
 5. Run `npx -y quota-axi auth` to check local auth-source availability without printing
    secret values.
 6. On macOS, Claude Keychain value reads are pinned to the same validated current-user account
@@ -90,6 +93,8 @@ or when comparing supported local provider headroom side by side.
 usage: quota-axi [auth] [flags]
 commands[2]:
   (none)=quota, auth
+output:
+  Default TOON reports effective headroom and usable-runway evidence; use --full or --json for reserve diagnostics.
 flags[6]:
   --provider <claude,codex,cursor,copilot,grok,kimi>, --json, --full, --allow-keychain-prompt, --help, -v/--version
 examples:

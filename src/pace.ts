@@ -1,5 +1,6 @@
 import type {
   EffectivePaceSummary,
+  EffectiveRunway,
   QuotaPace,
   QuotaPaceReason,
   QuotaWindow,
@@ -85,6 +86,105 @@ export function computeWindowPace(
   return pace;
 }
 
+export function computeEffectiveRunway(
+  windows: QuotaWindow[],
+  generatedAt: string,
+): EffectiveRunway {
+  const exhausted = windows.find(
+    (window) => finiteNumber(window.percentRemaining) === 0,
+  );
+  const generatedAtMs = Date.parse(generatedAt);
+
+  if (exhausted) {
+    return {
+      status: "exhausted_now",
+      usableRunwaySeconds: 0,
+      limitingWindowId: exhausted.id,
+      ...(isRepresentableDateMs(generatedAtMs)
+        ? { projectedExhaustedAt: new Date(generatedAtMs).toISOString() }
+        : {}),
+    };
+  }
+
+  if (windows.length === 0 || !isRepresentableDateMs(generatedAtMs)) {
+    return unknownRunway(windows);
+  }
+
+  const unmeasurableWindowIds: string[] = [];
+  const projections: Array<{
+    window: QuotaWindow;
+    exhaustedAtMs: number;
+  }> = [];
+  let lowestConfidence: EffectiveRunway["projectionConfidence"] = "established";
+
+  for (const window of windows) {
+    const remaining = finiteNumber(window.percentRemaining);
+    const pace = window.pace;
+    const resetsAtMs = parseTimestamp(window.resetsAt);
+    if (
+      remaining === undefined ||
+      remaining < 0 ||
+      remaining > 100 ||
+      pace === undefined ||
+      pace.status === "unknown" ||
+      resetsAtMs === undefined ||
+      resetsAtMs <= generatedAtMs
+    ) {
+      unmeasurableWindowIds.push(window.id);
+      continue;
+    }
+
+    if (isZeroUse(window, remaining)) {
+      if ((pace.elapsedPercent ?? 0) < PACE_EARLY_ELAPSED_PERCENT) {
+        lowestConfidence = "early";
+      }
+      continue;
+    }
+
+    const exhaustedAtMs = parseTimestamp(pace?.projectedExhaustedAt);
+    if (
+      exhaustedAtMs === undefined ||
+      exhaustedAtMs <= generatedAtMs ||
+      pace?.projectionConfidence === undefined ||
+      pace.projectionBasis !== "cycle_average"
+    ) {
+      unmeasurableWindowIds.push(window.id);
+      continue;
+    }
+    if (pace.projectionConfidence === "early") lowestConfidence = "early";
+    if (exhaustedAtMs < resetsAtMs) {
+      projections.push({ window, exhaustedAtMs });
+    }
+  }
+
+  if (unmeasurableWindowIds.length > 0) {
+    return { status: "unknown", unmeasurableWindowIds };
+  }
+
+  if (projections.length === 0) {
+    return {
+      status: "through_reset",
+      projectionConfidence: lowestConfidence,
+      projectionBasis: "cycle_average",
+    };
+  }
+
+  const limiting = projections.reduce((earliest, candidate) =>
+    candidate.exhaustedAtMs < earliest.exhaustedAtMs ? candidate : earliest,
+  );
+  return {
+    status: "projected_exhaustion",
+    usableRunwaySeconds: Math.max(
+      0,
+      Math.round((limiting.exhaustedAtMs - generatedAtMs) / 1000),
+    ),
+    projectedExhaustedAt: new Date(limiting.exhaustedAtMs).toISOString(),
+    limitingWindowId: limiting.window.id,
+    projectionConfidence: limiting.window.pace?.projectionConfidence,
+    projectionBasis: "cycle_average",
+  };
+}
+
 export function summarizeEffectivePace(
   windows: QuotaWindow[],
 ): EffectivePaceSummary {
@@ -143,6 +243,22 @@ export function summarizeEffectivePace(
     summary.worstReserveWindowId = worstReserveWindowId;
   }
   return summary;
+}
+
+function unknownRunway(windows: QuotaWindow[]): EffectiveRunway {
+  return {
+    status: "unknown",
+    ...(windows.length > 0
+      ? { unmeasurableWindowIds: windows.map(({ id }) => id) }
+      : {}),
+  };
+}
+
+function isZeroUse(window: QuotaWindow, percentRemaining: number): boolean {
+  const percentUsed = finiteNumber(window.percentUsed);
+  return (
+    percentRemaining === 100 && (percentUsed === undefined || percentUsed === 0)
+  );
 }
 
 function resolveCycle(
