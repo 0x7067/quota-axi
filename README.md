@@ -60,9 +60,9 @@ windows[15]{provider,id,label,percentRemaining,resetsAt,pace,state}:
   kimi,weekly,week,74,"2026-03-20T12:17:02.400Z",behind,fresh
   kimi,five_hour,session,88,"2026-03-15T20:45:00.000Z",behind,fresh
 effective[9]{provider,scope,effectivePercentRemaining,boundedBy,limitingWindowIds,runway,usableRunwaySeconds,projectedExhaustedAt,limitingWindowId,projectionConfidence,projectionBasis,unmeasurableWindowIds,unresolvedWindowIds,relationshipStatus}:
-  claude,all_models,64,"five_hour + seven_day",seven_day,projected_exhaustion,212505,"2026-03-19T03:43:45.600Z",seven_day,established,cycle_average,none,none,known
-  claude,"model:fable",64,"five_hour + seven_day + model:fable",seven_day,projected_exhaustion,212505,"2026-03-19T03:43:45.600Z",seven_day,established,cycle_average,none,none,known
-  claude,seven_day_opus,64,"five_hour + seven_day + seven_day_opus",seven_day,projected_exhaustion,212505,"2026-03-19T03:43:45.600Z",seven_day,established,cycle_average,none,none,known
+  claude,all_models,64,"five_hour + seven_day",seven_day,projected_exhaustion,298906,"2026-03-19T03:43:45.600Z",seven_day,established,cycle_average,none,none,known
+  claude,"model:fable",64,"five_hour + seven_day + model:fable",seven_day,projected_exhaustion,298906,"2026-03-19T03:43:45.600Z",seven_day,established,cycle_average,none,none,known
+  claude,seven_day_opus,64,"five_hour + seven_day + seven_day_opus",seven_day,projected_exhaustion,298906,"2026-03-19T03:43:45.600Z",seven_day,established,cycle_average,none,none,known
   codex,all_models,47,"five_hour + weekly",weekly,through_reset,unknown,unknown,unknown,established,cycle_average,none,none,known
   codex,"model:gpt-5.1-codex",47,"five_hour + weekly + model:gpt-5.1-codex:5h",weekly,through_reset,unknown,unknown,unknown,established,cycle_average,none,none,known
   cursor,unresolved,unknown,none,unknown,unknown,unknown,unknown,unknown,unknown,unknown,none,"included_usage + auto_usage + api_usage",unknown
@@ -173,7 +173,7 @@ $ quota-axi --provider claude --json
             },
             "runway": {
               "status": "projected_exhaustion",
-              "usableRunwaySeconds": 212505,
+              "usableRunwaySeconds": 298906,
               "projectedExhaustedAt": "2026-03-19T03:43:45.600Z",
               "limitingWindowId": "seven_day",
               "projectionConfidence": "established",
@@ -195,7 +195,7 @@ $ quota-axi --provider claude --json
             },
             "runway": {
               "status": "projected_exhaustion",
-              "usableRunwaySeconds": 212505,
+              "usableRunwaySeconds": 298906,
               "projectedExhaustedAt": "2026-03-19T03:43:45.600Z",
               "limitingWindowId": "seven_day",
               "projectionConfidence": "established",
@@ -322,7 +322,7 @@ It is generated from `src/skill.ts`; update it with `pnpm run build:skill` and v
 | -------------------------------------------------- | ------------------------------------------------------ |
 | `--provider claude,codex,cursor,copilot,grok,kimi` | Scope providers                                        |
 | `--json`                                           | Emit normalized JSON instead of TOON for quota or auth |
-| `--full`                                           | Include quota account identity and source attempts     |
+| `--full`                                           | Include account, source attempts, and reserve details  |
 | `--allow-keychain-prompt`                          | Permit macOS Claude Keychain access that could prompt  |
 | `-h`, `--help`                                     | Print terse [AXI](https://axi.md) help                 |
 | `-v`, `-V`, `--version`                            | Print version                                          |
