@@ -59,16 +59,16 @@ windows[15]{provider,id,label,percentRemaining,resetsAt,pace,state}:
   grok,credits,credits,67,"2026-04-01T00:00:00.000Z",behind,fresh
   kimi,weekly,week,74,"2026-03-20T12:17:02.400Z",behind,fresh
   kimi,five_hour,session,88,"2026-03-15T20:45:00.000Z",behind,fresh
-effective[9]{provider,scope,effectivePercentRemaining,boundedBy,limitingWindowIds,runway,usableRunwaySeconds,projectedExhaustedAt,limitingWindowId,projectionConfidence,unmeasurableWindowIds,unresolvedWindowIds,relationshipStatus}:
-  claude,all_models,64,"five_hour + seven_day",seven_day,projected_exhaustion,212505,"2026-03-19T03:43:45.600Z",seven_day,established,none,none,known
-  claude,"model:fable",64,"five_hour + seven_day + model:fable",seven_day,projected_exhaustion,212505,"2026-03-19T03:43:45.600Z",seven_day,established,none,none,known
-  claude,seven_day_opus,64,"five_hour + seven_day + seven_day_opus",seven_day,projected_exhaustion,212505,"2026-03-19T03:43:45.600Z",seven_day,established,none,none,known
-  codex,all_models,47,"five_hour + weekly",weekly,through_reset,unknown,unknown,unknown,established,none,none,known
-  codex,"model:gpt-5.1-codex",47,"five_hour + weekly + model:gpt-5.1-codex:5h",weekly,through_reset,unknown,unknown,unknown,established,none,none,known
-  cursor,unresolved,unknown,none,unknown,unknown,unknown,unknown,unknown,unknown,none,"included_usage + auto_usage + api_usage",unknown
-  copilot,unresolved,unknown,none,unknown,unknown,unknown,unknown,unknown,unknown,none,"chat + premium_interactions",unknown
-  grok,all_products,67,credits,credits,through_reset,unknown,unknown,unknown,established,none,none,known
-  kimi,all_models,74,"weekly + five_hour",weekly,through_reset,unknown,unknown,unknown,established,none,none,known
+effective[9]{provider,scope,effectivePercentRemaining,boundedBy,limitingWindowIds,runway,usableRunwaySeconds,projectedExhaustedAt,limitingWindowId,projectionConfidence,projectionBasis,unmeasurableWindowIds,unresolvedWindowIds,relationshipStatus}:
+  claude,all_models,64,"five_hour + seven_day",seven_day,projected_exhaustion,212505,"2026-03-19T03:43:45.600Z",seven_day,established,cycle_average,none,none,known
+  claude,"model:fable",64,"five_hour + seven_day + model:fable",seven_day,projected_exhaustion,212505,"2026-03-19T03:43:45.600Z",seven_day,established,cycle_average,none,none,known
+  claude,seven_day_opus,64,"five_hour + seven_day + seven_day_opus",seven_day,projected_exhaustion,212505,"2026-03-19T03:43:45.600Z",seven_day,established,cycle_average,none,none,known
+  codex,all_models,47,"five_hour + weekly",weekly,through_reset,unknown,unknown,unknown,established,cycle_average,none,none,known
+  codex,"model:gpt-5.1-codex",47,"five_hour + weekly + model:gpt-5.1-codex:5h",weekly,through_reset,unknown,unknown,unknown,established,cycle_average,none,none,known
+  cursor,unresolved,unknown,none,unknown,unknown,unknown,unknown,unknown,unknown,unknown,none,"included_usage + auto_usage + api_usage",unknown
+  copilot,unresolved,unknown,none,unknown,unknown,unknown,unknown,unknown,unknown,unknown,none,"chat + premium_interactions",unknown
+  grok,all_products,67,credits,credits,through_reset,unknown,unknown,unknown,established,cycle_average,none,none,known
+  kimi,all_models,74,"weekly + five_hour",weekly,through_reset,unknown,unknown,unknown,established,cycle_average,none,none,known
 help[4]:
   Default TOON reports effective headroom and usable runway; use --json or --full for reserve diagnostics
   Run `quota-axi --provider claude --json` for JSON output

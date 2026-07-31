@@ -50,6 +50,7 @@ export function renderQuotaToon(
         projectedExhaustedAt: "unknown",
         limitingWindowId: "unknown",
         projectionConfidence: "unknown",
+        projectionBasis: "unknown",
         unmeasurableWindowIds: "none",
         unresolvedWindowIds:
           semantics?.unresolvedWindowIds?.join(" + ") ?? "none",
@@ -74,6 +75,8 @@ export function renderQuotaToon(
         availability.runway?.limitingWindowId ?? ("unknown" as const),
       projectionConfidence:
         availability.runway?.projectionConfidence ?? ("unknown" as const),
+      projectionBasis:
+        availability.runway?.projectionBasis ?? ("unknown" as const),
       unmeasurableWindowIds:
         availability.runway?.unmeasurableWindowIds?.join(" + ") ?? "none",
       unresolvedWindowIds: semantics.unresolvedWindowIds?.join(" + ") ?? "none",
