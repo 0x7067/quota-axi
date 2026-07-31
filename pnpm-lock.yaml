@@ -17,6 +17,9 @@ importers:
       "@eslint/js":
         specifier: 10.0.1
         version: 10.0.1(eslint@10.1.0)
+      "@types/js-yaml":
+        specifier: ^4.0.9
+        version: 4.0.9
       "@types/node":
         specifier: 22.0.0
         version: 22.0.0
@@ -26,6 +29,9 @@ importers:
       globals:
         specifier: 17.7.0
         version: 17.7.0
+      js-yaml:
+        specifier: ^4.1.1
+        version: 4.1.1
       prettier:
         specifier: 3.8.1
         version: 3.8.1
@@ -846,6 +852,12 @@ packages:
         integrity: sha512-GhdPgy1el4/ImP05X05Uw4cw2/M93BCUmnEvWZNStlCzEKME4Fkk+YpoA5OiHNQmoS7Cafb8Xa3Pya8m1Qrzeg==,
       }
 
+  "@types/js-yaml@4.0.9":
+    resolution:
+      {
+        integrity: sha512-k4MGaQl5TGo/iipqb2UDG2UwjXziSWkh0uysQelTlJpX1qGlpUZYm8PnO4DxG1qBomtJUdYJ6qR6xdIah10JLg==,
+      }
+
   "@types/json-schema@7.0.15":
     resolution:
       {
@@ -1023,6 +1035,12 @@ packages:
     resolution:
       {
         integrity: sha512-fgFx7Hfoq60ytK2c7DhnF8jIvzYgOMxfugjLOSMHjLIPgenqa7S7oaagATUq99mV6IYvN2tRmC0wnTYX6iPbMw==,
+      }
+
+  argparse@2.0.1:
+    resolution:
+      {
+        integrity: sha512-8+9WqebbFzpX9OR+Wa6O29asIogeRMzcGtAINdpMHHyAg10f05aSFVBbcEqGf/PXw1EjAZ+q2/bEBg3DvurK3Q==,
       }
 
   assertion-error@2.0.1:
@@ -1336,6 +1354,13 @@ packages:
       {
         integrity: sha512-RHxMLp9lnKHGHRng9QFhRCMbYAcVpn69smSGcq3f36xjgVVWThj4qqLbTLlq7Ssj8B+fIQ1EuCEGI2lKsyQeIw==,
       }
+
+  js-yaml@4.1.1:
+    resolution:
+      {
+        integrity: sha512-qQKT4zQxXl8lLwBtHMWwaTcGfFOZviOJet3Oy/xmGk2gZH677CJM9EvtfdSkgWcATZhj/55JZ0rmy3myCT5lsA==,
+      }
+    hasBin: true
 
   json-buffer@3.0.1:
     resolution:
@@ -2052,6 +2077,8 @@ snapshots:
 
   "@types/estree@1.0.9": {}
 
+  "@types/js-yaml@4.0.9": {}
+
   "@types/json-schema@7.0.15": {}
 
   "@types/node@22.0.0":
@@ -2205,6 +2232,8 @@ snapshots:
       fast-json-stable-stringify: 2.1.0
       json-schema-traverse: 0.4.1
       uri-js: 4.4.1
+
+  argparse@2.0.1: {}
 
   assertion-error@2.0.1: {}
 
@@ -2424,6 +2453,10 @@ snapshots:
       is-extglob: 2.1.1
 
   isexe@2.0.0: {}
+
+  js-yaml@4.1.1:
+    dependencies:
+      argparse: 2.0.1
 
   json-buffer@3.0.1: {}
 
