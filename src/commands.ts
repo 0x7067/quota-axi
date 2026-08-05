@@ -1,10 +1,16 @@
 import { annotateQuotaAdvice } from "./advice.js";
-import { parseFlags } from "./args.js";
+import { parseFlags, parseModelsFlags } from "./args.js";
 import { writeCachedProviders } from "./cache.js";
 import { withQuotaSemantics } from "./interpretation.js";
+import { createModelsResponse } from "./models.js";
 import { nowIso } from "./lib/time.js";
 import { PROVIDERS } from "./providers/index.js";
-import { redactedResponse, renderAuthToon, renderQuotaToon } from "./render.js";
+import {
+  redactedResponse,
+  renderAuthToon,
+  renderModelsToon,
+  renderQuotaToon,
+} from "./render.js";
 import type {
   AuthProviderReport,
   ProviderId,
@@ -40,6 +46,28 @@ export async function quotaCommand(
     : renderQuotaToon(redacted, binPath, flags.full);
 }
 
+export async function modelsCommand(
+  args: string[],
+  context: QuotaContext | undefined,
+): Promise<string> {
+  const binPath = context?.binPath ?? "quota-axi";
+  const flags = parseModelsFlags(args);
+  const options: ProviderOptions = {
+    allowKeychainPrompt: flags.allowKeychainPrompt,
+  };
+  const quota = await fetchQuota(flags.providers, options);
+  writeCachedProvidersBestEffort(quota.providers);
+  const response = createModelsResponse(quota, {
+    ...(flags.intelligence ? { intelligence: flags.intelligence } : {}),
+    ...(flags.sort ? { sort: flags.sort } : {}),
+  });
+
+  if (quota.providers.every(isFailed)) process.exitCode = 1;
+  return flags.json
+    ? JSON.stringify(response, null, 2)
+    : renderModelsToon(response, binPath, flags.full);
+}
+
 export async function authCommand(
   args: string[],
   context: QuotaContext | undefined,
@@ -60,7 +88,7 @@ export async function authCommand(
     : renderAuthToon(reports, binPath);
 }
 
-async function fetchQuota(
+export async function fetchQuota(
   providers: ProviderId[],
   options: ProviderOptions,
 ): Promise<QuotaAxiResponse> {

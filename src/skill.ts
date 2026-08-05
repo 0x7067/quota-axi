@@ -5,7 +5,7 @@ import { DESCRIPTION, TOP_HELP } from "./cli.js";
 export const SKILL_DESCRIPTION =
   "Report local Claude, Codex, Cursor, GitHub Copilot, Grok, and Kimi quota windows via the quota-axi CLI - remaining " +
   "effective usable runway, percentages, reset times, cycle-average pace vs the reset clock, and provider status read from local auth sources, " +
-  "with no routing, recommendation, or provider mutation. Use before deciding whether it is safe " +
+  "with no routing, provider mutation, or default ordering preference. Use before deciding whether it is safe " +
   "to keep spending a provider's quota, when the user asks about usage, rate limits, pace, or " +
   "remaining quota, or when comparing local provider headroom.";
 
@@ -58,8 +58,10 @@ ${DESCRIPTION}
 
 You do not need quota-axi installed globally - invoke it with \`npx -y quota-axi\`.
 
-quota-axi is data only: it never routes, recommends, proxies, intercepts, logs in, imports
-browser cookies, or mutates provider state. It reads local provider auth sources and calls
+quota-axi is data only: it never routes, recommends a provider, model, harness, credential, or
+route, proxies, intercepts, logs in, imports browser cookies, or mutates provider state. Default
+output has no ordering preference. The explicit \`models --sort runway\` comparator only orders
+quota evidence, preserves ties, and is never a recommendation. It reads local provider auth sources and calls
 first-party provider quota, usage, billing, or entitlement endpoints; it never launches the
 Claude, Grok, Pi, or Kimi CLIs, so it cannot spend the quota it measures.
 
@@ -85,7 +87,12 @@ or when comparing supported local provider headroom side by side.
    \`--json\` and \`--full\` retain it. If relationship status is \`partial\` or \`unknown\`, do not infer
    one. Stale reports keep raw windows for diagnostics, but effective availability, pace, and
    runway are always unknown; never route from a stale raw percentage as though it were current
-   headroom. quota-axi never recommends a provider, model, or route.
+   headroom. Default output has no ordering preference. For a provider-native model evidence join,
+   use \`npx -y quota-axi models --intelligence high --json\`. This catalog covers Claude, Codex,
+   Grok, and Kimi only; its buckets are coarse editorial classifications, not scores. Its response
+   includes catalog provenance and unmatched model windows. \`--sort runway\` is an explicit,
+   documented quota-evidence comparator, not a provider, model, harness, credential, or route
+   recommendation; inspect \`sort.tieGroups\` rather than treating equal evidence as a preference.
 4. Pass \`--full\` to include account identity, per-source attempts, and raw reserve diagnostics.
 5. Run \`npx -y quota-axi auth\` to check local auth-source availability without printing
    secret values.
