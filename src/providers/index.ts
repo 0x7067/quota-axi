@@ -29,7 +29,7 @@ export function parseProviders(value: string | undefined): ProviderId[] {
   if (invalid) {
     throw new Error(`unsupported provider: ${invalid}`);
   }
-  return providers as ProviderId[];
+  return [...new Set(providers)] as ProviderId[];
 }
 
 function isProviderId(value: string): value is ProviderId {

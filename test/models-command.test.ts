@@ -108,6 +108,36 @@ describe("models command", () => {
     expect(process.exitCode).toBe(2);
   });
 
+  it("fetches repeated provider scopes once and emits distinct unmatched scopes", async () => {
+    let fetches = 0;
+    const quota: ProviderQuota = {
+      provider: "claude",
+      label: "Claude",
+      source: "oauth",
+      windows: [
+        {
+          id: "model:unmapped",
+          label: "Unmapped",
+          kind: "model",
+        },
+      ],
+      state: { status: "fresh", stale: false, sourcesTried: ["oauth"] },
+    };
+    PROVIDERS.claude = {
+      ...adapter(quota),
+      async fetchQuota() {
+        fetches++;
+        return quota;
+      },
+    };
+
+    const json = JSON.parse(
+      await capture(["models", "--provider", "claude,claude", "--json"]),
+    );
+    expect(fetches).toBe(1);
+    expect(json.unmatchedWindowIds).toEqual(["claude/model:unmapped"]);
+  });
+
   it("fails when every catalog provider fails and rejects non-catalog scopes", async () => {
     for (const provider of ["claude", "codex", "grok", "kimi"] as const) {
       PROVIDERS[provider] = adapter(failedQuota(provider));
