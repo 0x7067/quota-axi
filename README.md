@@ -16,7 +16,7 @@ Agents need quota state before they choose where work can safely run.
 Vendor dashboards are not shaped for shell automation, and local CLIs expose different windows, resets, and auth sources.
 
 quota-axi reports local Claude, Codex, Cursor, GitHub Copilot, Grok, and Kimi quota windows in one [AXI](https://axi.md)-shaped call.
-It is data only: it never routes, recommends, proxies, intercepts, logs in, imports browser cookies, or mutates provider state.
+It is data only: it never routes, recommends a provider, model, harness, credential, or route, proxies, intercepts, logs in, imports browser cookies, or mutates provider state. Default output has no ordering preference. The opt-in `models --sort runway` surface applies only its documented deterministic comparator to quota evidence, preserves all evidence and explicit ties, and is not a recommendation.
 
 - **Official sources** - quota-axi reads local provider auth sources and calls the first-party quota, usage, billing, or entitlement endpoints used by the local agents, with a read-only Codex app-server probe as fallback.
 - **Local first** - quota and auth reports run on the machine that holds the credentials; their network calls go to first-party provider endpoints, never a third-party relay.
@@ -309,27 +309,36 @@ It is generated from `src/skill.ts`; update it with `pnpm run build:skill` and v
 
 ## CLI Reference
 
-| Command          | Description                                       |
-| ---------------- | ------------------------------------------------- |
-| `quota-axi`      | Report supported local quota windows              |
-| `auth`           | Report local auth-source availability, no values  |
-| `update`         | Upgrade quota-axi to the latest published version |
-| `update --check` | Report current vs. latest without installing      |
+| Command          | Description                                          |
+| ---------------- | ---------------------------------------------------- |
+| `quota-axi`      | Report supported local quota windows                 |
+| `auth`           | Report local auth-source availability, no values     |
+| `models`         | Join curated model buckets with local quota evidence |
+| `update`         | Upgrade quota-axi to the latest published version    |
+| `update --check` | Report current vs. latest without installing         |
 
 ### Flags
 
-| Flag                                               | Description                                            |
-| -------------------------------------------------- | ------------------------------------------------------ |
-| `--provider claude,codex,cursor,copilot,grok,kimi` | Scope providers                                        |
-| `--json`                                           | Emit normalized JSON instead of TOON for quota or auth |
-| `--full`                                           | Include account, source attempts, and reserve details  |
-| `--allow-keychain-prompt`                          | Permit macOS Claude Keychain access that could prompt  |
-| `-h`, `--help`                                     | Print terse [AXI](https://axi.md) help                 |
-| `-v`, `-V`, `--version`                            | Print version                                          |
+| Flag                                               | Description                                                     |
+| -------------------------------------------------- | --------------------------------------------------------------- |
+| `--provider claude,codex,cursor,copilot,grok,kimi` | Scope providers                                                 |
+| `--json`                                           | Emit normalized JSON instead of TOON for quota, auth, or models |
+| `--full`                                           | Include account, source attempts, and reserve details           |
+| `--allow-keychain-prompt`                          | Permit macOS Claude Keychain access that could prompt           |
+| `--intelligence high\|medium\|low`                 | Filter `models` by editorial intelligence bucket                |
+| `--sort runway`                                    | Explicitly sort `models` by documented usable-runway evidence   |
+| `-h`, `--help`                                     | Print terse [AXI](https://axi.md) help                          |
+| `-v`, `-V`, `--version`                            | Print version                                                   |
 
 ## Output Model
 
-`--json` emits `schemaVersion: 3`.
+The `quota` command's `--json` emits `schemaVersion: 3`.
+
+### Normalized schema contract
+
+The package publishes TypeScript declarations from its package root, so consumers can use `import type { QuotaAxiResponse, ModelsResponse } from "quota-axi"`. The adapter contract is `ProviderAdapter` in and normalized `ProviderQuota` out: adapters report observed quota data, never rank, mutate provider state, or retain raw responses.
+
+`schemaVersion` is command-specific. Additive optional fields do not bump it. A semantic or incompatible shape change does. The `quota` report is version 3, `auth` is version 1, and `models` is version 1.
 
 ### Quota report shape
 
@@ -461,6 +470,16 @@ Source attempts can include `credentialPresent` when a non-secret probe confirms
 | Grok                   | With a usable Grok CLI session bearer, can report the shared `credits` window, optional product-scoped `product:<slug>` windows, the current-period `startsAt` and reset, and optional prepaid credit balance from the consumer Usage-page operation. Pi `xai` auth alone establishes usability but cannot provide these consumer windows. Top-level `credits.remaining` is prepaid/on-demand balance, distinct from the shared period `windows` credits percentage used for effective availability. Pace prefers the startsAt/resetsAt pair.                          |
 | Grok proto3 zero       | For the exact consumer operation only, an omitted usage float is the official proto3 zero when a valid weekly or monthly current period proves the config is present; quota-axi reports `0` used and `100` remaining rather than deriving usage from money.                                                                                                                                                                                                                                                                                                            |
 | Kimi                   | Reports the principal `weekly` subscription window (with trusted 604,800s duration) plus every valid self-described limit in wire order. Only a limit whose normalized duration is exactly 18,000 seconds is identified as `five_hour`; future limits remain `limit:<index>` unknown windows.                                                                                                                                                                                                                                                                          |
+
+### Model catalog and `models`
+
+`quota-axi models [--intelligence high|medium|low] [--sort runway] [--provider ...] [--json|--full]` joins a reviewed catalog of native Claude, Codex, Grok, and Kimi models to the provider's effective quota evidence. It queries those four catalog-backed providers by default and accepts only those providers in an explicit models scope. Cursor and Copilot are excluded from this first catalog because their hosted model availability and quota relationships are plan-dependent and currently unknown.
+
+Catalog buckets are coarse editorial classifications relative to the current frontier, not scores. They are curated from public provider material and public leaderboards, including [Artificial Analysis](https://artificialanalysis.ai/) as an informing source. quota-axi does not reproduce Artificial Analysis scores, has no runtime Artificial Analysis dependency, and never commits an Artificial Analysis key. `scripts/refresh-model-kb.ts` is a maintainer-only review aid: it may use a private `AA_API_KEY` to suggest changes, but it never writes the catalog.
+
+Every models response includes `catalog.version` and `catalog.provenance`; callers must treat catalog freshness and unmapped `unmatchedWindowIds` as explicit uncertainty. A model row exposes the applicable effective quota scope and provider state. When no model-specific scope is known, the provider account scope remains the evidence rather than an invented model limit.
+
+Default model order is deterministic and non-preferential: provider, then model ID. `--sort runway` is an explicit, evidence-preserving comparator only: finite `usableRunwaySeconds` descend, then `through_reset`, then `exhausted_now`, with unknown evidence last. Equal evidence appears in `sort.tieGroups`; no hidden score or model, provider, harness, credential, or route recommendation is implied. The comparator registry is intentionally extensible for a future separately sourced `cost` comparator, which is not shipped in v1.
 
 ### `auth --json` shape
 

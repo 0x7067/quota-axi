@@ -3,6 +3,7 @@ import { quotaHelpLines } from "./advice.js";
 import { collapseHome } from "./lib/fs.js";
 import type {
   AuthProviderReport,
+  ModelsResponse,
   ProviderQuota,
   QuotaAxiResponse,
   SourceAttempt,
@@ -179,6 +180,64 @@ export function renderAuthToon(
       "Run `quota-axi --allow-keychain-prompt auth` to permit macOS Keychain access",
     ]),
   ].join("\n");
+}
+
+export function renderModelsToon(
+  response: ModelsResponse,
+  binPath: string,
+  full: boolean,
+): string {
+  const models = response.models.map((model) => ({
+    provider: model.provider,
+    id: model.id,
+    label: model.label,
+    intelligence: model.intelligence,
+    quotaScopes: model.quotaScopes.join(" + ") || "unknown",
+    status: model.state.status,
+    stale: model.state.stale,
+    effectivePercentRemaining:
+      model.effective?.effectivePercentRemaining ?? ("unknown" as const),
+    runway: model.effective?.runway?.status ?? "unknown",
+    usableRunwaySeconds:
+      model.effective?.runway?.usableRunwaySeconds ?? ("unknown" as const),
+  }));
+  const blocks = [
+    encode({
+      bin: collapseHome(binPath),
+      description:
+        "Join curated provider-native model intelligence buckets with local quota evidence",
+      generatedAt: response.generatedAt,
+      catalogVersion: response.catalog.version,
+    }),
+    encode({ models }),
+  ];
+  if (response.sort) blocks.push(encode({ sort: response.sort }));
+  if (response.unmatchedWindowIds?.length) {
+    blocks.push(encode({ unmatchedWindowIds: response.unmatchedWindowIds }));
+  }
+  if (full) {
+    const evidence = response.models.map((model) => ({
+      provider: model.provider,
+      id: model.id,
+      boundedBy: model.effective?.boundedBy.join(" + ") ?? "unknown",
+      limitingWindowIds:
+        model.effective?.limitingWindowIds?.join(" + ") ?? "unknown",
+      projectedExhaustedAt:
+        model.effective?.runway?.projectedExhaustedAt ?? "unknown",
+      authStatus: model.state.authStatus ?? "unknown",
+      reason: model.state.reason ?? "none",
+      remedyCommand: model.state.remedyCommand ?? "none",
+    }));
+    blocks.push(encode({ evidence }));
+  }
+  blocks.push(
+    renderHelp([
+      "Default model order is deterministic and non-preferential (provider, then id)",
+      "Run `quota-axi models --sort runway` for the documented opt-in runway comparator",
+      "Run `quota-axi models --json` for catalog provenance and full quota evidence",
+    ]),
+  );
+  return blocks.join("\n");
 }
 
 export function redactedResponse(

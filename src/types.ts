@@ -231,3 +231,65 @@ export type AuthProviderReport = {
   provider: ProviderId;
   sources: AuthSourceReport[];
 };
+
+/** A coarse editorial classification relative to the current model frontier. */
+export type IntelligenceBucket = "high" | "medium" | "low";
+
+/** Native-provider model knowledge used by the `models` evidence join. */
+export type ModelCatalogEntry = {
+  provider: "claude" | "codex" | "grok" | "kimi";
+  id: string;
+  label: string;
+  intelligence: IntelligenceBucket;
+  /** Known model-scoped quota window IDs, without period suffixes. */
+  windowIds?: string[];
+  /** Human-facing or provider naming aliases, never launch identifiers. */
+  aliases?: string[];
+  notes?: string;
+};
+
+export type ModelCatalog = {
+  /** ISO calendar date for this reviewed catalog snapshot. */
+  version: string;
+  provenance: string;
+  entries: ModelCatalogEntry[];
+};
+
+export type ProviderStateSummary = Pick<
+  ProviderQuota["state"],
+  "status" | "stale" | "authStatus" | "reason" | "remedyCommand"
+>;
+
+export type ModelQuotaRecord = {
+  provider: ModelCatalogEntry["provider"];
+  id: string;
+  label: string;
+  intelligence: IntelligenceBucket;
+  /** The effective availability scope used as evidence for this row. */
+  quotaScopes: string[];
+  /** Omitted when quota relationships are unavailable or unknown. */
+  effective?: EffectiveAvailability;
+  state: ProviderStateSummary;
+};
+
+export type ModelReference = Pick<ModelQuotaRecord, "provider" | "id">;
+
+/** Opt-in ordering keys. Future keys require their own evidence and docs. */
+export type ModelSortKey = "runway";
+
+export type ModelSortResult = {
+  key: ModelSortKey;
+  /** Groups with equal comparator evidence, never hidden behind array order. */
+  tieGroups: ModelReference[][];
+};
+
+export type ModelsResponse = {
+  generatedAt: string;
+  schemaVersion: 1;
+  catalog: Pick<ModelCatalog, "version" | "provenance">;
+  models: ModelQuotaRecord[];
+  /** Provider/model window scopes with no corresponding catalog entry. */
+  unmatchedWindowIds?: string[];
+  /** Present only when an explicit comparator was requested. */
+  sort?: ModelSortResult;
+};
