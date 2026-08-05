@@ -2,7 +2,10 @@ import { annotateQuotaAdvice } from "./advice.js";
 import { parseFlags, parseModelsFlags } from "./args.js";
 import { writeCachedProviders } from "./cache.js";
 import { withQuotaSemantics } from "./interpretation.js";
-import { createModelsResponse } from "./models.js";
+import {
+  createModelsResponse,
+  MODEL_CATALOG_PROVIDER_IDS,
+} from "./models.js";
 import { nowIso } from "./lib/time.js";
 import { PROVIDERS } from "./providers/index.js";
 import {
@@ -62,7 +65,10 @@ export async function modelsCommand(
     ...(flags.sort ? { sort: flags.sort } : {}),
   });
 
-  if (quota.providers.every(isFailed)) process.exitCode = 1;
+  const modelProviders = quota.providers.filter((provider) =>
+    MODEL_CATALOG_PROVIDER_IDS.includes(provider.provider),
+  );
+  if (modelProviders.every(isFailed)) process.exitCode = 1;
   return flags.json
     ? JSON.stringify(response, null, 2)
     : renderModelsToon(response, binPath, flags.full);

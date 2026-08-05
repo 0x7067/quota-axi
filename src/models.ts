@@ -19,12 +19,10 @@ const INTELLIGENCE_BUCKETS = new Set<IntelligenceBucket>([
   "medium",
   "low",
 ]);
-const MODEL_KB_PROVIDERS = new Set<ProviderId>([
-  "claude",
-  "codex",
-  "grok",
-  "kimi",
-]);
+export const MODEL_CATALOG_PROVIDER_IDS: readonly ProviderId[] = [
+  ...new Set(MODEL_CATALOG.entries.map((entry) => entry.provider)),
+];
+const MODEL_KB_PROVIDERS = new Set<ProviderId>(MODEL_CATALOG_PROVIDER_IDS);
 
 export const MODEL_SORT_KEYS = [
   "runway",

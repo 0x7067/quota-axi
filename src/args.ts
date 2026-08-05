@@ -1,4 +1,5 @@
 import { AxiError } from "axi-sdk-js";
+import { MODEL_CATALOG_PROVIDER_IDS } from "./models.js";
 import { parseProviders } from "./providers/index.js";
 import type { IntelligenceBucket, ModelSortKey, ProviderId } from "./types.js";
 
@@ -33,10 +34,24 @@ export function parseFlags(args: string[]): QuotaFlags {
 
 /** Parse flags accepted by the `models` evidence-join command. */
 export function parseModelsFlags(args: string[]): ModelsFlags {
-  return parseCommonFlags(args);
+  const flags = parseCommonFlags(args, MODEL_CATALOG_PROVIDER_IDS);
+  const unsupported = flags.providers.find(
+    (provider) => !MODEL_CATALOG_PROVIDER_IDS.includes(provider),
+  );
+  if (unsupported) {
+    throw new AxiError(
+      `models does not support provider: ${unsupported}`,
+      "VALIDATION_ERROR",
+      ["Supported model providers: claude, codex, grok, kimi"],
+    );
+  }
+  return flags;
 }
 
-function parseCommonFlags(args: string[]): ModelsFlags {
+function parseCommonFlags(
+  args: string[],
+  defaultProviders?: readonly ProviderId[],
+): ModelsFlags {
   let providerValue: string | undefined;
   let json = false;
   let full = false;
@@ -105,7 +120,10 @@ function parseCommonFlags(args: string[]): ModelsFlags {
   }
 
   return {
-    providers: parseProviderScope(providerValue),
+    providers:
+      providerValue === undefined && defaultProviders
+        ? [...defaultProviders]
+        : parseProviderScope(providerValue),
     json,
     full,
     allowKeychainPrompt,

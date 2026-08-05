@@ -5,9 +5,19 @@ import { PROVIDERS } from "../src/providers/index.js";
 import type { ProviderAdapter, ProviderQuota } from "../src/types.js";
 
 const originalClaude = PROVIDERS.claude;
+const originalCodex = PROVIDERS.codex;
+const originalCursor = PROVIDERS.cursor;
+const originalCopilot = PROVIDERS.copilot;
+const originalGrok = PROVIDERS.grok;
+const originalKimi = PROVIDERS.kimi;
 
 afterEach(() => {
   PROVIDERS.claude = originalClaude;
+  PROVIDERS.codex = originalCodex;
+  PROVIDERS.cursor = originalCursor;
+  PROVIDERS.copilot = originalCopilot;
+  PROVIDERS.grok = originalGrok;
+  PROVIDERS.kimi = originalKimi;
   process.exitCode = undefined;
 });
 
@@ -97,6 +107,28 @@ describe("models command", () => {
     expect(sort).toContain("Supported sort keys: runway");
     expect(process.exitCode).toBe(2);
   });
+
+  it("fails when every catalog provider fails and rejects non-catalog scopes", async () => {
+    for (const provider of ["claude", "codex", "grok", "kimi"] as const) {
+      PROVIDERS[provider] = adapter(failedQuota(provider));
+    }
+    PROVIDERS.cursor = adapter({
+      provider: "cursor",
+      label: "Cursor",
+      source: "api",
+      windows: [],
+      state: { status: "fresh", stale: false, sourcesTried: ["api"] },
+    });
+
+    const json = JSON.parse(await capture(["models", "--json"]));
+    expect(json.models).toHaveLength(12);
+    expect(process.exitCode).toBe(1);
+
+    process.exitCode = undefined;
+    const unsupported = await capture(["models", "--provider", "cursor"]);
+    expect(unsupported).toContain("models does not support provider: cursor");
+    expect(process.exitCode).toBe(2);
+  });
 });
 
 async function capture(argv: string[]): Promise<string> {
@@ -118,6 +150,22 @@ function adapter(quota: ProviderQuota): ProviderAdapter {
     },
     async inspectAuth() {
       return { provider: quota.provider, sources: [] };
+    },
+  };
+}
+
+function failedQuota(
+  provider: "claude" | "codex" | "grok" | "kimi",
+): ProviderQuota {
+  return {
+    provider,
+    label: provider,
+    source: "unavailable",
+    windows: [],
+    state: {
+      status: "unavailable",
+      stale: false,
+      sourcesTried: ["unavailable"],
     },
   };
 }
