@@ -2,10 +2,7 @@ import { annotateQuotaAdvice } from "./advice.js";
 import { parseFlags, parseModelsFlags } from "./args.js";
 import { writeCachedProviders } from "./cache.js";
 import { withQuotaSemantics } from "./interpretation.js";
-import {
-  createModelsResponse,
-  MODEL_CATALOG_PROVIDER_IDS,
-} from "./models.js";
+import { createModelsResponse, MODEL_CATALOG_PROVIDER_IDS } from "./models.js";
 import { nowIso } from "./lib/time.js";
 import { PROVIDERS } from "./providers/index.js";
 import {
