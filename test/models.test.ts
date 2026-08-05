@@ -36,6 +36,12 @@ describe("model catalog", () => {
       "model catalog version must be an ISO calendar date",
     );
   });
+
+  it("rejects calendar dates whose day overflows into another month", () => {
+    expect(() =>
+      validateModelCatalog({ ...MODEL_CATALOG, version: "2026-02-31" }),
+    ).toThrow("model catalog version must be an ISO calendar date");
+  });
 });
 
 describe("model quota join", () => {
@@ -123,7 +129,8 @@ function quotaResponse(): QuotaAxiResponse {
         windows: [
           { id: "five_hour", label: "session", kind: "session" },
           { id: "model:fable", label: "Fable", kind: "model" },
-          { id: "model:unmapped", label: "Unmapped", kind: "model" },
+          { id: "model:unmapped:5h", label: "Unmapped 5h", kind: "model" },
+          { id: "model:unmapped:7d", label: "Unmapped 7d", kind: "model" },
         ],
         quotaSemantics: {
           status: "known",

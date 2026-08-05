@@ -123,9 +123,11 @@ export function compareModelsByRunway(
 }
 
 export function validateModelCatalog(catalog: ModelCatalog): void {
+  const versionTimestamp = Date.parse(`${catalog.version}T00:00:00.000Z`);
   if (
     !/^\d{4}-\d{2}-\d{2}$/.test(catalog.version) ||
-    Number.isNaN(Date.parse(`${catalog.version}T00:00:00.000Z`))
+    Number.isNaN(versionTimestamp) ||
+    new Date(versionTimestamp).toISOString().slice(0, 10) !== catalog.version
   ) {
     throw new Error("model catalog version must be an ISO calendar date");
   }
@@ -201,10 +203,16 @@ function unmatchedModelWindowIds(
       .flatMap((entry) => entry.windowIds ?? [])
       .map(normalizedModelScope),
   );
+  const unmatchedScopes = new Set<string>();
   return provider.windows
     .filter((window) => window.kind === "model")
     .map((window) => normalizedModelScope(window.id))
     .filter((scope) => !knownScopes.has(scope))
+    .filter((scope) => {
+      if (unmatchedScopes.has(scope)) return false;
+      unmatchedScopes.add(scope);
+      return true;
+    })
     .map((scope) => `${provider.provider}/${scope}`);
 }
 
