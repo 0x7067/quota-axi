@@ -419,9 +419,9 @@ describe("renderQuotaTui structure", () => {
     };
     response.providers[0].attempts = [
       {
-        source: "keychain",
+        source: "oauth-profile-with-an-extremely-long-source-name",
         status: "skipped",
-        error: "keychain_prompt_required",
+        error: "identity_context_mismatch",
       },
     ];
     const lines = renderQuotaTui(response, {
@@ -429,11 +429,14 @@ describe("renderQuotaTui structure", () => {
       full: true,
       timeZone: "America/Los_Angeles",
     }).split("\n");
-    const footer = findLine(lines, "claude ·");
-    expect(footer).toContain("id account");
-    expect(footer).toContain("identity u");
-    expect(footer).toContain("tried keyc");
-    expect(footer).toContain("…");
+    const accountFooter = findLine(lines, "claude ·");
+    expect(accountFooter).toContain("id account-");
+    expect(accountFooter).toContain("identity unverified");
+    expect(accountFooter).toContain("…");
+    const attemptFooter = findLine(lines, "tried oauth-profile");
+    expect(attemptFooter).toContain(
+      "… (skipped: identity_context_mismatch)",
+    );
     for (const line of lines) expect(line.length).toBeLessThanOrEqual(80);
 
     response.providers[0].account = {

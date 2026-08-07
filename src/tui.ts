@@ -140,12 +140,9 @@ export function renderQuotaTui(
   if (options.full) {
     lines.push([]);
     for (const provider of ordered) {
-      lines.push([
-        {
-          text: `  ${fullFooterText(provider, columns - 2)}`,
-          style: "dim",
-        },
-      ]);
+      for (const footerLine of fullFooterLines(provider, columns - 2)) {
+        lines.push([{ text: `  ${footerLine}`, style: "dim" }]);
+      }
     }
   }
 
@@ -631,13 +628,19 @@ function formatAbsolute(
   }).format(date);
 }
 
-function fullFooterText(provider: ProviderQuota, width: number): string {
-  const parts: string[] = [provider.provider];
-  if (provider.account?.email) parts.push(provider.account.email);
-  if (provider.account?.organization) parts.push(provider.account.organization);
-  if (provider.account?.accountId) parts.push(`id ${provider.account.accountId}`);
+function fullFooterLines(provider: ProviderQuota, width: number): string[] {
+  const accountParts: string[] = [provider.provider];
+  const protectedAccountParts = new Set([0]);
+  if (provider.account?.email) accountParts.push(provider.account.email);
+  if (provider.account?.organization) {
+    accountParts.push(provider.account.organization);
+  }
+  if (provider.account?.accountId) {
+    accountParts.push(`id ${provider.account.accountId}`);
+  }
   if (provider.account?.identityStatus) {
-    parts.push(`identity ${provider.account.identityStatus}`);
+    protectedAccountParts.add(accountParts.length);
+    accountParts.push(`identity ${provider.account.identityStatus}`);
   }
   const attempts = (provider.attempts ?? []).map(
     (attempt) =>
@@ -648,20 +651,73 @@ function fullFooterText(provider: ProviderQuota, width: number): string {
       }`,
   );
   const tried = attempts.length > 0 ? attempts : provider.state.sourcesTried;
-  if (tried.length > 0) parts.push(`tried ${tried.join(" → ")}`);
-  return fitFooterParts(parts, width);
+  const completeParts = [...accountParts];
+  if (tried.length > 0) completeParts.push(`tried ${tried.join(" → ")}`);
+  const complete = completeParts.join(" · ");
+  if (complete.length <= width) return [complete];
+
+  const lines = [
+    fitFooterParts(accountParts, width, protectedAccountParts),
+  ];
+  if (provider.attempts && provider.attempts.length > 0) {
+    lines.push(
+      ...provider.attempts.map((attempt) => formatAttemptLine(attempt, width)),
+    );
+  } else {
+    lines.push(
+      ...provider.state.sourcesTried.map((source) =>
+        truncate(`  tried ${source}`, width),
+      ),
+    );
+  }
+  return lines;
 }
 
-function fitFooterParts(parts: string[], width: number): string {
+function formatAttemptLine(
+  attempt: NonNullable<ProviderQuota["attempts"]>[number],
+  width: number,
+): string {
+  const prefix = "  tried ";
+  if (attempt.status === "success") {
+    return truncate(`${prefix}${attempt.source}`, width);
+  }
+
+  const statusPrefix = ` (${attempt.status}${attempt.error ? ": " : ""}`;
+  const suffix = ")";
+  const complete = `${prefix}${attempt.source}${statusPrefix}${attempt.error ?? ""}${suffix}`;
+  if (complete.length <= width) return complete;
+
+  const fixedWidth = prefix.length + statusPrefix.length + suffix.length;
+  const available = Math.max(2, width - fixedWidth);
+  const minimumSourceWidth = Math.min(8, attempt.source.length);
+  const errorWidth = attempt.error
+    ? Math.min(attempt.error.length, Math.max(1, available - minimumSourceWidth))
+    : 0;
+  const sourceWidth = Math.max(1, available - errorWidth);
+  return `${prefix}${truncate(attempt.source, sourceWidth)}${statusPrefix}${
+    attempt.error ? truncate(attempt.error, errorWidth) : ""
+  }${suffix}`;
+}
+
+function fitFooterParts(
+  parts: string[],
+  width: number,
+  protectedParts = new Set([0]),
+): string {
   const separator = " · ";
   const complete = parts.join(separator);
   if (complete.length <= width) return complete;
 
   const available = Math.max(0, width - separator.length * (parts.length - 1));
   const widths = new Array<number>(parts.length).fill(0);
-  widths[0] = Math.min(parts[0].length, available);
-  let remaining = available - widths[0];
-  let pending = parts.slice(1).map((_, index) => index + 1);
+  let remaining = available;
+  for (const index of protectedParts) {
+    widths[index] = Math.min(parts[index].length, remaining);
+    remaining -= widths[index];
+  }
+  let pending = parts
+    .map((_, index) => index)
+    .filter((index) => !protectedParts.has(index));
 
   while (pending.length > 0) {
     const share = Math.floor(remaining / pending.length);
