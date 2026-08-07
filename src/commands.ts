@@ -1,3 +1,4 @@
+import { AxiError } from "axi-sdk-js";
 import { annotateQuotaAdvice } from "./advice.js";
 import { parseFlags, parseModelsFlags } from "./args.js";
 import { writeCachedProviders } from "./cache.js";
@@ -11,6 +12,7 @@ import {
   renderModelsToon,
   renderQuotaToon,
 } from "./render.js";
+import { detectTuiColorDepth, renderQuotaTui } from "./tui.js";
 import type {
   AuthProviderReport,
   ProviderId,
@@ -41,6 +43,16 @@ export async function quotaCommand(
   }
   writeCachedProvidersBestEffort(response.providers);
 
+  if (flags.tui) {
+    return renderQuotaTui(redacted, {
+      columns: process.stdout.columns,
+      colorDepth: detectTuiColorDepth(
+        process.env,
+        process.stdout.isTTY === true,
+      ),
+      full: flags.full,
+    });
+  }
   return flags.json
     ? JSON.stringify(redacted, null, 2)
     : renderQuotaToon(redacted, binPath, flags.full);
@@ -77,6 +89,13 @@ export async function authCommand(
 ): Promise<string> {
   const binPath = context?.binPath ?? "quota-axi";
   const flags = parseFlags(args);
+  if (flags.tui) {
+    throw new AxiError(
+      "--tui is only supported by the quota command",
+      "VALIDATION_ERROR",
+      ["Run `quota-axi --tui` for the human quota report"],
+    );
+  }
   const options: ProviderOptions = {
     allowKeychainPrompt: flags.allowKeychainPrompt,
   };
