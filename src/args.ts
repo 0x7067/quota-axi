@@ -7,6 +7,7 @@ export type QuotaFlags = {
   providers: ProviderId[];
   json: boolean;
   full: boolean;
+  tui: boolean;
   allowKeychainPrompt: boolean;
 };
 
@@ -35,6 +36,13 @@ export function parseFlags(args: string[]): QuotaFlags {
 /** Parse flags accepted by the `models` evidence-join command. */
 export function parseModelsFlags(args: string[]): ModelsFlags {
   const flags = parseCommonFlags(args, MODEL_CATALOG_PROVIDER_IDS);
+  if (flags.tui) {
+    throw new AxiError(
+      "--tui is only supported by the quota command",
+      "VALIDATION_ERROR",
+      ["Run `quota-axi --tui` for the human quota report"],
+    );
+  }
   const unsupported = flags.providers.find(
     (provider) => !MODEL_CATALOG_PROVIDER_IDS.includes(provider),
   );
@@ -55,6 +63,7 @@ function parseCommonFlags(
   let providerValue: string | undefined;
   let json = false;
   let full = false;
+  let tui = false;
   let allowKeychainPrompt = false;
   let intelligence: IntelligenceBucket | undefined;
   let sort: ModelSortKey | undefined;
@@ -70,6 +79,10 @@ function parseCommonFlags(
     }
     if (arg === "--full") {
       full = true;
+      continue;
+    }
+    if (arg === "--tui") {
+      tui = true;
       continue;
     }
     if (arg === "--allow-keychain-prompt") {
@@ -119,6 +132,16 @@ function parseCommonFlags(
     ]);
   }
 
+  if (tui && json) {
+    throw new AxiError(
+      "--tui and --json are mutually exclusive output modes",
+      "VALIDATION_ERROR",
+      [
+        "Run `quota-axi --tui` for the human report or `quota-axi --json` for machine output",
+      ],
+    );
+  }
+
   return {
     providers:
       providerValue === undefined && defaultProviders
@@ -126,6 +149,7 @@ function parseCommonFlags(
         : parseProviderScope(providerValue),
     json,
     full,
+    tui,
     allowKeychainPrompt,
     ...(intelligence ? { intelligence } : {}),
     ...(sort ? { sort } : {}),

@@ -324,11 +324,23 @@ It is generated from `src/skill.ts`; update it with `pnpm run build:skill` and v
 | `--provider claude,codex,cursor,copilot,grok,kimi` | Scope providers                                                 |
 | `--json`                                           | Emit normalized JSON instead of TOON for quota, auth, or models |
 | `--full`                                           | Include account, source attempts, and reserve details           |
+| `--tui`                                            | Render the human terminal report instead of TOON (quota only)   |
 | `--allow-keychain-prompt`                          | Permit macOS Claude Keychain access that could prompt           |
 | `--intelligence high\|medium\|low`                 | Filter `models` by editorial intelligence bucket                |
 | `--sort runway`                                    | Explicitly sort `models` by documented usable-runway evidence   |
 | `-h`, `--help`                                     | Print terse [AXI](https://axi.md) help                          |
 | `-v`, `-V`, `--version`                            | Print version                                                   |
+
+### Human terminal report (`--tui`)
+
+`quota-axi --tui` renders the same redacted report as a one-shot human terminal view instead of TOON: a two-up provider card grid with thin headroom bars and a `┃` linear-pace marker on every bar. It is presentation only and is not part of the machine-readable contract.
+
+- Each live card leads with the `effective[]` rollup (min across bounding windows), colored by headroom: >=50% healthy, 20-50% tight, <20% critical. Per-window rows, including per-model breakouts, are the supporting detail.
+- The bar fill is current headroom; the `┃` marker sits at `pace.timeRemainingPercent`, the fill position of exactly linear burn. Fill ending left of the marker means burning faster than the reset clock. The marker is omitted when pace is unknown.
+- Pace renders as a burn multiple (`▼ 0.93×` slower than the reset clock, `▲ 1.14×` faster), never the raw `behind`/`ahead` vocabulary. `through_reset` stays quiet (`✓`); `projected_exhaustion` is promoted to the card headline (`▲ empty in 7h 21m`).
+- Signed-out and failed providers stay visible as dimmed cards and are excluded from the fleet totals in the header.
+- Width comes from the terminal, clamped to 80-120 columns; below the two-up width the grid reflows to one column. Color honors `NO_COLOR`, `TERM=dumb`, and non-TTY stdout (the glyph skeleton is kept), re-enables with `FORCE_COLOR`, and uses truecolor when `COLORTERM` advertises it, falling back to 256-color then ANSI-16.
+- `--tui` composes with `--provider` scoping and `--full` (account identity and source-attempt footers). It is mutually exclusive with `--json` and only supported by the `quota` command.
 
 ## Output Model
 

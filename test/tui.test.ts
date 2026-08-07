@@ -1,0 +1,531 @@
+import { describe, expect, it } from "vitest";
+import {
+  detectTuiColorDepth,
+  formatCountdown,
+  renderQuotaTui,
+  shortWindowLabel,
+  thinBar,
+} from "../src/tui.js";
+import type { ProviderQuota, QuotaAxiResponse } from "../src/types.js";
+
+const GENERATED_AT = "2026-08-06T23:21:15.000Z";
+
+function claudeProvider(): ProviderQuota {
+  return {
+    provider: "claude",
+    label: "Claude",
+    source: "oauth",
+    plan: "max",
+    windows: [
+      {
+        id: "five_hour",
+        label: "session",
+        kind: "session",
+        percentUsed: 3,
+        percentRemaining: 97,
+        resetsAt: "2026-08-07T04:00:00.000Z",
+        windowSeconds: 18000,
+        pace: {
+          status: "behind",
+          timeRemainingPercent: 92.9,
+          elapsedPercent: 7.1,
+          reservePercentPoints: 4.1,
+          burnMultiple: 0.42,
+        },
+      },
+      {
+        id: "seven_day",
+        label: "week",
+        kind: "weekly",
+        percentUsed: 28,
+        percentRemaining: 72,
+        resetsAt: "2026-08-11T21:00:00.000Z",
+        windowSeconds: 604800,
+        pace: {
+          status: "behind",
+          timeRemainingPercent: 70,
+          elapsedPercent: 30,
+          reservePercentPoints: 2,
+          burnMultiple: 0.93,
+        },
+      },
+      {
+        id: "model:fable",
+        label: "Fable week",
+        kind: "model",
+        percentUsed: 15,
+        percentRemaining: 85,
+        resetsAt: "2026-08-11T21:00:00.000Z",
+        windowSeconds: 604800,
+        pace: {
+          status: "behind",
+          timeRemainingPercent: 70,
+          elapsedPercent: 30,
+          reservePercentPoints: 15,
+          burnMultiple: 0.5,
+        },
+      },
+    ],
+    state: {
+      status: "fresh",
+      stale: false,
+      refreshedAt: GENERATED_AT,
+      sourcesTried: ["oauth-file", "keychain"],
+    },
+    quotaSemantics: {
+      status: "known",
+      description: "test",
+      effectiveAvailability: [
+        {
+          scope: "all_models",
+          status: "known",
+          effectivePercentRemaining: 72,
+          boundedBy: ["five_hour", "seven_day"],
+          limitingWindowIds: ["seven_day"],
+          pace: {
+            status: "behind",
+            behindWindowIds: ["five_hour", "seven_day"],
+          },
+          runway: {
+            status: "through_reset",
+            projectionConfidence: "early",
+            projectionBasis: "cycle_average",
+          },
+        },
+      ],
+    },
+  };
+}
+
+function codexProvider(): ProviderQuota {
+  return {
+    provider: "codex",
+    label: "Codex",
+    source: "oauth",
+    plan: "pro",
+    windows: [
+      {
+        id: "weekly",
+        label: "week",
+        kind: "weekly",
+        percentUsed: 95,
+        percentRemaining: 5,
+        resetsAt: "2026-08-08T03:35:39.000Z",
+        windowSeconds: 604800,
+        pace: {
+          status: "ahead",
+          timeRemainingPercent: 16.8,
+          elapsedPercent: 83.2,
+          reservePercentPoints: -11.8,
+          burnMultiple: 1.14,
+          projectedExhaustedAt: "2026-08-07T06:42:36.000Z",
+        },
+      },
+      {
+        id: "model:codex_bengalfox:7d",
+        label: "GPT-5.3-Codex-Spark week",
+        kind: "model",
+        percentUsed: 0,
+        percentRemaining: 100,
+        resetsAt: "2026-08-13T23:21:15.000Z",
+        windowSeconds: 604800,
+        pace: { status: "unknown", reason: "missing_usage" },
+      },
+    ],
+    state: {
+      status: "fresh",
+      stale: false,
+      refreshedAt: GENERATED_AT,
+      sourcesTried: ["oauth"],
+    },
+    quotaSemantics: {
+      status: "known",
+      description: "test",
+      effectiveAvailability: [
+        {
+          scope: "all_models",
+          status: "known",
+          effectivePercentRemaining: 5,
+          boundedBy: ["weekly"],
+          limitingWindowIds: ["weekly"],
+          pace: { status: "ahead", aheadWindowIds: ["weekly"] },
+          runway: {
+            status: "projected_exhaustion",
+            usableRunwaySeconds: 26481,
+            projectedExhaustedAt: "2026-08-07T06:42:36.000Z",
+            limitingWindowId: "weekly",
+            projectionConfidence: "established",
+            projectionBasis: "cycle_average",
+          },
+        },
+      ],
+    },
+  };
+}
+
+function grokProvider(): ProviderQuota {
+  return {
+    provider: "grok",
+    label: "Grok",
+    source: "web",
+    windows: [
+      {
+        id: "credits",
+        label: "credits",
+        kind: "credits",
+        percentUsed: 55,
+        percentRemaining: 45,
+        startsAt: "2026-08-03T19:59:29.000Z",
+        resetsAt: "2026-08-10T19:59:29.000Z",
+        pace: {
+          status: "ahead",
+          timeRemainingPercent: 55.1,
+          elapsedPercent: 44.9,
+          reservePercentPoints: -10.1,
+          burnMultiple: 1.23,
+          projectedExhaustedAt: "2026-08-09T14:33:15.000Z",
+        },
+      },
+    ],
+    state: {
+      status: "fresh",
+      stale: false,
+      refreshedAt: GENERATED_AT,
+      authStatus: "usable",
+      sourcesTried: ["web"],
+    },
+    quotaSemantics: {
+      status: "known",
+      description: "test",
+      effectiveAvailability: [
+        {
+          scope: "all_products",
+          status: "known",
+          effectivePercentRemaining: 45,
+          boundedBy: ["credits"],
+          limitingWindowIds: ["credits"],
+          pace: { status: "ahead", aheadWindowIds: ["credits"] },
+          runway: {
+            status: "projected_exhaustion",
+            usableRunwaySeconds: 221983,
+            projectedExhaustedAt: "2026-08-09T14:33:15.000Z",
+            limitingWindowId: "credits",
+            projectionConfidence: "established",
+            projectionBasis: "cycle_average",
+          },
+        },
+      ],
+    },
+  };
+}
+
+function signedOutProvider(
+  provider: "cursor" | "copilot" | "kimi",
+  error: string,
+): ProviderQuota {
+  return {
+    provider,
+    label: provider,
+    source: "unavailable",
+    windows: [],
+    state: {
+      status: "auth_required",
+      stale: false,
+      error,
+      sourcesTried: ["local"],
+    },
+    quotaSemantics: {
+      status: "unknown",
+      description: "test",
+      effectiveAvailability: [],
+    },
+  };
+}
+
+function fixtureResponse(): QuotaAxiResponse {
+  return {
+    generatedAt: GENERATED_AT,
+    schemaVersion: 3,
+    providers: [
+      claudeProvider(),
+      codexProvider(),
+      signedOutProvider("cursor", "Cursor sign-in required"),
+      signedOutProvider("copilot", "GitHub Copilot sign-in required"),
+      grokProvider(),
+      signedOutProvider("kimi", "unsupported_credential_type"),
+    ],
+  };
+}
+
+function render(options = {}): string[] {
+  return renderQuotaTui(fixtureResponse(), {
+    timeZone: "America/Los_Angeles",
+    ...options,
+  }).split("\n");
+}
+
+function findLine(lines: string[], needle: string): string {
+  const line = lines.find((candidate) => candidate.includes(needle));
+  expect(
+    line,
+    `expected a line containing ${JSON.stringify(needle)}`,
+  ).toBeDefined();
+  return line as string;
+}
+
+function barText(segments: { text: string }[]): string {
+  return segments.map((segment) => segment.text).join("");
+}
+
+function stripAnsi(text: string): string {
+  // eslint-disable-next-line no-control-regex
+  return text.replace(/\x1b\[[0-9;]*m/g, "");
+}
+
+describe("renderQuotaTui structure", () => {
+  it("summarizes the fleet in the dim header with local time", () => {
+    const lines = render();
+    expect(lines[0]).toBe(
+      "  quota-axi · 2026-08-06 16:21 PDT · 3 live · 3 signed out",
+    );
+  });
+
+  it("zips live provider cards two-up with live providers first", () => {
+    const lines = render();
+    const title = findLine(lines, "● claude");
+    expect(title).toMatch(
+      /^╭─ ● claude ─+ max · oauth ─╮ {2}╭─ ● codex ─+ pro · oauth ─╮$/,
+    );
+    expect(title).toHaveLength(100);
+    const grokTitle = findLine(lines, "● grok");
+    expect(grokTitle).toMatch(
+      /^╭─ ● grok ─+ web ─╮ {2}╭─ ○ cursor ─+ signed out ─╮$/,
+    );
+  });
+
+  it("keeps every line within the effective width and aligns card borders", () => {
+    const lines = render();
+    for (const line of lines) expect(line.length).toBeLessThanOrEqual(100);
+    const row = findLine(lines, "session");
+    expect(row[0]).toBe("│");
+    expect(row[48]).toBe("│");
+    expect(row[51]).toBe("│");
+    expect(row[99]).toBe("│");
+  });
+
+  it("promotes effective headroom with the runway verdict on the headline", () => {
+    const lines = render();
+    expect(findLine(lines, "72% all models")).toContain("through reset ✓");
+    expect(findLine(lines, "5% all models")).toContain("▲ empty in 7h 21m");
+    expect(findLine(lines, "45% all products")).toContain("▲ empty in 2d 13h");
+  });
+
+  it("renders aligned per-window rows with reset countdown and burn multiple", () => {
+    const lines = render();
+    const session = findLine(lines, "session ");
+    expect(session).toContain(" 97%");
+    expect(session).toContain("4h 38m");
+    expect(session).toContain("▼ 0.42×");
+    const week = findLine(lines, "│   week    ━");
+    expect(week).toContain(" 72%");
+    expect(week).toContain("4d 21h");
+    expect(week).toContain("▼ 0.93×");
+    const codexWeek = findLine(lines, "▲ 1.14×");
+    expect(codexWeek).toContain("  5%");
+    expect(codexWeek).toContain("1d 4h");
+  });
+
+  it("shortens window labels into the 8-char column", () => {
+    const lines = render();
+    expect(findLine(lines, "fable   ")).toContain("▼ 0.50×");
+    findLine(lines, "spark   ");
+    expect(
+      shortWindowLabel({ id: "w", label: "730h window", kind: "unknown" }),
+    ).toBe("730h");
+    expect(
+      shortWindowLabel({ id: "w", label: "Fable week", kind: "model" }),
+    ).toBe("fable");
+    expect(
+      shortWindowLabel({
+        id: "w",
+        label: "GPT-5.3-Codex-Spark week",
+        kind: "model",
+      }),
+    ).toBe("spark");
+  });
+
+  it("omits marker and burn chip when a window's pace is unknown", () => {
+    const lines = render();
+    const spark = findLine(lines, "spark   ");
+    const cell = spark.slice(51);
+    expect(cell).not.toContain("┃");
+    expect(cell).not.toContain("×");
+    expect(cell).toContain("100%");
+  });
+
+  it("adds a dim absolute projected-empty note for finite runway", () => {
+    const lines = render();
+    expect(findLine(lines, "projected empty 23:42")).toBeDefined();
+    expect(findLine(lines, "projected empty Sun 07:33")).toBeDefined();
+  });
+
+  it("renders signed-out providers as dim cards excluded from totals", () => {
+    const lines = render();
+    findLine(lines, "○ cursor");
+    findLine(lines, "Cursor sign-in required");
+    findLine(lines, "unsupported credential type");
+    expect(lines.join("\n").match(/excluded from fleet totals/g)).toHaveLength(
+      3,
+    );
+  });
+
+  it("explains the pace marker in a dim legend line", () => {
+    const lines = render();
+    findLine(lines, "┃ marks linear pace");
+  });
+
+  it("reflows to a single column below the two-up width", () => {
+    const narrow = render({ columns: 80 });
+    for (const line of narrow) expect(line.length).toBeLessThanOrEqual(80);
+    const claudeTitle = findLine(narrow, "● claude");
+    expect(claudeTitle).not.toContain("codex");
+    expect(claudeTitle.trimEnd()).toHaveLength(49);
+    expect(narrow.length).toBeGreaterThan(render().length);
+  });
+
+  it("appends account and source-attempt footers only with full", () => {
+    const response = fixtureResponse();
+    response.providers[0].account = { email: "kun@example.com" };
+    const plain = renderQuotaTui(response, {
+      timeZone: "America/Los_Angeles",
+    });
+    expect(plain).not.toContain("kun@example.com");
+    const full = renderQuotaTui(response, {
+      timeZone: "America/Los_Angeles",
+      full: true,
+    });
+    expect(full).toContain(
+      "claude · kun@example.com · tried oauth-file → keychain",
+    );
+  });
+
+  it("marks a stale provider and keeps effective headroom unknown", () => {
+    const response = fixtureResponse();
+    const claude = response.providers[0];
+    claude.state.status = "stale";
+    claude.state.stale = true;
+    claude.quotaSemantics = {
+      status: "unknown",
+      description: "test",
+      effectiveAvailability: [],
+    };
+    for (const window of claude.windows) delete window.pace;
+    const lines = renderQuotaTui(response, {
+      timeZone: "America/Los_Angeles",
+    }).split("\n");
+    const title = findLine(lines, "● claude");
+    expect(title).toContain("max · oauth · stale");
+    findLine(lines, "stale · effective unknown");
+    expect(findLine(lines, "stale · effective unknown")).toContain(
+      "runway unknown",
+    );
+  });
+});
+
+describe("thin bars with pace markers", () => {
+  it("places the marker at the linear-pace position over the fill", () => {
+    expect(barText(thinBar(97, 92.9, 13))).toBe("━━━━━━━━━━━━┃");
+    expect(barText(thinBar(5, 16.8, 13))).toBe("╸─┃──────────");
+    expect(barText(thinBar(100, 100, 13))).toBe("━━━━━━━━━━━━┃");
+    expect(barText(thinBar(85, 70, 13))).toBe("━━━━━━━━━┃━──");
+  });
+
+  it("styles fill by health thresholds and the marker as the pace cursor", () => {
+    const bar = thinBar(5, 16.8, 13);
+    expect(bar.map((segment) => segment.style)).toEqual([
+      "crit",
+      "track",
+      "marker",
+      "track",
+    ]);
+    expect(thinBar(45, undefined, 10)[0]?.style).toBe("warn");
+    expect(thinBar(72, undefined, 10)[0]?.style).toBe("ok");
+  });
+
+  it("omits the marker when pace is unknown instead of faking one", () => {
+    expect(barText(thinBar(50, undefined, 10))).toBe("━━━━━─────");
+    expect(barText(thinBar(undefined, undefined, 10))).toBe("──────────");
+  });
+
+  it("keeps a nonzero fill visible and a nonfull bar open at the edges", () => {
+    expect(barText(thinBar(1, undefined, 13))).toBe("╸────────────");
+    expect(barText(thinBar(99.9, undefined, 5))).toBe("━━━━╸");
+    expect(barText(thinBar(0, undefined, 5))).toBe("─────");
+  });
+});
+
+describe("countdown formatting", () => {
+  it("uses two units and degrades to one to stay within six chars", () => {
+    expect(formatCountdown(26481)).toBe("7h 21m");
+    expect(formatCountdown(16740)).toBe("4h 39m");
+    expect(formatCountdown(421200)).toBe("4d 21h");
+    expect(formatCountdown(2245000)).toBe("25d");
+    expect(formatCountdown(600)).toBe("10m");
+    expect(formatCountdown(30)).toBe("<1m");
+    expect(formatCountdown(0)).toBe("now");
+  });
+});
+
+describe("color handling", () => {
+  it("emits plain glyph skeleton when color is off", () => {
+    const output = renderQuotaTui(fixtureResponse(), {
+      timeZone: "America/Los_Angeles",
+    });
+    expect(output).not.toContain("\x1b[");
+  });
+
+  it("emits truecolor SGR sequences that strip back to the plain skeleton", () => {
+    const plain = renderQuotaTui(fixtureResponse(), {
+      timeZone: "America/Los_Angeles",
+    });
+    const colored = renderQuotaTui(fixtureResponse(), {
+      timeZone: "America/Los_Angeles",
+      colorDepth: "truecolor",
+    });
+    expect(colored).toContain("\x1b[1;38;2;250;179;135m");
+    expect(stripAnsi(colored)).toBe(plain);
+  });
+
+  it("maps the palette to 256-color and 16-color depths", () => {
+    const c256 = renderQuotaTui(fixtureResponse(), {
+      timeZone: "America/Los_Angeles",
+      colorDepth: "256",
+    });
+    expect(c256).toContain("\x1b[38;5;");
+    const c16 = renderQuotaTui(fixtureResponse(), {
+      timeZone: "America/Los_Angeles",
+      colorDepth: "16",
+    });
+    expect(c16).toContain("\x1b[32m");
+    expect(c16).not.toContain("38;2;");
+  });
+
+  it("detects color depth from the environment", () => {
+    expect(detectTuiColorDepth({}, false)).toBe("none");
+    expect(detectTuiColorDepth({ NO_COLOR: "" }, true)).toBe("none");
+    expect(detectTuiColorDepth({ TERM: "dumb" }, true)).toBe("none");
+    expect(detectTuiColorDepth({ TERM: "xterm-256color" }, true)).toBe("256");
+    expect(
+      detectTuiColorDepth(
+        { COLORTERM: "truecolor", TERM: "xterm-256color" },
+        true,
+      ),
+    ).toBe("truecolor");
+    expect(detectTuiColorDepth({ TERM: "xterm" }, true)).toBe("16");
+    expect(detectTuiColorDepth({ FORCE_COLOR: "1" }, false)).toBe("16");
+    expect(detectTuiColorDepth({ FORCE_COLOR: "3" }, false)).toBe("truecolor");
+    expect(
+      detectTuiColorDepth({ FORCE_COLOR: "0", COLORTERM: "truecolor" }, false),
+    ).toBe("none");
+  });
+});

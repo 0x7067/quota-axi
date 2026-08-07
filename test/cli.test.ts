@@ -2,8 +2,9 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { parseFlags } from "../src/args.js";
+import { parseFlags, parseModelsFlags } from "../src/args.js";
 import { main, normalizeArgv } from "../src/cli.js";
+import { authCommand } from "../src/commands.js";
 import { PROVIDERS } from "../src/providers/index.js";
 import { redactedResponse } from "../src/render.js";
 import type {
@@ -68,9 +69,26 @@ describe("CLI flag parsing", () => {
         providers: ["claude", "codex", "cursor", "copilot", "grok", "kimi"],
         json: true,
         full: true,
+        tui: false,
         allowKeychainPrompt: true,
       },
     );
+    expect(parseFlags(["--tui"]).tui).toBe(true);
+  });
+
+  it("rejects --tui combined with --json", () => {
+    expect(() => parseFlags(["--tui", "--json"])).toThrow(
+      "--tui and --json are mutually exclusive output modes",
+    );
+  });
+
+  it("rejects --tui outside the quota command", async () => {
+    expect(() => parseModelsFlags(["--tui"])).toThrow(
+      "--tui is only supported by the quota command",
+    );
+    await expect(
+      authCommand(["--tui"], { binPath: "quota-axi" }),
+    ).rejects.toThrow("--tui is only supported by the quota command");
   });
 
   it("rejects unsupported providers", () => {
@@ -563,6 +581,19 @@ describe("CLI quota rendering", () => {
     expect(JSON.stringify(json)).not.toMatch(
       /recommend|prefer provider|switch to|route to/i,
     );
+  });
+
+  it("renders the card-grid report for --tui and composes with --provider", async () => {
+    useTempCache();
+    PROVIDERS.codex = providerWithQuota(freshCodexQuota());
+    const output = await capture(["--tui", "--provider", "codex"]);
+
+    expect(output).toContain("╭─ ● codex ");
+    expect(output).toContain("1 live");
+    expect(output).not.toContain("claude");
+    expect(output).not.toContain("providers[");
+    expect(output).not.toContain("\x1b[");
+    expect(process.exitCode).toBeUndefined();
   });
 });
 
