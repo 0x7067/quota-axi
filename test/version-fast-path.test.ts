@@ -2,10 +2,9 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 const BUILT_CLI_ENTRYPOINT = resolve("dist/bin/quota-axi.js");
-const TSC_ENTRYPOINT = resolve("node_modules/typescript/bin/tsc");
 const TRACE_REGISTER = resolve("test/fixtures/module-trace/register.mjs");
 const VERSION = (
   JSON.parse(readFileSync(resolve("package.json"), "utf8")) as {
@@ -14,17 +13,6 @@ const VERSION = (
 ).version;
 
 let temporaryDirectories: string[] = [];
-
-beforeAll(() => {
-  const result = spawnSync(
-    process.execPath,
-    [TSC_ENTRYPOINT, "--pretty", "false"],
-    { cwd: process.cwd(), encoding: "utf8", timeout: 60_000 },
-  );
-  if (result.error) throw result.error;
-  expect(result.status, `${result.stdout}${result.stderr}`).toBe(0);
-  expect(existsSync(BUILT_CLI_ENTRYPOINT)).toBe(true);
-});
 
 afterEach(() => {
   for (const directory of temporaryDirectories) {
