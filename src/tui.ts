@@ -140,7 +140,12 @@ export function renderQuotaTui(
   if (options.full) {
     lines.push([]);
     for (const provider of ordered) {
-      lines.push([{ text: `  ${fullFooterText(provider)}`, style: "dim" }]);
+      lines.push([
+        {
+          text: `  ${fullFooterText(provider, columns - 2)}`,
+          style: "dim",
+        },
+      ]);
     }
   }
 
@@ -227,7 +232,7 @@ function buildLiveCard(
             style: "dim",
           },
         ];
-  const verdict = runwayVerdict(headline, effectivePct);
+  const verdict = runwayVerdict(headline);
   lines.push(
     interior(
       [
@@ -462,10 +467,7 @@ function effectiveMarkerPercent(
   return limiting?.pace?.timeRemainingPercent;
 }
 
-function runwayVerdict(
-  headline: EffectiveAvailability | undefined,
-  effectivePct: number | undefined,
-): Line {
+function runwayVerdict(headline: EffectiveAvailability | undefined): Line {
   const runway = headline?.runway;
   if (!runway || runway.status === "unknown") {
     return [{ text: "runway unknown", style: "dim" }];
@@ -484,7 +486,7 @@ function runwayVerdict(
     seconds === undefined
       ? "▲ exhaustion projected"
       : `▲ empty in ${formatCountdown(seconds)}`;
-  return [{ text, style: boldHealthStyle(effectivePct ?? 0) }];
+  return [{ text, style: "warnBold" }];
 }
 
 function cardNotes(
@@ -562,9 +564,12 @@ export function formatCountdown(seconds: number): string {
   const minutes = Math.floor((seconds % 3600) / 60);
   if (days > 0) {
     const both = `${days}d ${hours}h`;
-    return both.length > 6 ? `${days}d` : both;
+    return both.length > 6 ? truncate(`${days}d`, 6) : both;
   }
-  if (hours > 0) return `${hours}h ${minutes}m`;
+  if (hours > 0) {
+    const both = `${hours}h ${minutes}m`;
+    return both.length > 6 ? `${hours}h` : both;
+  }
   return minutes > 0 ? `${minutes}m` : "<1m";
 }
 
@@ -626,17 +631,57 @@ function formatAbsolute(
   }).format(date);
 }
 
-function fullFooterText(provider: ProviderQuota): string {
+function fullFooterText(provider: ProviderQuota, width: number): string {
   const parts: string[] = [provider.provider];
   if (provider.account?.email) parts.push(provider.account.email);
   if (provider.account?.organization) parts.push(provider.account.organization);
+  if (provider.account?.accountId) parts.push(`id ${provider.account.accountId}`);
+  if (provider.account?.identityStatus) {
+    parts.push(`identity ${provider.account.identityStatus}`);
+  }
   const attempts = (provider.attempts ?? []).map(
     (attempt) =>
-      `${attempt.source}${attempt.status === "success" ? "" : ` (${attempt.status})`}`,
+      `${attempt.source}${
+        attempt.status === "success"
+          ? ""
+          : ` (${attempt.status}${attempt.error ? `: ${attempt.error}` : ""})`
+      }`,
   );
   const tried = attempts.length > 0 ? attempts : provider.state.sourcesTried;
   if (tried.length > 0) parts.push(`tried ${tried.join(" → ")}`);
-  return parts.join(" · ");
+  return fitFooterParts(parts, width);
+}
+
+function fitFooterParts(parts: string[], width: number): string {
+  const separator = " · ";
+  const complete = parts.join(separator);
+  if (complete.length <= width) return complete;
+
+  const available = Math.max(0, width - separator.length * (parts.length - 1));
+  const widths = new Array<number>(parts.length).fill(0);
+  widths[0] = Math.min(parts[0].length, available);
+  let remaining = available - widths[0];
+  let pending = parts.slice(1).map((_, index) => index + 1);
+
+  while (pending.length > 0) {
+    const share = Math.floor(remaining / pending.length);
+    const fitting = pending.filter((index) => parts[index].length <= share);
+    if (fitting.length === 0) {
+      for (const [position, index] of pending.entries()) {
+        widths[index] = share + (position < remaining % pending.length ? 1 : 0);
+      }
+      break;
+    }
+    for (const index of fitting) {
+      widths[index] = parts[index].length;
+      remaining -= widths[index];
+    }
+    pending = pending.filter((index) => !fitting.includes(index));
+  }
+
+  return parts
+    .map((part, index) => truncate(part, widths[index]))
+    .join(separator);
 }
 
 function legendLine(columns: number): Line[] {

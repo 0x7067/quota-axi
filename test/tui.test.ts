@@ -409,6 +409,50 @@ describe("renderQuotaTui structure", () => {
     );
   });
 
+  it("preserves full account and attempt evidence within terminal width", () => {
+    const response = fixtureResponse();
+    response.providers[0].account = {
+      email: "a-very-long-email-address@example.invalid",
+      organization: "A Very Long Organization Name",
+      accountId: "account-1234567890",
+      identityStatus: "unverified",
+    };
+    response.providers[0].attempts = [
+      {
+        source: "keychain",
+        status: "skipped",
+        error: "keychain_prompt_required",
+      },
+    ];
+    const lines = renderQuotaTui(response, {
+      columns: 80,
+      full: true,
+      timeZone: "America/Los_Angeles",
+    }).split("\n");
+    const footer = findLine(lines, "claude ·");
+    expect(footer).toContain("id account");
+    expect(footer).toContain("identity u");
+    expect(footer).toContain("tried keyc");
+    expect(footer).toContain("…");
+    for (const line of lines) expect(line.length).toBeLessThanOrEqual(80);
+
+    response.providers[0].account = {
+      accountId: "account-123",
+      identityStatus: "verified",
+    };
+    response.providers[0].attempts = [
+      { source: "keychain", status: "failed", error: "access_denied" },
+    ];
+    const evidence = renderQuotaTui(response, {
+      columns: 80,
+      full: true,
+      timeZone: "America/Los_Angeles",
+    });
+    expect(evidence).toContain("id account-123");
+    expect(evidence).toContain("identity verified");
+    expect(evidence).toContain("keychain (failed: access_");
+  });
+
   it("marks a stale provider and keeps effective headroom unknown", () => {
     const response = fixtureResponse();
     const claude = response.providers[0];
@@ -468,8 +512,10 @@ describe("countdown formatting", () => {
   it("uses two units and degrades to one to stay within six chars", () => {
     expect(formatCountdown(26481)).toBe("7h 21m");
     expect(formatCountdown(16740)).toBe("4h 39m");
+    expect(formatCountdown(86340)).toBe("23h");
     expect(formatCountdown(421200)).toBe("4d 21h");
     expect(formatCountdown(2245000)).toBe("25d");
+    expect(formatCountdown(123456 * 86400)).toBe("12345…");
     expect(formatCountdown(600)).toBe("10m");
     expect(formatCountdown(30)).toBe("<1m");
     expect(formatCountdown(0)).toBe("now");
@@ -508,6 +554,45 @@ describe("color handling", () => {
     });
     expect(c16).toContain("\x1b[32m");
     expect(c16).not.toContain("38;2;");
+  });
+
+  it("colors runway exhaustion independently from healthy headroom", () => {
+    const response = fixtureResponse();
+    const availability = response.providers[0].quotaSemantics
+      ?.effectiveAvailability[0];
+    expect(availability).toBeDefined();
+    if (!availability) return;
+    availability.runway = {
+      status: "projected_exhaustion",
+      usableRunwaySeconds: 3600,
+      limitingWindowId: "seven_day",
+      projectionConfidence: "established",
+      projectionBasis: "cycle_average",
+    };
+    const projected = renderQuotaTui(response, {
+      colorDepth: "truecolor",
+      timeZone: "America/Los_Angeles",
+    });
+    expect(projected).toContain(
+      "\x1b[1;38;2;166;227;161m72%\x1b[0m",
+    );
+    expect(projected).toContain(
+      "\x1b[1;38;2;249;226;175m▲ empty in 1h 0m\x1b[0m",
+    );
+
+    availability.runway = {
+      status: "exhausted_now",
+      usableRunwaySeconds: 0,
+      projectionConfidence: "established",
+      projectionBasis: "cycle_average",
+    };
+    const exhausted = renderQuotaTui(response, {
+      colorDepth: "truecolor",
+      timeZone: "America/Los_Angeles",
+    });
+    expect(exhausted).toContain(
+      "\x1b[1;38;2;243;139;168m✗ exhausted now\x1b[0m",
+    );
   });
 
   it("detects color depth from the environment", () => {
