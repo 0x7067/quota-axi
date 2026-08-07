@@ -298,7 +298,7 @@ It is generated from `src/skill.ts`; update it with `pnpm run build:skill` and v
 └─────┬─────────┘       └──────┬───────┘
       ▼                        ▼
 ┌───────────────┐       ┌──────────────┐
-│ stale cache   │ ◀───  │ TOON or JSON │
+│ stale cache   │ ◀───  │ TOON/JSON/TUI│
 └───────────────┘       └──────────────┘
 ```
 
@@ -333,7 +333,7 @@ It is generated from `src/skill.ts`; update it with `pnpm run build:skill` and v
 
 ### Human terminal report (`--tui`)
 
-`quota-axi --tui` renders the same redacted report as a one-shot human terminal view instead of TOON: a two-up provider card grid with thin headroom bars and a `┃` linear-pace marker on every bar. It is presentation only and is not part of the machine-readable contract.
+`quota-axi --tui` renders the same redacted report as a one-shot human terminal view instead of TOON: a two-up provider card grid with thin headroom bars and a `┃` linear-pace marker whenever pace is known. It is presentation only and is not part of the machine-readable contract.
 
 - Each live card leads with the `effective[]` rollup (min across bounding windows), colored by headroom: >=50% healthy, 20-50% tight, <20% critical. Per-window rows, including per-model breakouts, are the supporting detail.
 - The bar fill is current headroom; the `┃` marker sits at `pace.timeRemainingPercent`, the fill position of exactly linear burn. Fill ending left of the marker means burning faster than the reset clock. The marker is omitted when pace is unknown.

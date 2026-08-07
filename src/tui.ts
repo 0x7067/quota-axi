@@ -8,7 +8,7 @@ import type {
 
 /**
  * Human terminal report ("Direction D'"): a two-up card grid with thin
- * headroom bars and a linear-pace marker on every bar. This surface is
+ * headroom bars and a linear-pace marker wherever pace is known. This surface is
  * presentation only - it renders the same redacted response the TOON and JSON
  * surfaces receive and derives nothing new from providers or the cache.
  */
