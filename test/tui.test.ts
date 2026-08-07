@@ -283,9 +283,21 @@ function stripAnsi(text: string): string {
 }
 
 function displayColumns(text: string): number {
-  return [...text].reduce((width, character) => {
-    const codePoint = character.codePointAt(0) ?? 0;
-    return width + (codePoint >= 0x2e80 && codePoint <= 0x9fff ? 2 : 1);
+  const segmenter = new Intl.Segmenter("en", { granularity: "grapheme" });
+  return [...segmenter.segment(text)].reduce((width, part) => {
+    if (
+      /\p{Emoji_Presentation}/u.test(part.segment) ||
+      (/\p{Emoji}/u.test(part.segment) && part.segment.includes("\ufe0f"))
+    ) {
+      return width + 2;
+    }
+    return (
+      width +
+      [...part.segment].reduce((unitWidth, character) => {
+        const codePoint = character.codePointAt(0) ?? 0;
+        return unitWidth + (codePoint >= 0x2e80 && codePoint <= 0x9fff ? 2 : 1);
+      }, 0)
+    );
   }, 0);
 }
 
@@ -498,6 +510,23 @@ describe("renderQuotaTui structure", () => {
       timeZone: "America/Los_Angeles",
     }).split("\n");
     const footer = findLine(lines, "claude · 配额组织");
+    expect(footer).toContain("…");
+    for (const line of lines) {
+      expect(displayColumns(line)).toBeLessThanOrEqual(80);
+    }
+  });
+
+  it("bounds emoji account footers by terminal display columns", () => {
+    const response = fixtureResponse();
+    response.providers[0].account = {
+      organization: "🚀🪐☀️".repeat(24),
+    };
+    const lines = renderQuotaTui(response, {
+      columns: 80,
+      full: true,
+      timeZone: "America/Los_Angeles",
+    }).split("\n");
+    const footer = findLine(lines, "claude · 🚀🪐☀️");
     expect(footer).toContain("…");
     for (const line of lines) {
       expect(displayColumns(line)).toBeLessThanOrEqual(80);

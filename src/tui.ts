@@ -33,6 +33,9 @@ const EFFECTIVE_BAR_WIDTH = 41;
 const WINDOW_BAR_WIDTH = 13;
 const MIN_COLUMNS = 80;
 const MAX_COLUMNS = 120;
+const GRAPHEME_SEGMENTER = new Intl.Segmenter("en", {
+  granularity: "grapheme",
+});
 
 type StyleName =
   | "dim"
@@ -813,11 +816,11 @@ function truncate(text: string, width: number): string {
   const limit = width - 1;
   let used = 0;
   let result = "";
-  for (const character of safeText) {
-    const characterWidth = terminalCharacterWidth(character);
-    if (characterWidth > 0 && used + characterWidth > limit) break;
-    result += character;
-    used += characterWidth;
+  for (const unit of terminalTextUnits(safeText)) {
+    const unitWidth = terminalUnitWidth(unit);
+    if (unitWidth > 0 && used + unitWidth > limit) break;
+    result += unit;
+    used += unitWidth;
   }
   return `${result}…`;
 }
@@ -864,10 +867,14 @@ function lineWidth(line: Line): number {
 
 function displayWidth(text: string): number {
   let width = 0;
-  for (const character of sanitizeTerminalText(text)) {
-    width += terminalCharacterWidth(character);
+  for (const unit of terminalTextUnits(sanitizeTerminalText(text))) {
+    width += terminalUnitWidth(unit);
   }
   return width;
+}
+
+function terminalTextUnits(text: string): string[] {
+  return [...GRAPHEME_SEGMENTER.segment(text)].map((part) => part.segment);
 }
 
 function sanitizeTerminalText(text: string): string {
@@ -883,17 +890,29 @@ function sanitizeTerminalText(text: string): string {
   return result;
 }
 
-function terminalCharacterWidth(character: string): number {
-  const codePoint = character.codePointAt(0) ?? 0;
+function terminalUnitWidth(unit: string): number {
   if (
-    codePoint === 0x200d ||
-    (codePoint >= 0xfe00 && codePoint <= 0xfe0f) ||
-    /\p{Mark}/u.test(character)
+    /\p{Emoji_Presentation}/u.test(unit) ||
+    (/\p{Emoji}/u.test(unit) &&
+      (unit.includes("\ufe0f") || unit.includes("\u200d")))
   ) {
-    return 0;
+    return 2;
   }
-  if (codePoint < 0x20 || (codePoint >= 0x7f && codePoint < 0xa0)) return 0;
-  return isWideCodePoint(codePoint) ? 2 : 1;
+
+  let width = 0;
+  for (const character of unit) {
+    const codePoint = character.codePointAt(0) ?? 0;
+    if (
+      codePoint === 0x200d ||
+      (codePoint >= 0xfe00 && codePoint <= 0xfe0f) ||
+      /\p{Mark}/u.test(character)
+    ) {
+      continue;
+    }
+    if (codePoint < 0x20 || (codePoint >= 0x7f && codePoint < 0xa0)) continue;
+    width += isWideCodePoint(codePoint) ? 2 : 1;
+  }
+  return width;
 }
 
 function isWideCodePoint(codePoint: number): boolean {
@@ -909,8 +928,8 @@ function isWideCodePoint(codePoint: number): boolean {
       (codePoint >= 0xfe30 && codePoint <= 0xfe6f) ||
       (codePoint >= 0xff00 && codePoint <= 0xff60) ||
       (codePoint >= 0xffe0 && codePoint <= 0xffe6) ||
-      (codePoint >= 0x1f300 && codePoint <= 0x1f64f) ||
-      (codePoint >= 0x1f900 && codePoint <= 0x1f9ff) ||
+      (codePoint >= 0x1f300 && codePoint <= 0x1f6ff) ||
+      (codePoint >= 0x1f900 && codePoint <= 0x1faff) ||
       (codePoint >= 0x20000 && codePoint <= 0x3fffd))
   );
 }
