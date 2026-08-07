@@ -59,7 +59,7 @@
   },
   "dependencies": {
     "@toon-format/toon": "2.1.0",
-    "axi-sdk-js": "^0.1.7"
+    "axi-sdk-js": "^0.1.10"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
