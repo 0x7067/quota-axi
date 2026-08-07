@@ -805,14 +805,15 @@ function humanize(text: string): string {
 }
 
 function truncate(text: string, width: number): string {
+  const safeText = sanitizeTerminalText(text);
   if (width <= 0) return "";
-  if (displayWidth(text) <= width) return text;
+  if (displayWidth(safeText) <= width) return safeText;
   if (width === 1) return "…";
 
   const limit = width - 1;
   let used = 0;
   let result = "";
-  for (const character of text) {
+  for (const character of safeText) {
     const characterWidth = terminalCharacterWidth(character);
     if (characterWidth > 0 && used + characterWidth > limit) break;
     result += character;
@@ -863,8 +864,23 @@ function lineWidth(line: Line): number {
 
 function displayWidth(text: string): number {
   let width = 0;
-  for (const character of text) width += terminalCharacterWidth(character);
+  for (const character of sanitizeTerminalText(text)) {
+    width += terminalCharacterWidth(character);
+  }
   return width;
+}
+
+function sanitizeTerminalText(text: string): string {
+  let result = "";
+  for (const character of text) {
+    const codePoint = character.codePointAt(0) ?? 0;
+    if (codePoint === 0x09) {
+      result += " ";
+    } else if (codePoint > 0x1f && !(codePoint >= 0x7f && codePoint <= 0x9f)) {
+      result += character;
+    }
+  }
+  return result;
 }
 
 function terminalCharacterWidth(character: string): number {
@@ -910,7 +926,10 @@ function coalesce(segments: Segment[]): Line {
 }
 
 function trimRight(line: Line): Line {
-  const out = line.map((segment) => ({ ...segment }));
+  const out = line.map((segment) => ({
+    ...segment,
+    text: sanitizeTerminalText(segment.text),
+  }));
   while (out.length > 0) {
     const last = out[out.length - 1];
     if (last.style === undefined) last.text = last.text.replace(/ +$/, "");

@@ -504,6 +504,42 @@ describe("renderQuotaTui structure", () => {
     }
   });
 
+  it("sanitizes terminal controls before layout and rendering", () => {
+    const hostile = fixtureResponse();
+    const safe = fixtureResponse();
+    hostile.providers[0].plan = "max\x1b[31m\n\tplus\u009b";
+    safe.providers[0].plan = "max[31m plus";
+    hostile.providers[0].account = {
+      organization: "Org\x1b]0;owned\u0007\nName\tTeam",
+    };
+    safe.providers[0].account = { organization: "Org]0;ownedName Team" };
+    hostile.providers[0].attempts = [
+      {
+        source: "oauth\x1b[2J",
+        status: "failed",
+        error: "denied\nnext\tstep\u0085",
+      },
+    ];
+    safe.providers[0].attempts = [
+      {
+        source: "oauth[2J",
+        status: "failed",
+        error: "deniednext step",
+      },
+    ];
+
+    const options = {
+      columns: 80,
+      full: true,
+      timeZone: "America/Los_Angeles",
+    } as const;
+    const output = renderQuotaTui(hostile, options);
+    expect(output).toBe(renderQuotaTui(safe, options));
+    expect(output).not.toContain("\x1b");
+    expect(output).not.toContain("\t");
+    expect(output).not.toContain("\u0085");
+  });
+
   it("marks a stale provider and keeps effective headroom unknown", () => {
     const response = fixtureResponse();
     const claude = response.providers[0];
