@@ -282,6 +282,13 @@ function stripAnsi(text: string): string {
   return text.replace(/\x1b\[[0-9;]*m/g, "");
 }
 
+function displayColumns(text: string): number {
+  return [...text].reduce((width, character) => {
+    const codePoint = character.codePointAt(0) ?? 0;
+    return width + (codePoint >= 0x2e80 && codePoint <= 0x9fff ? 2 : 1);
+  }, 0);
+}
+
 describe("renderQuotaTui structure", () => {
   it("summarizes the fleet in the dim header with local time", () => {
     const lines = render();
@@ -318,6 +325,23 @@ describe("renderQuotaTui structure", () => {
     expect(findLine(lines, "72% all models")).toContain("through reset ✓");
     expect(findLine(lines, "5% all models")).toContain("▲ empty in 7h 21m");
     expect(findLine(lines, "45% all products")).toContain("▲ empty in 2d 13h");
+  });
+
+  it("truncates long effective scopes while preserving the runway verdict", () => {
+    const response = fixtureResponse();
+    const availability =
+      response.providers[0].quotaSemantics?.effectiveAvailability[0];
+    expect(availability).toBeDefined();
+    if (!availability) return;
+    availability.scope = `model_${"exceptionally_long_".repeat(5)}availability`;
+    const lines = renderQuotaTui(response, {
+      columns: 80,
+      timeZone: "America/Los_Angeles",
+    }).split("\n");
+    const headline = findLine(lines, "72%");
+    expect(headline).toContain("…");
+    expect(headline).toContain("through reset ✓");
+    expect(displayColumns(headline)).toBe(49);
   });
 
   it("renders aligned per-window rows with reset countdown and burn multiple", () => {
@@ -407,6 +431,13 @@ describe("renderQuotaTui structure", () => {
     expect(full).toContain(
       "claude · kun@example.com · tried oauth-file → keychain",
     );
+
+    response.providers[0].attempts = [{ source: "oauth", status: "success" }];
+    const withAttempt = renderQuotaTui(response, {
+      full: true,
+      timeZone: "America/Los_Angeles",
+    });
+    expect(withAttempt).toContain("tried oauth (success)");
   });
 
   it("preserves full account and attempt evidence within terminal width", () => {
@@ -423,6 +454,7 @@ describe("renderQuotaTui structure", () => {
         status: "skipped",
         error: "identity_context_mismatch",
       },
+      { source: "oauth", status: "success" },
     ];
     const lines = renderQuotaTui(response, {
       columns: 80,
@@ -434,9 +466,8 @@ describe("renderQuotaTui structure", () => {
     expect(accountFooter).toContain("identity unverified");
     expect(accountFooter).toContain("…");
     const attemptFooter = findLine(lines, "tried oauth-profile");
-    expect(attemptFooter).toContain(
-      "… (skipped: identity_context_mismatch)",
-    );
+    expect(attemptFooter).toContain("… (skipped: identity_context_mismatch)");
+    expect(findLine(lines, "tried oauth (success)")).toBeDefined();
     for (const line of lines) expect(line.length).toBeLessThanOrEqual(80);
 
     response.providers[0].account = {
@@ -454,6 +485,23 @@ describe("renderQuotaTui structure", () => {
     expect(evidence).toContain("id account-123");
     expect(evidence).toContain("identity verified");
     expect(evidence).toContain("keychain (failed: access_");
+  });
+
+  it("bounds CJK account footers by terminal display columns", () => {
+    const response = fixtureResponse();
+    response.providers[0].account = {
+      organization: "配额组织".repeat(20),
+    };
+    const lines = renderQuotaTui(response, {
+      columns: 80,
+      full: true,
+      timeZone: "America/Los_Angeles",
+    }).split("\n");
+    const footer = findLine(lines, "claude · 配额组织");
+    expect(footer).toContain("…");
+    for (const line of lines) {
+      expect(displayColumns(line)).toBeLessThanOrEqual(80);
+    }
   });
 
   it("marks a stale provider and keeps effective headroom unknown", () => {
@@ -561,8 +609,8 @@ describe("color handling", () => {
 
   it("colors runway exhaustion independently from healthy headroom", () => {
     const response = fixtureResponse();
-    const availability = response.providers[0].quotaSemantics
-      ?.effectiveAvailability[0];
+    const availability =
+      response.providers[0].quotaSemantics?.effectiveAvailability[0];
     expect(availability).toBeDefined();
     if (!availability) return;
     availability.runway = {
@@ -576,9 +624,7 @@ describe("color handling", () => {
       colorDepth: "truecolor",
       timeZone: "America/Los_Angeles",
     });
-    expect(projected).toContain(
-      "\x1b[1;38;2;166;227;161m72%\x1b[0m",
-    );
+    expect(projected).toContain("\x1b[1;38;2;166;227;161m72%\x1b[0m");
     expect(projected).toContain(
       "\x1b[1;38;2;249;226;175m▲ empty in 1h 0m\x1b[0m",
     );

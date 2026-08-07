@@ -325,10 +325,16 @@ function titleLine(
   borderStyle: StyleName,
 ): Line {
   let right = rightText === "" ? "" : ` ${rightText} `;
-  let dashes = CARD_WIDTH - 4 - name.text.length - right.length;
+  let dashes = CARD_WIDTH - 4 - displayWidth(name.text) - displayWidth(right);
   if (dashes < 1) {
-    right = ` ${truncate(rightText, Math.max(0, CARD_WIDTH - 7 - name.text.length))} `;
-    dashes = Math.max(1, CARD_WIDTH - 4 - name.text.length - right.length);
+    right = ` ${truncate(
+      rightText,
+      Math.max(0, CARD_WIDTH - 7 - displayWidth(name.text)),
+    )} `;
+    dashes = Math.max(
+      1,
+      CARD_WIDTH - 4 - displayWidth(name.text) - displayWidth(right),
+    );
   }
   return [
     { text: "╭─", style: borderStyle },
@@ -360,7 +366,7 @@ function windowRow(window: QuotaWindow, generatedAtMs: number): Line {
   const reset = resetCountdown(window, generatedAtMs);
   return [
     { text: "   " },
-    { text: shortWindowLabel(window).padEnd(8), style: "label" },
+    { text: padEndDisplay(shortWindowLabel(window), 8), style: "label" },
     ...thinBar(pct, marker, WINDOW_BAR_WIDTH),
     { text: " " },
     {
@@ -368,7 +374,7 @@ function windowRow(window: QuotaWindow, generatedAtMs: number): Line {
       style: pct === undefined ? "dim" : healthStyle(pct),
     },
     { text: "  " },
-    { text: reset.padEnd(6), style: "dim" },
+    { text: padEndDisplay(reset, 6), style: "dim" },
     { text: "  " },
     ...burnChip(window),
     { text: " " },
@@ -535,11 +541,11 @@ export function shortWindowLabel(window: QuotaWindow): string {
     tokens.pop();
   }
   let label = tokens.join(" ").toLowerCase();
-  if (label.length > 7 && label.includes("-")) {
+  if (displayWidth(label) > 7 && label.includes("-")) {
     label = label.slice(label.lastIndexOf("-") + 1);
   }
-  if (label.length > 7) label = `${label.slice(0, 6)}…`;
-  return label || window.id.slice(0, 7);
+  if (displayWidth(label) > 7) label = truncate(label, 7);
+  return label || truncate(window.id, 7);
 }
 
 function resetCountdown(window: QuotaWindow, generatedAtMs: number): string {
@@ -644,21 +650,15 @@ function fullFooterLines(provider: ProviderQuota, width: number): string[] {
   }
   const attempts = (provider.attempts ?? []).map(
     (attempt) =>
-      `${attempt.source}${
-        attempt.status === "success"
-          ? ""
-          : ` (${attempt.status}${attempt.error ? `: ${attempt.error}` : ""})`
-      }`,
+      `${attempt.source} (${attempt.status}${attempt.error ? `: ${attempt.error}` : ""})`,
   );
   const tried = attempts.length > 0 ? attempts : provider.state.sourcesTried;
   const completeParts = [...accountParts];
   if (tried.length > 0) completeParts.push(`tried ${tried.join(" → ")}`);
   const complete = completeParts.join(" · ");
-  if (complete.length <= width) return [complete];
+  if (displayWidth(complete) <= width) return [complete];
 
-  const lines = [
-    fitFooterParts(accountParts, width, protectedAccountParts),
-  ];
+  const lines = [fitFooterParts(accountParts, width, protectedAccountParts)];
   if (provider.attempts && provider.attempts.length > 0) {
     lines.push(
       ...provider.attempts.map((attempt) => formatAttemptLine(attempt, width)),
@@ -678,20 +678,20 @@ function formatAttemptLine(
   width: number,
 ): string {
   const prefix = "  tried ";
-  if (attempt.status === "success") {
-    return truncate(`${prefix}${attempt.source}`, width);
-  }
-
   const statusPrefix = ` (${attempt.status}${attempt.error ? ": " : ""}`;
   const suffix = ")";
   const complete = `${prefix}${attempt.source}${statusPrefix}${attempt.error ?? ""}${suffix}`;
-  if (complete.length <= width) return complete;
+  if (displayWidth(complete) <= width) return complete;
 
-  const fixedWidth = prefix.length + statusPrefix.length + suffix.length;
+  const fixedWidth =
+    displayWidth(prefix) + displayWidth(statusPrefix) + displayWidth(suffix);
   const available = Math.max(2, width - fixedWidth);
-  const minimumSourceWidth = Math.min(8, attempt.source.length);
+  const minimumSourceWidth = Math.min(8, displayWidth(attempt.source));
   const errorWidth = attempt.error
-    ? Math.min(attempt.error.length, Math.max(1, available - minimumSourceWidth))
+    ? Math.min(
+        displayWidth(attempt.error),
+        Math.max(1, available - minimumSourceWidth),
+      )
     : 0;
   const sourceWidth = Math.max(1, available - errorWidth);
   return `${prefix}${truncate(attempt.source, sourceWidth)}${statusPrefix}${
@@ -706,13 +706,16 @@ function fitFooterParts(
 ): string {
   const separator = " · ";
   const complete = parts.join(separator);
-  if (complete.length <= width) return complete;
+  if (displayWidth(complete) <= width) return complete;
 
-  const available = Math.max(0, width - separator.length * (parts.length - 1));
+  const available = Math.max(
+    0,
+    width - displayWidth(separator) * (parts.length - 1),
+  );
   const widths = new Array<number>(parts.length).fill(0);
   let remaining = available;
   for (const index of protectedParts) {
-    widths[index] = Math.min(parts[index].length, remaining);
+    widths[index] = Math.min(displayWidth(parts[index]), remaining);
     remaining -= widths[index];
   }
   let pending = parts
@@ -721,7 +724,9 @@ function fitFooterParts(
 
   while (pending.length > 0) {
     const share = Math.floor(remaining / pending.length);
-    const fitting = pending.filter((index) => parts[index].length <= share);
+    const fitting = pending.filter(
+      (index) => displayWidth(parts[index]) <= share,
+    );
     if (fitting.length === 0) {
       for (const [position, index] of pending.entries()) {
         widths[index] = share + (position < remaining % pending.length ? 1 : 0);
@@ -729,7 +734,7 @@ function fitFooterParts(
       break;
     }
     for (const index of fitting) {
-      widths[index] = parts[index].length;
+      widths[index] = displayWidth(parts[index]);
       remaining -= widths[index];
     }
     pending = pending.filter((index) => !fitting.includes(index));
@@ -800,17 +805,98 @@ function humanize(text: string): string {
 }
 
 function truncate(text: string, width: number): string {
-  if (text.length <= width) return text;
-  return `${text.slice(0, Math.max(0, width - 1))}…`;
+  if (width <= 0) return "";
+  if (displayWidth(text) <= width) return text;
+  if (width === 1) return "…";
+
+  const limit = width - 1;
+  let used = 0;
+  let result = "";
+  for (const character of text) {
+    const characterWidth = terminalCharacterWidth(character);
+    if (characterWidth > 0 && used + characterWidth > limit) break;
+    result += character;
+    used += characterWidth;
+  }
+  return `${result}…`;
+}
+
+function padEndDisplay(text: string, width: number): string {
+  return `${text}${" ".repeat(Math.max(0, width - displayWidth(text)))}`;
 }
 
 function padBetween(left: Line, right: Line, width: number): Line {
-  const pad = Math.max(1, width - lineWidth(left) - lineWidth(right));
-  return [...left, { text: " ".repeat(pad) }, ...right];
+  const boundedRight = truncateLine(right, Math.max(0, width - 1));
+  const leftWidth = Math.max(0, width - lineWidth(boundedRight) - 1);
+  const boundedLeft = truncateLine(left, leftWidth);
+  const pad = Math.max(
+    1,
+    width - lineWidth(boundedLeft) - lineWidth(boundedRight),
+  );
+  return [...boundedLeft, { text: " ".repeat(pad) }, ...boundedRight];
+}
+
+function truncateLine(line: Line, width: number): Line {
+  if (width <= 0) return [];
+  if (lineWidth(line) <= width) return line;
+
+  const result: Line = [];
+  let remaining = width;
+  for (const segment of line) {
+    const segmentWidth = displayWidth(segment.text);
+    if (segmentWidth <= remaining) {
+      result.push(segment);
+      remaining -= segmentWidth;
+      continue;
+    }
+    if (remaining > 0) {
+      result.push({ ...segment, text: truncate(segment.text, remaining) });
+    }
+    break;
+  }
+  return result;
 }
 
 function lineWidth(line: Line): number {
-  return line.reduce((sum, segment) => sum + segment.text.length, 0);
+  return line.reduce((sum, segment) => sum + displayWidth(segment.text), 0);
+}
+
+function displayWidth(text: string): number {
+  let width = 0;
+  for (const character of text) width += terminalCharacterWidth(character);
+  return width;
+}
+
+function terminalCharacterWidth(character: string): number {
+  const codePoint = character.codePointAt(0) ?? 0;
+  if (
+    codePoint === 0x200d ||
+    (codePoint >= 0xfe00 && codePoint <= 0xfe0f) ||
+    /\p{Mark}/u.test(character)
+  ) {
+    return 0;
+  }
+  if (codePoint < 0x20 || (codePoint >= 0x7f && codePoint < 0xa0)) return 0;
+  return isWideCodePoint(codePoint) ? 2 : 1;
+}
+
+function isWideCodePoint(codePoint: number): boolean {
+  return (
+    codePoint >= 0x1100 &&
+    (codePoint <= 0x115f ||
+      codePoint === 0x2329 ||
+      codePoint === 0x232a ||
+      (codePoint >= 0x2e80 && codePoint <= 0xa4cf && codePoint !== 0x303f) ||
+      (codePoint >= 0xac00 && codePoint <= 0xd7a3) ||
+      (codePoint >= 0xf900 && codePoint <= 0xfaff) ||
+      (codePoint >= 0xfe10 && codePoint <= 0xfe19) ||
+      (codePoint >= 0xfe30 && codePoint <= 0xfe6f) ||
+      (codePoint >= 0xff00 && codePoint <= 0xff60) ||
+      (codePoint >= 0xffe0 && codePoint <= 0xffe6) ||
+      (codePoint >= 0x1f300 && codePoint <= 0x1f64f) ||
+      (codePoint >= 0x1f900 && codePoint <= 0x1f9ff) ||
+      (codePoint >= 0x20000 && codePoint <= 0x3fffd))
+  );
 }
 
 function coalesce(segments: Segment[]): Line {
