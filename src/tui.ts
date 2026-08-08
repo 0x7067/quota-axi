@@ -23,6 +23,8 @@ export type TuiOptions = {
   full?: boolean;
   /** IANA time zone for header/absolute times; defaults to the system zone. */
   timeZone?: string;
+  /** Dim closing line used by the live report for its key hint. */
+  footerHint?: string;
 };
 
 const CARD_WIDTH = 49;
@@ -30,7 +32,8 @@ const CARD_INTERIOR = CARD_WIDTH - 2;
 const CARD_GUTTER = 2;
 const TWO_COLUMN_MIN = CARD_WIDTH * 2 + CARD_GUTTER;
 const EFFECTIVE_BAR_WIDTH = 41;
-const WINDOW_BAR_WIDTH = 13;
+/** 3 gutter + 8 label + bar + 1 + 4 percent + 2 + 6 reset + 1 = CARD_INTERIOR. */
+const WINDOW_BAR_WIDTH = CARD_INTERIOR - 25;
 const MIN_COLUMNS = 80;
 const MAX_COLUMNS = 120;
 const GRAPHEME_SEGMENTER = new Intl.Segmenter("en", {
@@ -136,10 +139,6 @@ export function renderQuotaTui(
   lines.push([{ text: `  ${headerText(response, timeZone)}`, style: "dim" }]);
   lines.push([]);
   lines.push(...layoutCards(cards, twoColumn));
-  if (cards.some((card) => card.hasMarker)) {
-    lines.push([]);
-    lines.push(...legendLine(columns));
-  }
   if (options.full) {
     lines.push([]);
     for (const provider of ordered) {
@@ -147,6 +146,12 @@ export function renderQuotaTui(
         lines.push([{ text: `  ${footerLine}`, style: "dim" }]);
       }
     }
+  }
+  if (options.footerHint !== undefined) {
+    lines.push([]);
+    lines.push([
+      { text: `  ${truncate(options.footerHint, columns - 2)}`, style: "dim" },
+    ]);
   }
 
   return lines
@@ -174,7 +179,7 @@ function headerText(response: QuotaAxiResponse, timeZone?: string): string {
   return parts.filter(Boolean).join(" · ");
 }
 
-type Card = { lines: Line[]; hasMarker: boolean };
+type Card = Line[];
 
 function buildCard(
   provider: ProviderQuota,
@@ -210,12 +215,10 @@ function buildLiveCard(
     ),
     interior([], "border"),
   ];
-  let hasMarker = false;
 
   const headline = pickHeadlineAvailability(provider);
   const effectivePct = headline?.effectivePercentRemaining;
   const markerPct = effectiveMarkerPercent(provider, headline);
-  if (markerPct !== undefined) hasMarker = true;
 
   const left: Line =
     effectivePct !== undefined
@@ -257,7 +260,6 @@ function buildLiveCard(
   if (provider.windows.length > 0) {
     lines.push(interior([], "border"));
     for (const window of provider.windows) {
-      if (window.pace?.timeRemainingPercent !== undefined) hasMarker = true;
       lines.push(interior(windowRow(window, generatedAtMs), "border"));
     }
   }
@@ -273,7 +275,7 @@ function buildLiveCard(
 
   lines.push(interior([], "border"));
   lines.push(bottomLine("border"));
-  return { lines, hasMarker };
+  return lines;
 }
 
 function buildFailedCard(provider: ProviderQuota): Card {
@@ -319,7 +321,7 @@ function buildFailedCard(provider: ProviderQuota): Card {
   }
   lines.push(interior([], "borderDim"));
   lines.push(bottomLine("borderDim"));
-  return { lines, hasMarker: false };
+  return lines;
 }
 
 function titleLine(
@@ -378,8 +380,6 @@ function windowRow(window: QuotaWindow, generatedAtMs: number): Line {
     },
     { text: "  " },
     { text: padEndDisplay(reset, 6), style: "dim" },
-    { text: "  " },
-    ...burnChip(window),
     { text: " " },
   ];
 }
@@ -421,33 +421,6 @@ export function thinBar(
   return coalesce(cells);
 }
 
-function burnChip(window: QuotaWindow): Line {
-  const pace = window.pace;
-  const width = 7;
-  if (pace?.burnMultiple === undefined) {
-    return [{ text: " ".repeat(width) }];
-  }
-  const value = formatBurn(pace.burnMultiple);
-  if (pace.status === "behind") {
-    return [{ text: `▼ ${value}×`.padStart(width), style: "ok" }];
-  }
-  if (pace.status === "ahead") {
-    const health = healthStyle(window.percentRemaining ?? 100);
-    return [
-      {
-        text: `▲ ${value}×`.padStart(width),
-        style: health === "ok" ? "warn" : health,
-      },
-    ];
-  }
-  return [{ text: `● ${value}×`.padStart(width), style: "dim" }];
-}
-
-function formatBurn(burn: number): string {
-  if (burn >= 100) return "99+";
-  return burn >= 10 ? burn.toFixed(1) : burn.toFixed(2);
-}
-
 function pickHeadlineAvailability(
   provider: ProviderQuota,
 ): EffectiveAvailability | undefined {
@@ -479,8 +452,9 @@ function runwayVerdict(headline: EffectiveAvailability | undefined): Line {
     return [{ text: "runway unknown", style: "dim" }];
   }
   if (runway.status === "through_reset") {
+    // The JSON/TOON contract keeps `through_reset`; only this label is humanized.
     return [
-      { text: "through reset ", style: "dim" },
+      { text: "on pace ", style: "dim" },
       { text: "✓", style: "okBold" },
     ];
   }
@@ -512,7 +486,7 @@ function cardNotes(
       generatedAtMs,
       timeZone,
     );
-    if (absolute) notes.push(`projected empty ${absolute}`);
+    if (absolute) notes.push(`empty at ${absolute} if pace holds`);
   }
   if (provider.state.retryAfter) {
     notes.push(`retry after ${provider.state.retryAfter}`);
@@ -748,37 +722,19 @@ function fitFooterParts(
     .join(separator);
 }
 
-function legendLine(columns: number): Line[] {
-  const long: Line = [
-    { text: "  " },
-    { text: "┃", style: "marker" },
-    { text: " marks linear pace - fill ending left of ", style: "dim" },
-    { text: "┃", style: "marker" },
-    { text: " is burning faster than the reset clock", style: "dim" },
-  ];
-  const short: Line = [
-    { text: "  " },
-    { text: "┃", style: "marker" },
-    { text: " = linear pace (fill left of ", style: "dim" },
-    { text: "┃", style: "marker" },
-    { text: " = burning hot)", style: "dim" },
-  ];
-  return [lineWidth(long) <= columns ? long : short];
-}
-
 function layoutCards(cards: Card[], twoColumn: boolean): Line[] {
   const lines: Line[] = [];
   if (!twoColumn) {
     cards.forEach((card, index) => {
       if (index > 0) lines.push([]);
-      lines.push(...card.lines);
+      lines.push(...card);
     });
     return lines;
   }
   for (let index = 0; index < cards.length; index += 2) {
     if (index > 0) lines.push([]);
-    const left = cards[index].lines;
-    const right = cards[index + 1]?.lines ?? [];
+    const left = cards[index];
+    const right = cards[index + 1] ?? [];
     const height = Math.max(left.length, right.length);
     for (let row = 0; row < height; row++) {
       const leftLine = left[row] ?? [{ text: " ".repeat(CARD_WIDTH) }];

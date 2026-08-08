@@ -9,7 +9,15 @@ export type QuotaFlags = {
   full: boolean;
   tui: boolean;
   allowKeychainPrompt: boolean;
+  /** Live `--tui` refresh interval; the caller applies the default. */
+  refreshSeconds?: number;
+  /** Render one `--tui` frame and exit instead of staying live. */
+  once: boolean;
 };
+
+/** Refresh bounds: fast enough to feel live, slow enough to stay polite. */
+export const MIN_REFRESH_SECONDS = 30;
+export const MAX_REFRESH_SECONDS = 86_400;
 
 export type ModelsFlags = QuotaFlags & {
   intelligence?: IntelligenceBucket;
@@ -64,6 +72,8 @@ function parseCommonFlags(
   let json = false;
   let full = false;
   let tui = false;
+  let once = false;
+  let refreshSeconds: number | undefined;
   let allowKeychainPrompt = false;
   let intelligence: IntelligenceBucket | undefined;
   let sort: ModelSortKey | undefined;
@@ -83,6 +93,19 @@ function parseCommonFlags(
     }
     if (arg === "--tui") {
       tui = true;
+      continue;
+    }
+    if (arg === "--once") {
+      once = true;
+      continue;
+    }
+    if (arg === "--refresh") {
+      refreshSeconds = parseRefreshValue(args[index + 1]);
+      index++;
+      continue;
+    }
+    if (arg.startsWith("--refresh=")) {
+      refreshSeconds = parseRefreshValue(arg.slice("--refresh=".length));
       continue;
     }
     if (arg === "--allow-keychain-prompt") {
@@ -141,6 +164,15 @@ function parseCommonFlags(
       ],
     );
   }
+  const liveOnlyFlag =
+    refreshSeconds !== undefined ? "--refresh" : once ? "--once" : undefined;
+  if (liveOnlyFlag && !tui) {
+    throw new AxiError(
+      `${liveOnlyFlag} is only supported with --tui`,
+      "VALIDATION_ERROR",
+      ["Run `quota-axi --tui --refresh 5m` for the live human report"],
+    );
+  }
 
   return {
     providers:
@@ -150,7 +182,9 @@ function parseCommonFlags(
     json,
     full,
     tui,
+    once,
     allowKeychainPrompt,
+    ...(refreshSeconds !== undefined ? { refreshSeconds } : {}),
     ...(intelligence ? { intelligence } : {}),
     ...(sort ? { sort } : {}),
   };
@@ -166,6 +200,28 @@ function parseIntelligenceValue(
     "VALIDATION_ERROR",
     ["Run `quota-axi models --help` for supported models flags"],
   );
+}
+
+/** Accept a whole-unit duration (`45s`, `5m`, `1h`) or bare seconds. */
+function parseRefreshValue(value: string | undefined): number {
+  const match = /^(\d{1,7})(s|m|h)?$/.exec(value?.trim() ?? "");
+  if (!match) {
+    throw new AxiError(
+      "--refresh requires a duration such as 30s, 5m, or 1h",
+      "VALIDATION_ERROR",
+      ["Pass --refresh=... if the value begins with --"],
+    );
+  }
+  const multiplier = match[2] === "h" ? 3600 : match[2] === "m" ? 60 : 1;
+  const seconds = Number(match[1]) * multiplier;
+  if (seconds < MIN_REFRESH_SECONDS || seconds > MAX_REFRESH_SECONDS) {
+    throw new AxiError(
+      `--refresh must be between ${MIN_REFRESH_SECONDS}s and ${MAX_REFRESH_SECONDS / 3600}h`,
+      "VALIDATION_ERROR",
+      ["Provider quota windows do not move fast enough for tighter polling"],
+    );
+  }
+  return seconds;
 }
 
 function parseSortValue(value: string | undefined): ModelSortKey {
