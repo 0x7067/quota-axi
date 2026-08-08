@@ -120,19 +120,36 @@ export function computeEffectiveRunway(
   for (const window of windows) {
     const remaining = finiteNumber(window.percentRemaining);
     const pace = window.pace;
-    const resetsAtMs = parseTimestamp(window.resetsAt);
+    const resetsAt = resolveResetsAtOutcome(window.resetsAt);
+
+    if (resetsAt.kind === "missing") {
+      // A missing resetsAt is non-bounding only when it also reports no
+      // usage (100% remaining, 0% used) - e.g. a Claude five_hour window
+      // before its first request this window. That shape's countdown has
+      // simply not started yet, so it does not block the aggregate. A
+      // missing resetsAt paired with any other usage shape (unknown usage,
+      // or nonzero usage without an active clock) is a real data gap, not
+      // "not yet triggered", and still fails closed.
+      if (remaining !== undefined && isZeroUse(window, remaining)) {
+        continue;
+      }
+      unmeasurableWindowIds.push(window.id);
+      continue;
+    }
+
     if (
       remaining === undefined ||
       remaining < 0 ||
       remaining > 100 ||
       pace === undefined ||
       pace.status === "unknown" ||
-      resetsAtMs === undefined ||
-      resetsAtMs <= generatedAtMs
+      resetsAt.kind === "malformed" ||
+      resetsAt.ms <= generatedAtMs
     ) {
       unmeasurableWindowIds.push(window.id);
       continue;
     }
+    const resetsAtMs = resetsAt.ms;
 
     if (isZeroUse(window, remaining)) {
       if ((pace.elapsedPercent ?? 0) < PACE_EARLY_ELAPSED_PERCENT) {
@@ -358,6 +375,23 @@ function parseTimestamp(value: string | undefined): number | undefined {
   if (!value) return undefined;
   const ms = Date.parse(value);
   return Number.isFinite(ms) ? ms : undefined;
+}
+
+type ResetsAtOutcome =
+  | { kind: "missing" }
+  | { kind: "malformed" }
+  | { kind: "ok"; ms: number };
+
+/**
+ * Distinguishes a genuinely absent `resetsAt` (the cycle has not been
+ * triggered yet) from a present-but-unparseable one (a real data defect that
+ * claims a reset it cannot honor). Effective runway treats only the former
+ * as non-bounding.
+ */
+function resolveResetsAtOutcome(value: string | undefined): ResetsAtOutcome {
+  if (!value) return { kind: "missing" };
+  const ms = Date.parse(value);
+  return Number.isFinite(ms) ? { kind: "ok", ms } : { kind: "malformed" };
 }
 
 function finiteNumber(value: number | undefined): number | undefined {
