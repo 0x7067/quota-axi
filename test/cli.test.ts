@@ -70,10 +70,45 @@ describe("CLI flag parsing", () => {
         json: true,
         full: true,
         tui: false,
+        once: false,
         allowKeychainPrompt: true,
       },
     );
     expect(parseFlags(["--tui"]).tui).toBe(true);
+    expect(parseFlags(["--tui", "--once"]).once).toBe(true);
+  });
+
+  it("parses whole-unit refresh intervals for the live report", () => {
+    expect(parseFlags(["--tui", "--refresh", "45"]).refreshSeconds).toBe(45);
+    expect(parseFlags(["--tui", "--refresh", "90s"]).refreshSeconds).toBe(90);
+    expect(parseFlags(["--tui", "--refresh=5m"]).refreshSeconds).toBe(300);
+    expect(parseFlags(["--tui", "--refresh=2h"]).refreshSeconds).toBe(7200);
+    expect(parseFlags(["--tui"]).refreshSeconds).toBeUndefined();
+  });
+
+  it("rejects refresh values that are unparseable or out of bounds", () => {
+    for (const value of ["", "soon", "5x", "-1m", "1.5m"]) {
+      expect(() => parseFlags(["--tui", "--refresh", value])).toThrow(
+        "--refresh requires a duration such as 30s, 5m, or 1h",
+      );
+    }
+    for (const value of ["29s", "0", "25h"]) {
+      expect(() => parseFlags(["--tui", "--refresh", value])).toThrow(
+        "--refresh must be between 30s and 24h",
+      );
+    }
+  });
+
+  it("rejects live-only flags without --tui", () => {
+    expect(() => parseFlags(["--refresh", "5m"])).toThrow(
+      "--refresh is only supported with --tui",
+    );
+    expect(() => parseFlags(["--once"])).toThrow(
+      "--once is only supported with --tui",
+    );
+    expect(() => parseModelsFlags(["--once"])).toThrow(
+      "--once is only supported with --tui",
+    );
   });
 
   it("rejects --tui combined with --json", () => {
@@ -593,6 +628,25 @@ describe("CLI quota rendering", () => {
     expect(output).not.toContain("claude");
     expect(output).not.toContain("providers[");
     expect(output).not.toContain("\x1b[");
+    expect(output).not.toContain("Press q to quit");
+    expect(process.exitCode).toBeUndefined();
+  });
+
+  it("renders one --tui frame for --once without live control sequences", async () => {
+    useTempCache();
+    PROVIDERS.codex = providerWithQuota(freshCodexQuota());
+    const output = await capture([
+      "--tui",
+      "--once",
+      "--refresh",
+      "1m",
+      "--provider",
+      "codex",
+    ]);
+
+    expect(output).toContain("╭─ ● codex ");
+    expect(output).not.toContain("Press q to quit");
+    expect(output).not.toContain("\x1b[?1049h");
     expect(process.exitCode).toBeUndefined();
   });
 });

@@ -9,6 +9,7 @@ import {
 import type { ProviderQuota, QuotaAxiResponse } from "../src/types.js";
 
 const GENERATED_AT = "2026-08-06T23:21:15.000Z";
+const CARD_COLUMNS = 49;
 
 function claudeProvider(): ProviderQuota {
   return {
@@ -273,6 +274,20 @@ function findLine(lines: string[], needle: string): string {
   return line as string;
 }
 
+/** Search within one card column of the two-up grid, not the zipped row. */
+function findCardLine(lines: string[], card: 0 | 1, needle: string): string {
+  const column = (line: string): string =>
+    card === 0 ? line.slice(0, CARD_COLUMNS) : line.slice(CARD_COLUMNS + 2);
+  const line = lines
+    .map(column)
+    .find((candidate) => candidate.includes(needle));
+  expect(
+    line,
+    `expected card ${card} to contain ${JSON.stringify(needle)}`,
+  ).toBeDefined();
+  return line as string;
+}
+
 function barText(segments: { text: string }[]): string {
   return segments.map((segment) => segment.text).join("");
 }
@@ -334,7 +349,7 @@ describe("renderQuotaTui structure", () => {
 
   it("promotes effective headroom with the runway verdict on the headline", () => {
     const lines = render();
-    expect(findLine(lines, "72% all models")).toContain("through reset ✓");
+    expect(findLine(lines, "72% all models")).toContain("on pace ✓");
     expect(findLine(lines, "5% all models")).toContain("▲ empty in 7h 21m");
     expect(findLine(lines, "45% all products")).toContain("▲ empty in 2d 13h");
   });
@@ -352,28 +367,27 @@ describe("renderQuotaTui structure", () => {
     }).split("\n");
     const headline = findLine(lines, "72%");
     expect(headline).toContain("…");
-    expect(headline).toContain("through reset ✓");
+    expect(headline).toContain("on pace ✓");
     expect(displayColumns(headline)).toBe(49);
   });
 
-  it("renders aligned per-window rows with reset countdown and burn multiple", () => {
+  it("renders aligned per-window rows with reset countdown and no burn chip", () => {
     const lines = render();
-    const session = findLine(lines, "session ");
+    const session = findCardLine(lines, 0, "session ");
     expect(session).toContain(" 97%");
     expect(session).toContain("4h 38m");
-    expect(session).toContain("▼ 0.42×");
-    const week = findLine(lines, "│   week    ━");
-    expect(week).toContain(" 72%");
-    expect(week).toContain("4d 21h");
-    expect(week).toContain("▼ 0.93×");
-    const codexWeek = findLine(lines, "▲ 1.14×");
+    const claudeWeek = findCardLine(lines, 0, "week ");
+    expect(claudeWeek).toContain(" 72%");
+    expect(claudeWeek).toContain("4d 21h");
+    const codexWeek = findCardLine(lines, 1, "week ");
     expect(codexWeek).toContain("  5%");
     expect(codexWeek).toContain("1d 4h");
+    expect(lines.join("\n")).not.toContain("×");
   });
 
   it("shortens window labels into the 8-char column", () => {
     const lines = render();
-    expect(findLine(lines, "fable   ")).toContain("▼ 0.50×");
+    expect(findLine(lines, "fable   ")).toContain(" 85%");
     findLine(lines, "spark   ");
     expect(
       shortWindowLabel({ id: "w", label: "730h window", kind: "unknown" }),
@@ -390,19 +404,19 @@ describe("renderQuotaTui structure", () => {
     ).toBe("spark");
   });
 
-  it("omits marker and burn chip when a window's pace is unknown", () => {
+  it("omits the marker when a window's pace is unknown", () => {
     const lines = render();
     const spark = findLine(lines, "spark   ");
     const cell = spark.slice(51);
     expect(cell).not.toContain("┃");
-    expect(cell).not.toContain("×");
     expect(cell).toContain("100%");
   });
 
-  it("adds a dim absolute projected-empty note for finite runway", () => {
+  it("names the projected exhaustion note as an absolute wall time", () => {
     const lines = render();
-    expect(findLine(lines, "projected empty 23:42")).toBeDefined();
-    expect(findLine(lines, "projected empty Sun 07:33")).toBeDefined();
+    expect(findLine(lines, "empty at 23:42 if pace holds")).toBeDefined();
+    expect(findLine(lines, "empty at Sun 07:33 if pace holds")).toBeDefined();
+    expect(lines.join("\n")).not.toContain("projected empty");
   });
 
   it("renders signed-out providers as dim cards excluded from totals", () => {
@@ -415,9 +429,20 @@ describe("renderQuotaTui structure", () => {
     );
   });
 
-  it("explains the pace marker in a dim legend line", () => {
-    const lines = render();
-    findLine(lines, "┃ marks linear pace");
+  it("leaves the pace marker to the bars instead of a legend line", () => {
+    const output = render().join("\n");
+    expect(output).toContain("┃");
+    expect(output).not.toContain("marks linear pace");
+    expect(output).not.toContain("linear pace");
+  });
+
+  it("appends the live key hint only when a footer hint is supplied", () => {
+    expect(render().join("\n")).not.toContain("Press q to quit");
+    const live = render({
+      footerHint: "Press q to quit · refreshing every 5m",
+    });
+    expect(live.at(-1)).toBe("  Press q to quit · refreshing every 5m");
+    expect(live.at(-2)).toBe("");
   });
 
   it("reflows to a single column below the two-up width", () => {

@@ -319,25 +319,29 @@ It is generated from `src/skill.ts`; update it with `pnpm run build:skill` and v
 
 ### Flags
 
-| Flag                                               | Description                                                     |
-| -------------------------------------------------- | --------------------------------------------------------------- |
-| `--provider claude,codex,cursor,copilot,grok,kimi` | Scope providers                                                 |
-| `--json`                                           | Emit normalized JSON instead of TOON for quota, auth, or models |
-| `--full`                                           | Include account, source attempts, and reserve details           |
-| `--tui`                                            | Render the human terminal report instead of TOON (quota only)   |
-| `--allow-keychain-prompt`                          | Permit macOS Claude Keychain access that could prompt           |
-| `--intelligence high\|medium\|low`                 | Filter `models` by editorial intelligence bucket                |
-| `--sort runway`                                    | Explicitly sort `models` by documented usable-runway evidence   |
-| `-h`, `--help`                                     | Print terse [AXI](https://axi.md) help                          |
-| `-v`, `-V`, `--version`                            | Print version                                                   |
+| Flag                                               | Description                                                        |
+| -------------------------------------------------- | ------------------------------------------------------------------ |
+| `--provider claude,codex,cursor,copilot,grok,kimi` | Scope providers                                                    |
+| `--json`                                           | Emit normalized JSON instead of TOON for quota, auth, or models    |
+| `--full`                                           | Include account, source attempts, and reserve details              |
+| `--tui`                                            | Render the live human terminal report instead of TOON (quota only) |
+| `--refresh 30s\|5m\|1h`                            | Live `--tui` refresh interval, default 5m (30s-24h)                |
+| `--once`                                           | Render one `--tui` frame and exit instead of staying live          |
+| `--allow-keychain-prompt`                          | Permit macOS Claude Keychain access that could prompt              |
+| `--intelligence high\|medium\|low`                 | Filter `models` by editorial intelligence bucket                   |
+| `--sort runway`                                    | Explicitly sort `models` by documented usable-runway evidence      |
+| `-h`, `--help`                                     | Print terse [AXI](https://axi.md) help                             |
+| `-v`, `-V`, `--version`                            | Print version                                                      |
 
 ### Human terminal report (`--tui`)
 
-`quota-axi --tui` renders the same redacted report as a one-shot human terminal view instead of TOON: a two-up provider card grid with thin headroom bars and a `┃` linear-pace marker whenever pace is known. It is presentation only and is not part of the machine-readable contract.
+`quota-axi --tui` renders the same redacted report as a live human terminal view instead of TOON: a two-up provider card grid with thin headroom bars and a `┃` linear-pace marker whenever pace is known. It is presentation only and is not part of the machine-readable contract.
 
+- On an interactive terminal the report stays up and refreshes every 5 minutes until you press `q` (or Ctrl+C), with a `Press q to quit` footer hint. `--refresh` sets the interval (30s-24h) and `--once` renders a single frame. A non-TTY stdout or stdin (pipes, CI, screenshots) always renders one frame and exits.
+- Live frames paint on the alternate screen and repaint immediately on terminal resize; quitting restores the screen and prints the final frame so the last report stays in scrollback.
 - Each live card leads with the `effective[]` rollup (min across bounding windows), colored by headroom: >=50% healthy, 20-50% tight, <20% critical. Per-window rows, including per-model breakouts, are the supporting detail.
 - The bar fill is current headroom; the `┃` marker sits at `pace.timeRemainingPercent`, the fill position of exactly linear burn. Fill ending left of the marker means burning faster than the reset clock. The marker is omitted when pace is unknown.
-- Pace renders as a burn multiple (`▼ 0.93×` slower than the reset clock, `▲ 1.14×` faster), never the raw `behind`/`ahead` vocabulary. `through_reset` stays quiet (`✓`); `projected_exhaustion` is promoted to the card headline (`▲ empty in 7h 21m`).
+- Pace is shown by the bar and marker alone, never as a numeric burn multiple. The runway verdict on the headline reads `on pace ✓` for `through_reset` and `▲ empty in 7h 21m` for `projected_exhaustion`, with `empty at 23:42 if pace holds` as the absolute-time card note. The JSON and TOON surfaces keep the `through_reset` vocabulary and the full `pace` object.
 - Signed-out and failed providers stay visible as dimmed cards and are excluded from the fleet totals in the header.
 - Width comes from the terminal, clamped to 80-120 columns; below the two-up width the grid reflows to one column. Color honors `NO_COLOR`, `TERM=dumb`, and non-TTY stdout (the glyph skeleton is kept), re-enables with `FORCE_COLOR`, and uses truecolor when `COLORTERM` advertises it, falling back to 256-color then ANSI-16.
 - `--tui` composes with `--provider` scoping and `--full` (account identity and source-attempt footers). It is mutually exclusive with `--json` and only supported by the `quota` command.
@@ -519,7 +523,7 @@ Auth source entries can include `credentialPresent` when a non-secret probe conf
 | Cursor         | `$CURSOR_STATE_DB` when set or the platform Cursor state database path                                                                                                                                                                                                                                                               |
 | GitHub Copilot | `$GITHUB_COPILOT_APPS_JSON` when set or the local Copilot apps auth file                                                                                                                                                                                                                                                             |
 | Grok           | Grok CLI session auth from `$GROK_AUTH_JSON`, inline `$GROK_AUTH`, `$GROK_AUTH_PATH`, or `$GROK_HOME/auth.json` / `~/.grok/auth.json`, plus Pi's independent `$PI_CODING_AGENT_DIR/auth.json` `xai` entry (default `~/.pi/agent/auth.json`) for OAuth or literal API-key model auth                                                  |
-| Kimi           | Pi's `$PI_CODING_AGENT_DIR/auth.json` (default `~/.pi/agent/auth.json`) for a literal `kimi-coding` API key first, then a fresh official Kimi Code CLI access token from `$KIMI_CODE_HOME/credentials/kimi-code.json` (default `$HOME/.kimi-code/credentials/kimi-code.json`)                                                        |
+| Kimi           | Pi's `$PI_CODING_AGENT_DIR/auth.json` (default `~/.pi/agent/auth.json`) for a literal `kimi-coding` API key or unexpired OAuth access token first, then a fresh official Kimi Code CLI access token from `$KIMI_CODE_HOME/credentials/kimi-code.json` (default `$HOME/.kimi-code/credentials/kimi-code.json`)                        |
 
 ### Provider notes
 
@@ -563,7 +567,7 @@ Auth source entries can include `credentialPresent` when a non-secret probe conf
 
 **Kimi**
 
-- It opens Pi's `$PI_CODING_AGENT_DIR/auth.json` (default `~/.pi/agent/auth.json`) read-only with a strict 64 KiB cap and guaranteed descriptor cleanup. It accepts only the exact `kimi-coding` entry with `type: "api_key"` and a nonempty, control-byte-free literal string `key`; malformed or oversized files, unsafe shapes, and environment, template, or command references are unavailable without resolving or executing their values. Auth and quota inspection do not create, rewrite, or otherwise manage Pi provider state.
+- It opens Pi's `$PI_CODING_AGENT_DIR/auth.json` (default `~/.pi/agent/auth.json`) read-only with a strict 64 KiB cap and guaranteed descriptor cleanup. It accepts only the exact `kimi-coding` entry, either `type: "api_key"` with a nonempty, control-byte-free literal string `key`, or `type: "oauth"` with such an `access` token whose optional `expires` is still in the future; any other type is unsupported, an expired OAuth record is reported as expired (with whether a refresh token exists) and never refreshed, and malformed or oversized files, unsafe shapes, and environment, template, or command references are unavailable without resolving or executing their values. Auth and quota inspection do not create, rewrite, or otherwise manage Pi provider state.
 - If Pi has no supported credential, it reads the official Kimi Code CLI credential at `$KIMI_CODE_HOME/credentials/kimi-code.json`, defaulting to `$HOME/.kimi-code/credentials/kimi-code.json`. It accepts only a non-empty `access_token` whose Unix-seconds `expires_at` (a JSON number or numeric string) is more than 60 seconds in the future.
 - The Pi source always has priority. Ambient API-key environment variables are not a credential source. Transport, decoding, timeout, cancellation, and server failures do not trigger credential switching.
 - It sends one redirect-disabled `GET` to the fixed `https://api.kimi.com/coding/v1/usages` endpoint with a 15 second total deadline and a 262,144-byte decoded-body cap.

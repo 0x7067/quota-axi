@@ -1,6 +1,6 @@
 import { AxiError } from "axi-sdk-js";
 import { annotateQuotaAdvice } from "./advice.js";
-import { parseFlags, parseModelsFlags } from "./args.js";
+import { parseFlags, parseModelsFlags, type QuotaFlags } from "./args.js";
 import { writeCachedProviders } from "./cache.js";
 import { withQuotaSemantics } from "./interpretation.js";
 import { createModelsResponse, MODEL_CATALOG_PROVIDER_IDS } from "./models.js";
@@ -12,6 +12,7 @@ import {
   renderModelsToon,
   renderQuotaToon,
 } from "./render.js";
+import { formatInterval, runLiveTui, type LiveTuiIo } from "./tui-live.js";
 import { detectTuiColorDepth, renderQuotaTui } from "./tui.js";
 import type {
   AuthProviderReport,
@@ -25,6 +26,8 @@ export type QuotaContext = {
   binPath: string;
 };
 
+const DEFAULT_REFRESH_SECONDS = 300;
+
 export async function quotaCommand(
   args: string[],
   context: QuotaContext | undefined,
@@ -35,27 +38,93 @@ export async function quotaCommand(
     allowKeychainPrompt: flags.allowKeychainPrompt,
   };
 
-  const response = await fetchQuota(flags.providers, options);
+  if (flags.tui) return quotaTuiReport(flags, options);
+
+  const response = await loadQuota(flags.providers, options, false);
   const redacted = redactedResponse(response, flags.full);
+  return flags.json
+    ? JSON.stringify(redacted, null, 2)
+    : renderQuotaToon(redacted, binPath, flags.full);
+}
 
-  if (response.providers.every(isFailed)) {
-    process.exitCode = 1;
-  }
-  writeCachedProvidersBestEffort(response.providers);
-
-  if (flags.tui) {
-    return renderQuotaTui(redacted, {
+/**
+ * Render the human report. On an interactive terminal it stays live until the
+ * operator quits and then echoes the final frame onto the normal screen;
+ * everywhere else (pipes, CI, `--once`) it renders a single frame.
+ */
+async function quotaTuiReport(
+  flags: QuotaFlags,
+  options: ProviderOptions,
+): Promise<string> {
+  const frame = (response: QuotaAxiResponse, footerHint?: string): string =>
+    renderQuotaTui(redactedResponse(response, flags.full), {
       columns: process.stdout.columns,
       colorDepth: detectTuiColorDepth(
         process.env,
         process.stdout.isTTY === true,
       ),
       full: flags.full,
+      ...(footerHint === undefined ? {} : { footerHint }),
     });
+
+  if (flags.once || !isInteractiveTerminal()) {
+    return frame(await loadQuota(flags.providers, options, false));
   }
-  return flags.json
-    ? JSON.stringify(redacted, null, 2)
-    : renderQuotaToon(redacted, binPath, flags.full);
+
+  const refreshSeconds = flags.refreshSeconds ?? DEFAULT_REFRESH_SECONDS;
+  const hint = `Press q to quit · refreshing every ${formatInterval(refreshSeconds)}`;
+  const last = await runLiveTui<QuotaAxiResponse>({
+    load: () => loadQuota(flags.providers, options, true),
+    render: (response) => frame(response, hint),
+    intervalMillis: refreshSeconds * 1000,
+    io: processLiveTuiIo(),
+  });
+  return last === undefined ? "" : frame(last);
+}
+
+function isInteractiveTerminal(): boolean {
+  return process.stdout.isTTY === true && process.stdin.isTTY === true;
+}
+
+function processLiveTuiIo(): LiveTuiIo {
+  return {
+    stdout: process.stdout,
+    stdin: process.stdin,
+    setTimer: (callback, milliseconds) => setTimeout(callback, milliseconds),
+    clearTimer: (handle) => {
+      clearTimeout(handle as ReturnType<typeof setTimeout>);
+    },
+    onResize: (listener) => {
+      process.stdout.on("resize", listener);
+      return () => {
+        process.stdout.off("resize", listener);
+      };
+    },
+    onSignal: (listener) => {
+      const signals = ["SIGINT", "SIGTERM", "SIGHUP"] as const;
+      for (const signal of signals) process.on(signal, listener);
+      return () => {
+        for (const signal of signals) process.off(signal, listener);
+      };
+    },
+  };
+}
+
+/**
+ * Fetch, apply the all-failed exit code, and refresh the cache. A live report
+ * re-evaluates the exit code every cycle so quitting reflects the last frame.
+ */
+async function loadQuota(
+  providers: ProviderId[],
+  options: ProviderOptions,
+  live: boolean,
+): Promise<QuotaAxiResponse> {
+  const response = await fetchQuota(providers, options);
+  const allFailed = response.providers.every(isFailed);
+  if (allFailed) process.exitCode = 1;
+  else if (live) process.exitCode = undefined;
+  writeCachedProvidersBestEffort(response.providers);
+  return response;
 }
 
 export async function modelsCommand(
