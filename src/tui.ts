@@ -131,9 +131,7 @@ export function renderQuotaTui(
     ...response.providers.filter(isLive),
     ...response.providers.filter((provider) => !isLive(provider)),
   ];
-  const cards = ordered.map((provider) =>
-    buildCard(provider, generatedAtMs, timeZone),
-  );
+  const cards = ordered.map((provider) => buildCard(provider, generatedAtMs));
 
   const lines: Line[] = [];
   lines.push([{ text: `  ${headerText(response, timeZone)}`, style: "dim" }]);
@@ -181,21 +179,13 @@ function headerText(response: QuotaAxiResponse, timeZone?: string): string {
 
 type Card = Line[];
 
-function buildCard(
-  provider: ProviderQuota,
-  generatedAtMs: number,
-  timeZone?: string,
-): Card {
+function buildCard(provider: ProviderQuota, generatedAtMs: number): Card {
   return isLive(provider)
-    ? buildLiveCard(provider, generatedAtMs, timeZone)
+    ? buildLiveCard(provider, generatedAtMs)
     : buildFailedCard(provider);
 }
 
-function buildLiveCard(
-  provider: ProviderQuota,
-  generatedAtMs: number,
-  timeZone?: string,
-): Card {
+function buildLiveCard(provider: ProviderQuota, generatedAtMs: number): Card {
   const stale = provider.state.stale;
   const rightTitle = [
     provider.plan,
@@ -264,7 +254,7 @@ function buildLiveCard(
     }
   }
 
-  for (const note of cardNotes(provider, headline, generatedAtMs, timeZone)) {
+  for (const note of cardNotes(provider)) {
     lines.push(
       interior(
         [{ text: `   ${truncate(note, CARD_INTERIOR - 4)}`, style: "dimmer" }],
@@ -464,30 +454,13 @@ function runwayVerdict(headline: EffectiveAvailability | undefined): Line {
   const seconds = runway.usableRunwaySeconds;
   const text =
     seconds === undefined
-      ? "▲ exhaustion projected"
-      : `▲ empty in ${formatCountdown(seconds)}`;
+      ? "exhaustion projected"
+      : `empty in ${formatCountdown(seconds)}`;
   return [{ text, style: "warnBold" }];
 }
 
-function cardNotes(
-  provider: ProviderQuota,
-  headline: EffectiveAvailability | undefined,
-  generatedAtMs: number,
-  timeZone?: string,
-): string[] {
+function cardNotes(provider: ProviderQuota): string[] {
   const notes: string[] = [];
-  const runway = headline?.runway;
-  if (
-    runway?.status === "projected_exhaustion" &&
-    runway.projectedExhaustedAt
-  ) {
-    const absolute = formatAbsolute(
-      runway.projectedExhaustedAt,
-      generatedAtMs,
-      timeZone,
-    );
-    if (absolute) notes.push(`empty at ${absolute} if pace holds`);
-  }
   if (provider.state.retryAfter) {
     notes.push(`retry after ${provider.state.retryAfter}`);
   }
@@ -570,45 +543,6 @@ function formatHeaderTime(iso: string, timeZone?: string): string {
     parts.find((part) => part.type === type)?.value ?? "";
   const hour = get("hour") === "24" ? "00" : get("hour");
   return `${get("year")}-${get("month")}-${get("day")} ${hour}:${get("minute")} ${get("timeZoneName")}`.trim();
-}
-
-function formatAbsolute(
-  iso: string,
-  generatedAtMs: number,
-  timeZone?: string,
-): string {
-  const ms = Date.parse(iso);
-  if (!Number.isFinite(ms)) return "";
-  const date = new Date(ms);
-  const zone = timeZone ? { timeZone } : {};
-  const dayKey = (value: Date): string =>
-    new Intl.DateTimeFormat("en-CA", { ...zone, dateStyle: "short" }).format(
-      value,
-    );
-  const time = new Intl.DateTimeFormat("en-GB", {
-    ...zone,
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  }).format(date);
-  if (
-    Number.isFinite(generatedAtMs) &&
-    dayKey(date) === dayKey(new Date(generatedAtMs))
-  ) {
-    return time;
-  }
-  if (Number.isFinite(generatedAtMs) && ms - generatedAtMs < 6 * 86400 * 1000) {
-    const weekday = new Intl.DateTimeFormat("en-US", {
-      ...zone,
-      weekday: "short",
-    }).format(date);
-    return `${weekday} ${time}`;
-  }
-  return new Intl.DateTimeFormat("en-US", {
-    ...zone,
-    month: "short",
-    day: "numeric",
-  }).format(date);
 }
 
 function fullFooterLines(provider: ProviderQuota, width: number): string[] {
@@ -734,19 +668,36 @@ function layoutCards(cards: Card[], twoColumn: boolean): Line[] {
   for (let index = 0; index < cards.length; index += 2) {
     if (index > 0) lines.push([]);
     const left = cards[index];
-    const right = cards[index + 1] ?? [];
+    const right = cards[index + 1];
+    if (!right) {
+      lines.push(...left);
+      continue;
+    }
     const height = Math.max(left.length, right.length);
+    const paddedLeft = padCardToHeight(left, height);
+    const paddedRight = padCardToHeight(right, height);
     for (let row = 0; row < height; row++) {
-      const leftLine = left[row] ?? [{ text: " ".repeat(CARD_WIDTH) }];
-      const rightLine = right[row] ?? [];
       lines.push([
-        ...leftLine,
+        ...paddedLeft[row],
         { text: " ".repeat(CARD_GUTTER) },
-        ...rightLine,
+        ...paddedRight[row],
       ]);
     }
   }
   return lines;
+}
+
+function padCardToHeight(card: Card, height: number): Card {
+  const missing = height - card.length;
+  if (missing <= 0) return card;
+  const bottom = card.at(-1);
+  const interiorLine = card[1];
+  if (!bottom || !interiorLine) return card;
+  return [
+    ...card.slice(0, -1),
+    ...Array.from({ length: missing }, () => [...interiorLine]),
+    bottom,
+  ];
 }
 
 function healthStyle(pct: number): "ok" | "warn" | "crit" {

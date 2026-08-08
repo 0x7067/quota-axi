@@ -350,8 +350,46 @@ describe("renderQuotaTui structure", () => {
   it("promotes effective headroom with the runway verdict on the headline", () => {
     const lines = render();
     expect(findLine(lines, "72% all models")).toContain("on pace ✓");
-    expect(findLine(lines, "5% all models")).toContain("▲ empty in 7h 21m");
-    expect(findLine(lines, "45% all products")).toContain("▲ empty in 2d 13h");
+    expect(findLine(lines, "5% all models")).toContain("empty in 7h 21m");
+    expect(findLine(lines, "45% all products")).toContain("empty in 2d 13h");
+    expect(lines.join("\n")).not.toContain("▲ empty in");
+  });
+
+  it("omits the triangle for the no-seconds exhaustion fallback", () => {
+    const response = fixtureResponse();
+    const runway =
+      response.providers[1].quotaSemantics?.effectiveAvailability[0]?.runway;
+    expect(runway).toBeDefined();
+    if (!runway) return;
+    runway.usableRunwaySeconds = undefined;
+
+    const output = renderQuotaTui(response, {
+      timeZone: "America/Los_Angeles",
+    });
+    expect(output).toContain("exhaustion projected");
+    expect(output).not.toContain("▲");
+  });
+
+  it("aligns unequal two-up cards with padding inside the shorter box", () => {
+    const lines = render();
+    const rowStart = lines.findIndex((line) => line.includes("● grok"));
+    const rowEnd = lines.findIndex(
+      (line, index) => index > rowStart && line === "",
+    );
+    expect(rowStart).toBeGreaterThanOrEqual(0);
+    expect(rowEnd).toBeGreaterThan(rowStart);
+
+    const row = lines.slice(rowStart, rowEnd);
+    expect(row.every((line) => line.length === 100)).toBe(true);
+    expect(
+      row.every(
+        (line) =>
+          ["╭╮", "││", "╰╯"].includes(`${line[0]}${line[48]}`) &&
+          ["╭╮", "││", "╰╯"].includes(`${line[51]}${line[99]}`),
+      ),
+    ).toBe(true);
+    expect(row.at(-1)?.slice(0, 49)).toMatch(/^╰─+╯$/);
+    expect(row.at(-1)?.slice(51)).toMatch(/^╰─+╯$/);
   });
 
   it("truncates long effective scopes while preserving the runway verdict", () => {
@@ -412,10 +450,11 @@ describe("renderQuotaTui structure", () => {
     expect(cell).toContain("100%");
   });
 
-  it("names the projected exhaustion note as an absolute wall time", () => {
+  it("omits redundant absolute projected exhaustion notes", () => {
     const lines = render();
-    expect(findLine(lines, "empty at 23:42 if pace holds")).toBeDefined();
-    expect(findLine(lines, "empty at Sun 07:33 if pace holds")).toBeDefined();
+    expect(findLine(lines, "empty in 2d 13h")).toBeDefined();
+    expect(lines.join("\n")).not.toContain("empty at");
+    expect(lines.join("\n")).not.toContain("if pace holds");
     expect(lines.join("\n")).not.toContain("projected empty");
   });
 
@@ -716,7 +755,7 @@ describe("color handling", () => {
     });
     expect(projected).toContain("\x1b[1;38;2;166;227;161m72%\x1b[0m");
     expect(projected).toContain(
-      "\x1b[1;38;2;249;226;175m▲ empty in 1h 0m\x1b[0m",
+      "\x1b[1;38;2;249;226;175mempty in 1h 0m\x1b[0m",
     );
 
     availability.runway = {
