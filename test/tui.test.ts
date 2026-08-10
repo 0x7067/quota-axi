@@ -384,6 +384,7 @@ describe("renderQuotaTui structure", () => {
   it("compacts tied limiting windows and falls back to the scope wording", () => {
     const response = fixtureResponse();
     const grok = response.providers[4];
+    grok.windows[0].label = "Grok Super Premium credits";
     grok.windows.push({
       ...grok.windows[0],
       id: "product:grok_build",
@@ -397,7 +398,7 @@ describe("renderQuotaTui structure", () => {
     let lines = renderQuotaTui(response, {
       timeZone: "America/Los_Angeles",
     }).split("\n");
-    expect(findLine(lines, "45% credits + grok build")).toBeDefined();
+    expect(findLine(lines, "45% grok sup… credits +1")).toBeDefined();
 
     grok.windows.push({
       ...grok.windows[0],
@@ -412,7 +413,7 @@ describe("renderQuotaTui structure", () => {
     lines = renderQuotaTui(response, {
       timeZone: "America/Los_Angeles",
     }).split("\n");
-    expect(findLine(lines, "45% credits +2")).toBeDefined();
+    expect(findLine(lines, "45% grok sup… credits +2")).toBeDefined();
 
     availability.limitingWindowIds = ["missing"];
     lines = renderQuotaTui(response, {
@@ -458,19 +459,28 @@ describe("renderQuotaTui structure", () => {
     expect(row.at(-1)?.slice(51)).toMatch(/^╰─+╯$/);
   });
 
-  it("truncates long effective scopes while preserving the runway verdict", () => {
+  it("compacts long model-window names without hiding their period", () => {
     const response = fixtureResponse();
-    const availability =
-      response.providers[0].quotaSemantics?.effectiveAvailability[0];
+    const claude = response.providers[0];
+    const availability = claude.quotaSemantics?.effectiveAvailability[0];
     expect(availability).toBeDefined();
     if (!availability) return;
-    availability.scope = `model_${"exceptionally_long_".repeat(5)}availability`;
+    const modelWindow = claude.windows.find(
+      (window) => window.id === "model:fable",
+    );
+    expect(modelWindow).toBeDefined();
+    if (!modelWindow) return;
+    modelWindow.label = "Claude Opus 4.5 Extended week";
+    availability.scope = "model_fable";
+    availability.effectivePercentRemaining = 85;
+    availability.limitingWindowIds = [modelWindow.id];
+
     const lines = renderQuotaTui(response, {
       columns: 80,
       timeZone: "America/Los_Angeles",
     }).split("\n");
-    const headline = findLine(lines, "72%");
-    expect(headline).toContain("…");
+    const headline = findLine(lines, "85%");
+    expect(headline).toContain("85% claude opus 4.… week");
     expect(headline).toContain("on pace ✓");
     expect(displayColumns(headline)).toBe(49);
   });

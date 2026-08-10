@@ -507,13 +507,30 @@ export function headlineLabel(
     scope !== undefined && !scope.startsWith("all_")
       ? ` · ${humanize(scope).toLowerCase()}`
       : "";
-  const joined = `${names.join(" + ")}${suffix}`;
-  if (displayWidth(joined) <= HEADLINE_LABEL_WIDTH) return joined;
-  // Tied windows share the headline percent; keep the first one readable
-  // rather than ellipsizing the list into an unnameable fragment.
-  const compact =
-    names.length > 1 ? `${names[0]} +${names.length - 1}${suffix}` : joined;
-  return truncate(compact, HEADLINE_LABEL_WIDTH);
+  const joined = names.join(" + ");
+  let windowLabel = joined;
+  if (displayWidth(joined) > HEADLINE_LABEL_WIDTH) {
+    const tie = names.length > 1 ? ` +${names.length - 1}` : "";
+    windowLabel = `${compactHeadlineWindowName(
+      names[0],
+      HEADLINE_LABEL_WIDTH - displayWidth(tie),
+    )}${tie}`;
+  }
+  return displayWidth(`${windowLabel}${suffix}`) <= HEADLINE_LABEL_WIDTH
+    ? `${windowLabel}${suffix}`
+    : windowLabel;
+}
+
+function compactHeadlineWindowName(label: string, width: number): string {
+  const safeLabel = sanitizeTerminalText(label);
+  if (displayWidth(safeLabel) <= width) return safeLabel;
+  const parts = safeLabel.match(/^(.*\S)\s+(\S+)$/u);
+  if (parts === null) return truncate(safeLabel, width);
+  const period = parts[2];
+  const separatorWidth = 1;
+  const prefixWidth = width - displayWidth(period) - separatorWidth;
+  if (prefixWidth <= 0) return truncate(period, width);
+  return `${truncate(parts[1], prefixWidth)} ${period}`;
 }
 
 /**
