@@ -210,15 +210,26 @@ function buildLiveCard(provider: ProviderQuota, generatedAtMs: number): Card {
   const effectivePct = headline?.effectivePercentRemaining;
   const markerPct = effectiveMarkerPercent(provider, headline);
 
+  const verdict = runwayVerdict(headline);
+  const percentText =
+    effectivePct === undefined ? undefined : `${Math.round(effectivePct)}%`;
+  const headlineLabelWidth = Math.max(
+    0,
+    EFFECTIVE_BAR_WIDTH -
+      lineWidth(verdict) -
+      1 -
+      displayWidth(percentText ?? "") -
+      1,
+  );
   const left: Line =
-    effectivePct !== undefined
+    effectivePct !== undefined && percentText !== undefined
       ? [
           {
-            text: `${Math.round(effectivePct)}%`,
+            text: percentText,
             style: boldHealthStyle(effectivePct),
           },
           {
-            text: ` ${headlineLabel(provider, headline)}`,
+            text: ` ${headlineLabel(provider, headline, headlineLabelWidth)}`,
             style: "dim",
           },
         ]
@@ -228,7 +239,6 @@ function buildLiveCard(provider: ProviderQuota, generatedAtMs: number): Card {
             style: "dim",
           },
         ];
-  const verdict = runwayVerdict(headline);
   lines.push(
     interior(
       [
@@ -493,6 +503,7 @@ const HEADLINE_LABEL_WIDTH = 20;
 export function headlineLabel(
   provider: ProviderQuota,
   headline: EffectiveAvailability | undefined,
+  width = HEADLINE_LABEL_WIDTH,
 ): string {
   const ids = headline?.limitingWindowIds ?? [];
   const names = ids
@@ -501,7 +512,7 @@ export function headlineLabel(
     .map((label) => label.toLowerCase());
   const scope = headline?.scope;
   if (names.length === 0) {
-    return truncate(scopeLabel(scope), HEADLINE_LABEL_WIDTH);
+    return truncate(scopeLabel(scope), width);
   }
   const suffix =
     scope !== undefined && !scope.startsWith("all_")
@@ -509,14 +520,14 @@ export function headlineLabel(
       : "";
   const joined = names.join(" + ");
   let windowLabel = joined;
-  if (displayWidth(joined) > HEADLINE_LABEL_WIDTH) {
+  if (displayWidth(joined) > width) {
     const tie = names.length > 1 ? ` +${names.length - 1}` : "";
     windowLabel = `${compactHeadlineWindowName(
       names[0],
-      HEADLINE_LABEL_WIDTH - displayWidth(tie),
+      width - displayWidth(tie),
     )}${tie}`;
   }
-  return displayWidth(`${windowLabel}${suffix}`) <= HEADLINE_LABEL_WIDTH
+  return displayWidth(`${windowLabel}${suffix}`) <= width
     ? `${windowLabel}${suffix}`
     : windowLabel;
 }

@@ -398,7 +398,7 @@ describe("renderQuotaTui structure", () => {
     let lines = renderQuotaTui(response, {
       timeZone: "America/Los_Angeles",
     }).split("\n");
-    expect(findLine(lines, "45% grok sup… credits +1")).toBeDefined();
+    expect(findLine(lines, "45% grok supe… credits +1")).toBeDefined();
 
     grok.windows.push({
       ...grok.windows[0],
@@ -413,7 +413,7 @@ describe("renderQuotaTui structure", () => {
     lines = renderQuotaTui(response, {
       timeZone: "America/Los_Angeles",
     }).split("\n");
-    expect(findLine(lines, "45% grok sup… credits +2")).toBeDefined();
+    expect(findLine(lines, "45% grok supe… credits +2")).toBeDefined();
 
     availability.limitingWindowIds = ["missing"];
     lines = renderQuotaTui(response, {
@@ -435,6 +435,57 @@ describe("renderQuotaTui structure", () => {
     });
     expect(output).toContain("exhaustion projected");
     expect(output).not.toContain("▲");
+  });
+
+  it("preserves a long model-window period beside the longest verdict", () => {
+    const response = fixtureResponse();
+    const claude = response.providers[0];
+    const availability = claude.quotaSemantics?.effectiveAvailability[0];
+    const modelWindow = claude.windows.find(
+      (window) => window.id === "model:fable",
+    );
+    expect(availability).toBeDefined();
+    expect(modelWindow).toBeDefined();
+    if (!availability || !availability.runway || !modelWindow) return;
+    modelWindow.label = "Claude Opus 4.5 Extended week";
+    availability.scope = "model_fable";
+    availability.effectivePercentRemaining = 85;
+    availability.limitingWindowIds = [modelWindow.id];
+    availability.runway.status = "projected_exhaustion";
+    availability.runway.usableRunwaySeconds = undefined;
+
+    const lines = renderQuotaTui(response, {
+      columns: 80,
+      timeZone: "America/Los_Angeles",
+    }).split("\n");
+    const headline = findLine(lines, "85%");
+    expect(headline).toMatch(/85% .* week\s+exhaustion projected/);
+    expect(displayColumns(headline)).toBe(CARD_COLUMNS);
+  });
+
+  it("preserves a long first window and tie count beside the longest verdict", () => {
+    const response = fixtureResponse();
+    const claude = response.providers[0];
+    const availability = claude.quotaSemantics?.effectiveAvailability[0];
+    const modelWindow = claude.windows.find(
+      (window) => window.id === "model:fable",
+    );
+    expect(availability).toBeDefined();
+    expect(modelWindow).toBeDefined();
+    if (!availability || !availability.runway || !modelWindow) return;
+    modelWindow.label = "Claude Opus 4.5 Extended week";
+    availability.effectivePercentRemaining = 85;
+    availability.limitingWindowIds = [modelWindow.id, "seven_day"];
+    availability.runway.status = "projected_exhaustion";
+    availability.runway.usableRunwaySeconds = undefined;
+
+    const lines = renderQuotaTui(response, {
+      columns: 80,
+      timeZone: "America/Los_Angeles",
+    }).split("\n");
+    const headline = findLine(lines, "85%");
+    expect(headline).toMatch(/85% .* week \+1\s+exhaustion projected/);
+    expect(displayColumns(headline)).toBe(CARD_COLUMNS);
   });
 
   it("aligns unequal two-up cards with padding inside the shorter box", () => {
@@ -480,8 +531,7 @@ describe("renderQuotaTui structure", () => {
       timeZone: "America/Los_Angeles",
     }).split("\n");
     const headline = findLine(lines, "85%");
-    expect(headline).toContain("85% claude opus 4.… week");
-    expect(headline).toContain("on pace ✓");
+    expect(headline).toMatch(/85% .* week\s+on pace ✓/);
     expect(displayColumns(headline)).toBe(49);
   });
 
