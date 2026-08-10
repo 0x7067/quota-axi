@@ -217,7 +217,10 @@ function buildLiveCard(provider: ProviderQuota, generatedAtMs: number): Card {
             text: `${Math.round(effectivePct)}%`,
             style: boldHealthStyle(effectivePct),
           },
-          { text: ` ${scopeLabel(headline?.scope)}`, style: "dim" },
+          {
+            text: ` ${headlineLabel(provider, headline)}`,
+            style: "dim",
+          },
         ]
       : [
           {
@@ -473,6 +476,44 @@ function cardNotes(provider: ProviderQuota): string[] {
 function scopeLabel(scope: string | undefined): string {
   if (scope === undefined) return "unknown scope";
   return humanize(scope.replace(/^all_/, "all "));
+}
+
+/** Budget for the headline window name, leaving room for the runway verdict. */
+const HEADLINE_LABEL_WIDTH = 20;
+
+/**
+ * Name the window the headline percent actually is. Effective remaining is the
+ * minimum across the bounded windows, so it always equals one named window's
+ * `percentRemaining` - `limitingWindowIds` is exactly that window (or the tied
+ * set), and its provider label ("week", "session", "credits") is what the
+ * headline bar is showing. Falls back to the model-scope wording only when no
+ * limiting window is resolvable; a model-scoped headline keeps the scope as a
+ * suffix so "week · fable" stays unambiguous.
+ */
+export function headlineLabel(
+  provider: ProviderQuota,
+  headline: EffectiveAvailability | undefined,
+): string {
+  const ids = headline?.limitingWindowIds ?? [];
+  const names = ids
+    .map((id) => provider.windows.find((window) => window.id === id)?.label)
+    .filter((label): label is string => label !== undefined && label !== "")
+    .map((label) => label.toLowerCase());
+  const scope = headline?.scope;
+  if (names.length === 0) {
+    return truncate(scopeLabel(scope), HEADLINE_LABEL_WIDTH);
+  }
+  const suffix =
+    scope !== undefined && !scope.startsWith("all_")
+      ? ` · ${humanize(scope).toLowerCase()}`
+      : "";
+  const joined = `${names.join(" + ")}${suffix}`;
+  if (displayWidth(joined) <= HEADLINE_LABEL_WIDTH) return joined;
+  // Tied windows share the headline percent; keep the first one readable
+  // rather than ellipsizing the list into an unnameable fragment.
+  const compact =
+    names.length > 1 ? `${names[0]} +${names.length - 1}${suffix}` : joined;
+  return truncate(compact, HEADLINE_LABEL_WIDTH);
 }
 
 /**

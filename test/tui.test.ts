@@ -349,10 +349,76 @@ describe("renderQuotaTui structure", () => {
 
   it("promotes effective headroom with the runway verdict on the headline", () => {
     const lines = render();
-    expect(findLine(lines, "72% all models")).toContain("on pace ✓");
-    expect(findLine(lines, "5% all models")).toContain("empty in 7h 21m");
-    expect(findLine(lines, "45% all products")).toContain("empty in 2d 13h");
+    expect(findLine(lines, "72% week")).toContain("on pace ✓");
+    expect(findLine(lines, "5% week")).toContain("empty in 7h 21m");
+    expect(findLine(lines, "45% credits")).toContain("empty in 2d 13h");
     expect(lines.join("\n")).not.toContain("▲ empty in");
+  });
+
+  it("names the binding window on the headline instead of the model scope", () => {
+    const lines = render();
+    // The headline percent is the minimum across bounded windows, so it always
+    // equals one named window: claude/codex are bound by their week window and
+    // grok by credits, and the label has to follow that per provider.
+    expect(findCardLine(lines, 0, "72% week")).toBeDefined();
+    expect(findCardLine(lines, 1, "5% week")).toBeDefined();
+    expect(lines.join("\n")).not.toContain("all models");
+    expect(lines.join("\n")).not.toContain("all products");
+  });
+
+  it("names a session-bound headline after the session window", () => {
+    const response = fixtureResponse();
+    const claude = response.providers[0];
+    const availability = claude.quotaSemantics?.effectiveAvailability[0];
+    expect(availability).toBeDefined();
+    if (!availability) return;
+    availability.effectivePercentRemaining = 97;
+    availability.limitingWindowIds = ["five_hour"];
+
+    const lines = renderQuotaTui(response, {
+      timeZone: "America/Los_Angeles",
+    }).split("\n");
+    expect(findCardLine(lines, 0, "97% session")).toBeDefined();
+  });
+
+  it("compacts tied limiting windows and falls back to the scope wording", () => {
+    const response = fixtureResponse();
+    const grok = response.providers[4];
+    grok.windows.push({
+      ...grok.windows[0],
+      id: "product:grok_build",
+      label: "Grok Build",
+    });
+    const availability = grok.quotaSemantics?.effectiveAvailability[0];
+    expect(availability).toBeDefined();
+    if (!availability) return;
+    availability.limitingWindowIds = ["credits", "product:grok_build"];
+
+    let lines = renderQuotaTui(response, {
+      timeZone: "America/Los_Angeles",
+    }).split("\n");
+    expect(findLine(lines, "45% credits + grok build")).toBeDefined();
+
+    grok.windows.push({
+      ...grok.windows[0],
+      id: "product:grok_imagine",
+      label: "Grok Imagine",
+    });
+    availability.limitingWindowIds = [
+      "credits",
+      "product:grok_build",
+      "product:grok_imagine",
+    ];
+    lines = renderQuotaTui(response, {
+      timeZone: "America/Los_Angeles",
+    }).split("\n");
+    expect(findLine(lines, "45% credits +2")).toBeDefined();
+
+    availability.limitingWindowIds = ["missing"];
+    lines = renderQuotaTui(response, {
+      timeZone: "America/Los_Angeles",
+    }).split("\n");
+    expect(findLine(lines, "45% all products")).toBeDefined();
   });
 
   it("omits the triangle for the no-seconds exhaustion fallback", () => {
@@ -411,13 +477,13 @@ describe("renderQuotaTui structure", () => {
 
   it("renders aligned per-window rows with reset countdown and no burn chip", () => {
     const lines = render();
-    const session = findCardLine(lines, 0, "session ");
+    const session = findCardLine(lines, 0, "│   session");
     expect(session).toContain(" 97%");
     expect(session).toContain("4h 38m");
-    const claudeWeek = findCardLine(lines, 0, "week ");
+    const claudeWeek = findCardLine(lines, 0, "│   week");
     expect(claudeWeek).toContain(" 72%");
     expect(claudeWeek).toContain("4d 21h");
-    const codexWeek = findCardLine(lines, 1, "week ");
+    const codexWeek = findCardLine(lines, 1, "│   week");
     expect(codexWeek).toContain("  5%");
     expect(codexWeek).toContain("1d 4h");
     expect(lines.join("\n")).not.toContain("×");
