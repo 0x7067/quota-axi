@@ -496,9 +496,9 @@ const HEADLINE_LABEL_WIDTH = 20;
  * minimum across the bounded windows, so it always equals one named window's
  * `percentRemaining` - `limitingWindowIds` is exactly that window (or the tied
  * set), and its provider label ("week", "session", "credits") is what the
- * headline bar is showing. Falls back to the model-scope wording only when no
- * limiting window is resolvable; a model-scoped headline keeps the scope as a
- * suffix so "week · fable" stays unambiguous.
+ * headline bar is showing. Falls back to the model-scope wording when any
+ * limiting window is unresolvable; a model-scoped headline keeps the scope as
+ * a suffix so "week · fable" stays unambiguous.
  */
 export function headlineLabel(
   provider: ProviderQuota,
@@ -508,15 +508,19 @@ export function headlineLabel(
   const ids = headline?.limitingWindowIds ?? [];
   const names = ids
     .map((id) => provider.windows.find((window) => window.id === id)?.label)
-    .filter((label): label is string => label !== undefined && label !== "")
-    .map((label) => label.toLowerCase());
+    .map((label) =>
+      label === undefined
+        ? undefined
+        : sanitizeTerminalText(label).toLowerCase(),
+    )
+    .filter((label): label is string => label !== undefined && label !== "");
   const scope = headline?.scope;
-  if (names.length === 0) {
+  if (names.length === 0 || names.length !== ids.length) {
     return truncate(scopeLabel(scope), width);
   }
   const suffix =
     scope !== undefined && !scope.startsWith("all_")
-      ? ` · ${humanize(scope).toLowerCase()}`
+      ? ` · ${humanize(scope.replace(/^(?:model|product):/, "")).toLowerCase()}`
       : "";
   const joined = names.join(" + ");
   let windowLabel = joined;

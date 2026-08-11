@@ -415,6 +415,12 @@ describe("renderQuotaTui structure", () => {
     }).split("\n");
     expect(findLine(lines, "45% grok supe… credits +2")).toBeDefined();
 
+    availability.limitingWindowIds = ["credits", "missing"];
+    lines = renderQuotaTui(response, {
+      timeZone: "America/Los_Angeles",
+    }).split("\n");
+    expect(findLine(lines, "45% all products")).toBeDefined();
+
     availability.limitingWindowIds = ["missing"];
     lines = renderQuotaTui(response, {
       timeZone: "America/Los_Angeles",
@@ -448,7 +454,7 @@ describe("renderQuotaTui structure", () => {
     expect(modelWindow).toBeDefined();
     if (!availability || !availability.runway || !modelWindow) return;
     modelWindow.label = "Claude Opus 4.5 Extended week";
-    availability.scope = "model_fable";
+    availability.scope = "model:fable";
     availability.effectivePercentRemaining = 85;
     availability.limitingWindowIds = [modelWindow.id];
     availability.runway.status = "projected_exhaustion";
@@ -508,6 +514,23 @@ describe("renderQuotaTui structure", () => {
     ).toBe(true);
     expect(row.at(-1)?.slice(0, 49)).toMatch(/^╰─+╯$/);
     expect(row.at(-1)?.slice(51)).toMatch(/^╰─+╯$/);
+  });
+
+  it("renders a model scope without its machine prefix when it fits", () => {
+    const response = fixtureResponse();
+    const claude = response.providers[0];
+    const availability = claude.quotaSemantics?.effectiveAvailability[0];
+    expect(availability).toBeDefined();
+    if (!availability) return;
+    availability.scope = "model:fable";
+    availability.effectivePercentRemaining = 85;
+    availability.limitingWindowIds = ["model:fable"];
+
+    const lines = renderQuotaTui(response, {
+      columns: 80,
+      timeZone: "America/Los_Angeles",
+    }).split("\n");
+    expect(findLine(lines, "85% fable week · fable")).toBeDefined();
   });
 
   it("compacts long model-window names without hiding their period", () => {
