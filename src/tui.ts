@@ -210,14 +210,28 @@ function buildLiveCard(provider: ProviderQuota, generatedAtMs: number): Card {
   const effectivePct = headline?.effectivePercentRemaining;
   const markerPct = effectiveMarkerPercent(provider, headline);
 
+  const verdict = runwayVerdict(headline);
+  const percentText =
+    effectivePct === undefined ? undefined : `${Math.round(effectivePct)}%`;
+  const headlineLabelWidth = Math.max(
+    0,
+    EFFECTIVE_BAR_WIDTH -
+      lineWidth(verdict) -
+      1 -
+      displayWidth(percentText ?? "") -
+      1,
+  );
   const left: Line =
-    effectivePct !== undefined
+    effectivePct !== undefined && percentText !== undefined
       ? [
           {
-            text: `${Math.round(effectivePct)}%`,
+            text: percentText,
             style: boldHealthStyle(effectivePct),
           },
-          { text: ` ${scopeLabel(headline?.scope)}`, style: "dim" },
+          {
+            text: ` ${headlineLabel(provider, headline, headlineLabelWidth)}`,
+            style: "dim",
+          },
         ]
       : [
           {
@@ -225,7 +239,6 @@ function buildLiveCard(provider: ProviderQuota, generatedAtMs: number): Card {
             style: "dim",
           },
         ];
-  const verdict = runwayVerdict(headline);
   lines.push(
     interior(
       [
@@ -473,6 +486,66 @@ function cardNotes(provider: ProviderQuota): string[] {
 function scopeLabel(scope: string | undefined): string {
   if (scope === undefined) return "unknown scope";
   return humanize(scope.replace(/^all_/, "all "));
+}
+
+/** Budget for the headline window name, leaving room for the runway verdict. */
+const HEADLINE_LABEL_WIDTH = 20;
+
+/**
+ * Name the window the headline percent actually is. Effective remaining is the
+ * minimum across the bounded windows, so it always equals one named window's
+ * `percentRemaining` - `limitingWindowIds` is exactly that window (or the tied
+ * set), and its provider label ("week", "session", "credits") is what the
+ * headline bar is showing. Falls back to the model-scope wording when any
+ * limiting window is unresolvable; a model-scoped headline keeps the scope as
+ * a suffix so "week · fable" stays unambiguous.
+ */
+export function headlineLabel(
+  provider: ProviderQuota,
+  headline: EffectiveAvailability | undefined,
+  width = HEADLINE_LABEL_WIDTH,
+): string {
+  const ids = headline?.limitingWindowIds ?? [];
+  const names = ids
+    .map((id) => provider.windows.find((window) => window.id === id)?.label)
+    .map((label) =>
+      label === undefined
+        ? undefined
+        : sanitizeTerminalText(label).toLowerCase(),
+    )
+    .filter((label): label is string => label !== undefined && label !== "");
+  const scope = headline?.scope;
+  if (names.length === 0 || names.length !== ids.length) {
+    return truncate(scopeLabel(scope), width);
+  }
+  const suffix =
+    scope !== undefined && !scope.startsWith("all_")
+      ? ` · ${humanize(scope.replace(/^(?:model|product):/, "")).toLowerCase()}`
+      : "";
+  const joined = names.join(" + ");
+  let windowLabel = joined;
+  if (displayWidth(joined) > width) {
+    const tie = names.length > 1 ? ` +${names.length - 1}` : "";
+    windowLabel = `${compactHeadlineWindowName(
+      names[0],
+      width - displayWidth(tie),
+    )}${tie}`;
+  }
+  return displayWidth(`${windowLabel}${suffix}`) <= width
+    ? `${windowLabel}${suffix}`
+    : windowLabel;
+}
+
+function compactHeadlineWindowName(label: string, width: number): string {
+  const safeLabel = sanitizeTerminalText(label);
+  if (displayWidth(safeLabel) <= width) return safeLabel;
+  const parts = safeLabel.match(/^(.*\S)\s+(\S+)$/u);
+  if (parts === null) return truncate(safeLabel, width);
+  const period = parts[2];
+  const separatorWidth = 1;
+  const prefixWidth = width - displayWidth(period) - separatorWidth;
+  if (prefixWidth <= 0) return truncate(period, width);
+  return `${truncate(parts[1], prefixWidth)} ${period}`;
 }
 
 /**
