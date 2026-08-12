@@ -84,15 +84,20 @@ function needsGrokTokenRefreshAdvice(provider: ProviderQuota): boolean {
 
 function isBlockedCredentialAttempt(attempt: SourceAttempt): boolean {
   return (
-    attempt.source !== "keychain" &&
+    !isKeychainSource(attempt.source) &&
     attempt.status === "skipped" &&
     Boolean(attempt.error && BLOCKED_CREDENTIAL_ERRORS.has(attempt.error))
   );
 }
 
+/** Providers name their Keychain source `keychain` or `<store>-keychain`. */
+function isKeychainSource(source: string): boolean {
+  return source === "keychain" || source.endsWith("-keychain");
+}
+
 function isPromptBlockedKeychainAttempt(attempt: SourceAttempt): boolean {
   return (
-    attempt.source === "keychain" &&
+    isKeychainSource(attempt.source) &&
     attempt.status === "skipped" &&
     attempt.error === "keychain_prompt_required" &&
     attempt.credentialPresent === true

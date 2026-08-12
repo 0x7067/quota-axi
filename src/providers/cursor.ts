@@ -20,6 +20,10 @@ import {
   successProvider,
   withRemaining,
 } from "./common.js";
+import {
+  isCursorCliSourceSupported,
+  readCursorCliCredentialState,
+} from "./cursor-cli-credential.js";
 
 const API_URL = "https://api2.cursor.sh";
 const API_TIMEOUT_MS = 15_000;
@@ -32,13 +36,18 @@ type CursorCredentials = {
   membershipType?: string;
 };
 
+type UnavailableCredentialState = {
+  status: "missing" | "invalid" | "skipped";
+  source: AuthSourceReport;
+};
+
 type CredentialState =
   | {
       status: "available";
       credentials: CursorCredentials;
       source: AuthSourceReport;
     }
-  | { status: "missing" | "invalid" | "skipped"; source: AuthSourceReport };
+  | UnavailableCredentialState;
 
 export const cursorAdapter: ProviderAdapter = {
   id: "cursor",
@@ -48,17 +57,28 @@ export const cursorAdapter: ProviderAdapter = {
 };
 
 export async function fetchQuota(
-  _options: ProviderOptions,
+  options: ProviderOptions,
 ): Promise<ProviderQuota> {
   const attempts: SourceAttempt[] = [];
   let finalError: string;
   let retryAfter: string | undefined;
 
-  const credentialState = await readCredentialState();
-  if (credentialState.status === "available") {
+  const resolution = await resolveCredentials(options);
+  for (const state of resolution.unavailable) {
+    attempts.push({
+      source: state.source.source,
+      status: "skipped",
+      error: cursorCredentialError(state),
+      ...(state.source.credentialPresent === undefined
+        ? {}
+        : { credentialPresent: state.source.credentialPresent }),
+    });
+  }
+
+  if (resolution.credentials) {
     attempts.push({ source: "api", status: "failed" });
     try {
-      const quota = await fetchCursorUsage(credentialState.credentials);
+      const quota = await fetchCursorUsage(resolution.credentials);
       attempts[attempts.length - 1] = { source: "api", status: "success" };
       return successProvider({
         provider: "cursor",
@@ -82,13 +102,8 @@ export async function fetchQuota(
       if (error instanceof RateLimitError) retryAfter = error.retryAfter;
     }
   } else {
-    const error = cursorCredentialError(credentialState);
-    attempts.push({
-      source: credentialState.source.source,
-      status: "skipped",
-      error,
-    });
-    finalError = cursorFinalError(credentialState, error);
+    const primary = resolution.unavailable[0];
+    finalError = cursorFinalError(primary, cursorCredentialError(primary));
   }
 
   const cached = readCachedProvider("cursor");
@@ -108,10 +123,54 @@ export async function fetchQuota(
 }
 
 export async function inspectAuth(
-  _options: ProviderOptions,
+  options: ProviderOptions,
 ): Promise<AuthProviderReport> {
-  const credentialState = await readCredentialState();
-  return { provider: "cursor", sources: [credentialState.source] };
+  const sources = [(await readCredentialState()).source];
+  if (isCursorCliSourceSupported()) {
+    sources.push((await readCliCredentialState(options)).source);
+  }
+  return { provider: "cursor", sources };
+}
+
+/**
+ * The Cursor editor and the Cursor CLI keep credentials in different stores, so
+ * both are checked and either one is enough. The editor store never prompts, so
+ * it is tried first and the Keychain-backed CLI source is only reached when the
+ * editor has no usable token.
+ */
+async function resolveCredentials(options: ProviderOptions): Promise<{
+  credentials?: CursorCredentials;
+  unavailable: UnavailableCredentialState[];
+}> {
+  const unavailable: UnavailableCredentialState[] = [];
+  const editorState = await readCredentialState();
+  if (editorState.status === "available") {
+    return { credentials: editorState.credentials, unavailable };
+  }
+  unavailable.push(editorState);
+
+  if (!isCursorCliSourceSupported()) return { unavailable };
+  const cliState = await readCliCredentialState(options);
+  if (cliState.status === "available") {
+    return { credentials: cliState.credentials, unavailable };
+  }
+  unavailable.push(cliState);
+  return { unavailable };
+}
+
+async function readCliCredentialState(
+  options: ProviderOptions,
+): Promise<CredentialState> {
+  const state = await readCursorCliCredentialState(options);
+  if (state.status !== "available") return state;
+  return {
+    status: "available",
+    credentials: {
+      accessToken: state.accessToken,
+      email: state.identity.email,
+    },
+    source: state.source,
+  };
 }
 
 export function normalizeCursorUsage(
