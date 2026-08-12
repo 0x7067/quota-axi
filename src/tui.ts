@@ -442,8 +442,10 @@ function effectiveMarkerPercent(
   headline: EffectiveAvailability | undefined,
 ): number | undefined {
   if (!headline) return undefined;
-  const limitingId =
-    headline.runway?.limitingWindowId ?? headline.limitingWindowIds?.[0];
+  // The headline bar represents effective headroom, so its reset marker must
+  // follow that headroom's binding window. A finite runway can be constrained
+  // by another window and is rendered as the separate "empty in" verdict.
+  const limitingId = headline.limitingWindowIds?.[0];
   if (limitingId === undefined) return undefined;
   const limiting = provider.windows.find((window) => window.id === limitingId);
   return limiting?.pace?.timeRemainingPercent;
