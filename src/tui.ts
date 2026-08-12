@@ -235,9 +235,9 @@ function buildLiveCard(provider: ProviderQuota, generatedAtMs: number): Card {
 }
 
 /**
- * The headline block for a provider whose windows quota-axi can combine into
- * effective headroom: the binding window's percentage, its runway verdict, and
- * the effective bar.
+ * The standard effective-headroom block: the binding window's percentage, its
+ * runway verdict, and the effective bar. It also preserves the existing
+ * unknown fallback for zero-window and partially understood providers.
  */
 function effectiveHeadline(
   provider: ProviderQuota,
@@ -303,14 +303,12 @@ function effectiveHeadline(
 /**
  * The headline block for a provider that reports real per-window usage but no
  * combinable bound (Cursor, Copilot): quota-axi does not know whether those
- * windows are independent or jointly bounding, so there is no effective
- * percentage, no pace, and no runway to show. Rendering the empty effective bar
- * there reads as a failure, so the block is replaced by a single line naming
+ * windows are independent or jointly bounding, so there is no combined
+ * effective percentage, pace, or runway to show. Rendering the empty effective
+ * bar there reads as a failure, so the block is replaced by a single line naming
  * what the card actually is - the per-window rows below carry the real data.
  */
-function hasWhollyUnknownWindowRelationships(
-  provider: ProviderQuota,
-): boolean {
+function hasWhollyUnknownWindowRelationships(provider: ProviderQuota): boolean {
   const semantics = provider.quotaSemantics;
   if (
     provider.windows.length === 0 ||
