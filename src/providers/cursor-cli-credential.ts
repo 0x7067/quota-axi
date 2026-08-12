@@ -60,6 +60,7 @@ export function cursorCliConfigPath(): string {
 
 export async function readCursorCliCredentialState(
   options: ProviderOptions,
+  presenceOnly = false,
 ): Promise<CursorCliCredentialState> {
   const path = cursorCliConfigPath();
   if (!isCursorCliSourceSupported()) return missingState(path);
@@ -79,7 +80,10 @@ export async function readCursorCliCredentialState(
   }
 
   const { identity } = identityResult;
-  if (!(options.allowKeychainPrompt || hasKeychainAccessMarker(identity))) {
+  if (
+    presenceOnly ||
+    !(options.allowKeychainPrompt || hasKeychainAccessMarker(identity))
+  ) {
     return skippedKeychainState(path, await readKeychainItemPresence());
   }
   return readKeychainAccessToken(path, identity);

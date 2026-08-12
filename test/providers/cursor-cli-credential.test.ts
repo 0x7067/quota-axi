@@ -360,6 +360,49 @@ describe("Cursor CLI keychain credential source", () => {
 });
 
 describe("Cursor editor state.vscdb source (regression)", () => {
+  it("inspects CLI auth without a value read when editor auth is available", async () => {
+    writeCliConfig();
+    const { calls } = mockProcess({ editorToken: "editor-token" });
+
+    const result = await withPlatform("darwin", async () => {
+      const { readCursorCliCredentialState } =
+        await import("../../src/providers/cursor-cli-credential.js");
+      await readCursorCliCredentialState({ allowKeychainPrompt: true });
+      calls.length = 0;
+
+      const { inspectAuth } = await import("../../src/providers/cursor.js");
+      return inspectAuth({ allowKeychainPrompt: true });
+    });
+
+    expect(result.sources).toEqual([
+      {
+        source: "state-vscdb",
+        path: process.env.CURSOR_STATE_DB,
+        status: "available",
+      },
+      {
+        source: "cli-keychain",
+        path: cliConfigPath,
+        status: "skipped",
+        error: "keychain_prompt_required",
+        credentialPresent: true,
+      },
+    ]);
+    expect(securityCalls(calls)).toEqual([
+      {
+        command: "security",
+        args: [
+          "find-generic-password",
+          "-a",
+          "cursor-user",
+          "-s",
+          "cursor-access-token",
+        ],
+      },
+    ]);
+    expect(JSON.stringify(result)).not.toContain(FAKE_KEYCHAIN_SECRET);
+  });
+
   it("still resolves editor auth without consulting the keychain", async () => {
     writeCliConfig();
     const { calls } = mockProcess({ editorToken: "editor-token" });

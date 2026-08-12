@@ -125,9 +125,20 @@ export async function fetchQuota(
 export async function inspectAuth(
   options: ProviderOptions,
 ): Promise<AuthProviderReport> {
-  const sources = [(await readCredentialState()).source];
+  const editorState = await readCredentialState();
+  const sources = [editorState.source];
   if (isCursorCliSourceSupported()) {
-    sources.push((await readCliCredentialState(options)).source);
+    const editorAvailable = editorState.status === "available";
+    sources.push(
+      (
+        await readCliCredentialState(
+          editorAvailable
+            ? { ...options, allowKeychainPrompt: false }
+            : options,
+          editorAvailable,
+        )
+      ).source,
+    );
   }
   return { provider: "cursor", sources };
 }
@@ -160,8 +171,9 @@ async function resolveCredentials(options: ProviderOptions): Promise<{
 
 async function readCliCredentialState(
   options: ProviderOptions,
+  presenceOnly = false,
 ): Promise<CredentialState> {
-  const state = await readCursorCliCredentialState(options);
+  const state = await readCursorCliCredentialState(options, presenceOnly);
   if (state.status !== "available") return state;
   return {
     status: "available",
