@@ -576,8 +576,7 @@ describe("Claude credential-state reporting", () => {
       vi.stubGlobal(
         "fetch",
         vi.fn(async () => {
-          if (failureKind === "5xx")
-            return new Response(null, { status: 503 });
+          if (failureKind === "5xx") return new Response(null, { status: 503 });
           const error = new Error("aborted");
           error.name = "AbortError";
           throw error;

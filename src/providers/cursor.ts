@@ -175,10 +175,10 @@ export async function inspectAuth(
 }
 
 /**
- * The Cursor editor and the Cursor CLI keep credentials in different stores, so
- * both are checked and either one is enough. The editor store never prompts, so
- * it is tried first and the Keychain-backed CLI source is only reached when the
- * editor has no usable token.
+ * The Cursor editor and CLI keep credentials in different stores, and either
+ * source is enough. Quota fetching tries the non-prompting editor store first;
+ * it reads the CLI Keychain value only when the editor token is absent or
+ * rejected by Cursor.
  */
 async function resolveCredentials(options: ProviderOptions): Promise<{
   credentials?: CursorCredentials;

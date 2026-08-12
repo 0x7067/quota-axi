@@ -25,11 +25,10 @@ It is data only: it never routes, recommends a provider, model, harness, credent
 
 ## Quick Start
 
-**macOS + Claude note:** Claude Code keeps its live token in the macOS Keychain.
-quota-axi pins that lookup to the same current-user Keychain item Claude Code selects and will not read its value unless the user grants permission, so Claude quota reads can stay stale when no usable on-disk access token is available.
+**macOS Keychain note:** Claude Code and the Cursor CLI (`cursor-agent`) keep live tokens in the macOS Keychain.
+quota-axi does not read either Keychain value until the user grants permission, so Claude quota can stay stale and CLI-only Cursor auth can appear unavailable when no other usable credential exists.
 Run `quota-axi --allow-keychain-prompt` once and approve Keychain access with "Always Allow".
-After a successful Keychain read, future non-interactive quota reads use that profile-and-account-scoped grant and refresh live Claude data without requiring the flag.
-Legacy markers created before account-pinned lookup are not reused, so an upgrade may require this one-time grant again.
+After a successful read, future non-interactive quota calls reuse the corresponding account-scoped grant without requiring the flag. Claude grants are also profile-scoped; legacy Claude markers created before account-pinned lookup are not reused.
 
 ```sh
 $ npx -y quota-axi
@@ -304,7 +303,7 @@ It is generated from `src/skill.ts`; update it with `pnpm run build:skill` and v
 ```
 
 - **Live first** - direct provider HTTP calls use 15 second request timeouts, Codex JSON-RPC reads use short per-call timeouts, and stale cache fallback is per provider.
-- **No first-run Keychain prompt** - macOS Claude Keychain value reads are skipped on plain calls until `--allow-keychain-prompt` succeeds once, then future plain calls reuse that existing grant.
+- **No first-run Keychain prompt** - macOS Claude and Cursor CLI Keychain value reads are skipped on plain calls until `--allow-keychain-prompt` succeeds once for that source, then future plain calls reuse the corresponding grant.
 - **Partial success is success** - one provider can fail while another returns fresh or stale data, and the process still exits 0. Exit code 1 means every provider failed, and 2 means a usage error.
 - **No token equivalence** - quota-axi does not claim that one provider percentage equals another provider percentage.
 
@@ -328,7 +327,7 @@ It is generated from `src/skill.ts`; update it with `pnpm run build:skill` and v
 | `--tui`                                            | Render the live human terminal report instead of TOON (quota only) |
 | `--refresh 30s\|5m\|1h`                            | Live `--tui` refresh interval, default 5m (30s-24h)                |
 | `--once`                                           | Render one `--tui` frame and exit instead of staying live          |
-| `--allow-keychain-prompt`                          | Permit macOS Claude Keychain access that could prompt              |
+| `--allow-keychain-prompt`                          | Permit macOS provider Keychain access that could prompt            |
 | `--intelligence high\|medium\|low`                 | Filter `models` by editorial intelligence bucket                   |
 | `--sort runway`                                    | Explicitly sort `models` by documented usable-runway evidence      |
 | `-h`, `--help`                                     | Print terse [AXI](https://axi.md) help                             |
@@ -511,10 +510,10 @@ Default model order is deterministic and non-preferential: provider, then model 
 
 Auth source entries can include `credentialPresent` when a non-secret probe confirms a credential item exists.
 
-| Name                 | Values                                                                                                                                    |
-| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| Auth source statuses | `available`, `missing`, `invalid`, `expired`, `skipped`, or `error`                                                                       |
-| Auth source names    | `oauth-file`, `keychain`, `auth-json`, `auth-env`, `apps-json`, `state-vscdb`, `cli-rpc`, `pi:kimi-coding`, `pi:xai`, and `kimi-code-cli` |
+| Name                 | Values                                                                                                                                                    |
+| -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Auth source statuses | `available`, `missing`, `invalid`, `expired`, `skipped`, or `error`                                                                                       |
+| Auth source names    | `oauth-file`, `keychain`, `auth-json`, `auth-env`, `apps-json`, `state-vscdb`, `cli-keychain`, `cli-rpc`, `pi:kimi-coding`, `pi:xai`, and `kimi-code-cli` |
 
 ## Security Posture
 
@@ -551,7 +550,7 @@ Auth source entries can include `credentialPresent` when a non-secret probe conf
 
 **Cursor**
 
-- The Cursor editor and the Cursor CLI keep credentials in different stores, so both are read as independent sources and Cursor auth is usable when either one is. The editor `state-vscdb` source is tried first because it never prompts; the Keychain-backed `cli-keychain` source is only reached when the editor has no usable token.
+- The Cursor editor and the Cursor CLI keep credentials in different stores, so both are independent sources and Cursor auth is usable when either one is. For quota fetching, the editor `state-vscdb` source is tried first because it never prompts; a CLI Keychain value read occurs only when the editor has no usable token or its token is rejected. The `auth` command still reports both sources without reading the CLI token value when the editor source is available.
 - Editor source: it uses `sqlite3 -readonly` to read `cursorAuth` values and calls Cursor's first-party dashboard usage endpoint. If `sqlite3` is unavailable, that source is reported as skipped with `sqlite3_unavailable`.
 - CLI source (macOS only): `cli-config.json` holds sign-in identity only and is never a token; its `authInfo` is the signed-in signal and supplies the reported account email. The access token is read from the login Keychain item `cursor-access-token` / `cursor-user` only under `--allow-keychain-prompt` or an existing account-scoped non-secret access marker, which is recorded after a successful value read. Without either, quota-axi performs a non-secret presence check only and reports `keychain_prompt_required`.
 - quota-axi never refreshes Cursor credentials. CLI access-token refresh is intentionally not implemented: the `cursor-refresh-token` Keychain item is never read, so an expired CLI access token surfaces as `Cursor sign-in required` and the remedy is running `cursor-agent login` again. This is a known limitation, not a silent gap.
@@ -587,7 +586,7 @@ Auth source entries can include `credentialPresent` when a non-secret probe conf
 - The user-initiated `update` command is the only non-provider network surface, and it is not part of quota measurement.
 - It sends credential values only to the first-party provider request they authenticate.
 - It never prints, logs, or caches credential values.
-- It never launches the Claude, Grok, Pi, or Kimi CLIs, so it cannot spend quota or mutate provider credentials while measuring them.
+- It never launches the Claude, Cursor, Grok, Pi, or Kimi CLIs, so it cannot spend quota or mutate provider credentials while measuring them.
 
 ### Cache
 
@@ -597,6 +596,7 @@ Auth source entries can include `credentialPresent` when a non-secret probe conf
 | Quota cache permissions                | Uses `0600` file permissions.                                                                                                                                                                                                                                                                                                                                         |
 | Quota cache contents                   | Stores normalized non-secret snapshots only.                                                                                                                                                                                                                                                                                                                          |
 | Claude Keychain access marker          | Lives alongside the quota cache as `claude-keychain-access-granted[-<profile-hash>]-account-<account-hash>`; the profile hash is eight hexadecimal characters when applicable and the account hash is sixteen. It uses `0600` file permissions, contains no credential material or raw account name, and legacy service-only markers are ignored rather than deleted. |
+| Cursor CLI Keychain access marker      | Lives alongside the quota cache as `cursor-cli-keychain-access-granted-account-<account-hash>`, where the account hash is sixteen hexadecimal characters. It uses `0600` file permissions and contains no credential material or raw account identity.                                                                                                                |
 | Cached reports                         | Only fresh provider snapshots with windows are cached.                                                                                                                                                                                                                                                                                                                |
 | Fresh provider reports with no windows | Clear any cached snapshot for that provider, so entitlement-only reports do not leave stale quota windows behind.                                                                                                                                                                                                                                                     |
 | Reports and details not cached         | Failed providers, stale providers, account identity, and source attempts are not cached.                                                                                                                                                                                                                                                                              |
