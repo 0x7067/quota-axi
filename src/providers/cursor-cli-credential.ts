@@ -15,6 +15,12 @@ import type { AuthSourceReport, ProviderOptions } from "../types.js";
  * unlike the Cursor editor which keeps both in its `state.vscdb`. This module
  * reads only the access token, only on macOS, and only through the same
  * `--allow-keychain-prompt` gate the Claude keychain source uses.
+ *
+ * Access-token refresh is intentionally not implemented: the sibling
+ * `cursor-refresh-token` item is never read, because quota-axi does not mutate
+ * provider state and has no first-party refresh contract to rely on. An expired
+ * access token therefore surfaces as `Cursor sign-in required`, whose remedy is
+ * running `cursor-agent login` again.
  */
 export const CURSOR_CLI_SOURCE = "cli-keychain";
 export const CURSOR_CLI_KEYCHAIN_SERVICE = "cursor-access-token";
