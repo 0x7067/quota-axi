@@ -71,15 +71,21 @@ type ExecCall = { command: string; args: string[] };
  */
 function mockProcess(options: {
   editorToken?: string;
+  sqliteAvailable?: boolean;
+  sqliteError?: Error;
   keychainSecret?: string;
   keychainError?: Error & { code?: number; killed?: boolean };
 }): { calls: ExecCall[] } {
   const calls: ExecCall[] = [];
   vi.doMock("../../src/lib/process.js", () => ({
-    commandExists: vi.fn(async () => true),
+    commandExists: vi.fn(
+      async (command: string) =>
+        command !== "sqlite3" || options.sqliteAvailable !== false,
+    ),
     execFileText: vi.fn(async (command: string, args: string[]) => {
       calls.push({ command, args });
       if (command === "sqlite3") {
+        if (options.sqliteError) throw options.sqliteError;
         const query = args.at(-1) ?? "";
         if (options.editorToken && query.includes("cursorAuth/accessToken"))
           return JSON.stringify(options.editorToken);
@@ -208,27 +214,34 @@ describe("Cursor CLI keychain credential source", () => {
     expect(result.state.status).toBe("auth_required");
   });
 
-  it("advises the one-time keychain grant for a prompt-blocked CLI sign-in", async () => {
-    writeCliConfig();
-    mockProcess({});
+  it.each([
+    ["sqlite3 is unavailable", { sqliteAvailable: false }],
+    ["the editor database read fails", { sqliteError: new Error("locked") }],
+  ])(
+    "advises the one-time keychain grant when %s",
+    async (_scenario, processOptions) => {
+      writeCliConfig();
+      mockProcess(processOptions);
 
-    const result = await withPlatform("darwin", async () => {
-      const { fetchQuota } = await import("../../src/providers/cursor.js");
-      return fetchQuota({ allowKeychainPrompt: false });
-    });
-    const annotated = annotateQuotaAdvice({
-      generatedAt: new Date().toISOString(),
-      providers: [result as ProviderQuota],
-    });
+      const result = await withPlatform("darwin", async () => {
+        const { fetchQuota } = await import("../../src/providers/cursor.js");
+        return fetchQuota({ allowKeychainPrompt: false });
+      });
+      const annotated = annotateQuotaAdvice({
+        generatedAt: new Date().toISOString(),
+        providers: [result as ProviderQuota],
+      });
 
-    expect(annotated.providers[0]?.state.reason).toBe(
-      "keychain_access_required",
-    );
-    expect(annotated.providers[0]?.state.remedyCommand).toBe(
-      "quota-axi --allow-keychain-prompt",
-    );
-    expect(annotated.help?.[0]).toContain("Always Allow");
-  });
+      expect(annotated.providers[0]?.state.reason).toBe(
+        "keychain_access_required",
+      );
+      expect(annotated.providers[0]?.state.remedyCommand).toBe(
+        "quota-axi --allow-keychain-prompt",
+      );
+      expect(annotated.help?.[0]).toContain("Always Allow");
+      expect(JSON.stringify(annotated)).not.toContain(FAKE_KEYCHAIN_SECRET);
+    },
+  );
 
   it("reuses a recorded grant on a later plain call", async () => {
     writeCliConfig();

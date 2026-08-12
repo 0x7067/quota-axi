@@ -14,6 +14,8 @@ export const GROK_ACCESS_TOKEN_EXPIRED_ERROR = "Grok access token expired";
 const BLOCKED_CREDENTIAL_ERRORS = new Set([
   "credentials_expired",
   "credentials_missing",
+  "sqlite3_unavailable",
+  "sqlite_read_error",
 ]);
 
 export function annotateQuotaAdvice(
