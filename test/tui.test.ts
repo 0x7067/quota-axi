@@ -901,6 +901,21 @@ describe("cards for providers with no combinable bound", () => {
     ).split("\n");
   }
 
+  function unfamiliarClaude(stale: boolean): ProviderQuota {
+    const provider = claudeProvider();
+    provider.windows.push({
+      id: "unexpected_limit",
+      label: "unexpected limit",
+      kind: "weekly",
+      percentUsed: 20,
+      percentRemaining: 80,
+      resetsAt: "2026-08-12T00:00:00.000Z",
+    });
+    provider.state.status = stale ? "stale" : "fresh";
+    provider.state.stale = stale;
+    return withQuotaSemantics(provider, GENERATED_AT);
+  }
+
   it("names the card per-window instead of showing unknown headroom", () => {
     const lines = renderWithCursor();
     const headline = findCardLine(lines, 1, "per-window usage");
@@ -949,6 +964,29 @@ describe("cards for providers with no combinable bound", () => {
     );
     expect(findCardLine(lines, 0, "72% week")).toBeDefined();
   });
+
+  it.each([
+    ["fresh", false, "effective unknown"],
+    ["stale", true, "stale · effective unknown"],
+  ])(
+    "keeps the %s effective headline for partially understood providers",
+    (_label, stale, headline) => {
+      const output = renderQuotaTui(
+        {
+          generatedAt: GENERATED_AT,
+          schemaVersion: 3,
+          providers: [unfamiliarClaude(stale)],
+        },
+        { timeZone: "America/Los_Angeles" },
+      );
+      const lines = output.split("\n");
+      expect(findLine(lines, headline)).toContain("runway unknown");
+      expect(output).not.toContain("per-window usage");
+      expect(
+        lines.some((line) => /^│\s+─{10,}\s+│$/.test(stripAnsi(line))),
+      ).toBe(true);
+    },
+  );
 });
 
 describe("thin bars with pace markers", () => {

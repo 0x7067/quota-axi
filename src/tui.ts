@@ -207,7 +207,7 @@ function buildLiveCard(provider: ProviderQuota, generatedAtMs: number): Card {
   ];
 
   const headline = pickHeadlineAvailability(provider);
-  if (headline === undefined && provider.windows.length > 0) {
+  if (hasWhollyUnknownWindowRelationships(provider)) {
     lines.push(...windowsOnlyHeadline(stale));
   } else {
     lines.push(...effectiveHeadline(provider, headline, stale));
@@ -308,6 +308,21 @@ function effectiveHeadline(
  * there reads as a failure, so the block is replaced by a single line naming
  * what the card actually is - the per-window rows below carry the real data.
  */
+function hasWhollyUnknownWindowRelationships(
+  provider: ProviderQuota,
+): boolean {
+  const semantics = provider.quotaSemantics;
+  if (
+    provider.windows.length === 0 ||
+    semantics?.status !== "unknown" ||
+    semantics.unresolvedWindowIds === undefined
+  ) {
+    return false;
+  }
+  const unresolved = new Set(semantics.unresolvedWindowIds);
+  return provider.windows.every(({ id }) => unresolved.has(id));
+}
+
 function windowsOnlyHeadline(stale: boolean | undefined): Line[] {
   const left: Line = [
     {
