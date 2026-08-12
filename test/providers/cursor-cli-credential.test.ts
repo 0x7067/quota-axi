@@ -454,11 +454,55 @@ describe("Cursor editor state.vscdb source (regression)", () => {
         },
         { source: "cli-keychain", status: "success" },
       ]);
+      const annotated = annotateQuotaAdvice({
+        generatedAt: new Date().toISOString(),
+        providers: [result],
+      });
+      expect(annotated.providers[0]?.state.reason).toBeUndefined();
+      expect(annotated.help).toBeUndefined();
       expect(securityCalls(calls)).toHaveLength(1);
       expect(securityCalls(calls)[0]?.args).toContain("-w");
       expect(JSON.stringify(result)).not.toContain(FAKE_KEYCHAIN_SECRET);
     },
   );
+
+  it("advises a keychain grant after editor auth is rejected", async () => {
+    writeCliConfig();
+    const { calls } = mockProcess({ editorToken: "editor-token" });
+    stubEditorUsageFailure(401);
+
+    const result = await withPlatform("darwin", async () => {
+      const { fetchQuota } = await import("../../src/providers/cursor.js");
+      return fetchQuota({ allowKeychainPrompt: false });
+    });
+    const annotated = annotateQuotaAdvice({
+      generatedAt: new Date().toISOString(),
+      providers: [result],
+    });
+
+    expect(result.attempts).toEqual([
+      {
+        source: "state-vscdb",
+        status: "failed",
+        error: "Cursor sign-in required",
+      },
+      {
+        source: "cli-keychain",
+        status: "skipped",
+        error: "keychain_prompt_required",
+        credentialPresent: true,
+      },
+    ]);
+    expect(annotated.providers[0]?.state.reason).toBe(
+      "keychain_access_required",
+    );
+    expect(annotated.providers[0]?.state.remedyCommand).toBe(
+      "quota-axi --allow-keychain-prompt",
+    );
+    expect(annotated.help?.[0]).toContain("Always Allow");
+    expect(securityCalls(calls)[0]?.args).not.toContain("-w");
+    expect(JSON.stringify(annotated)).not.toContain(FAKE_KEYCHAIN_SECRET);
+  });
 
   it.each([429, 500])(
     "does not consult CLI auth after editor usage receives %i",

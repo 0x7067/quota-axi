@@ -11,13 +11,6 @@ export const CREDENTIALS_EXPIRED_REASON = "credentials_expired";
 export const GROK_TOKEN_REFRESH_REMEDY_COMMAND = "grok";
 export const GROK_ACCESS_TOKEN_EXPIRED_ERROR = "Grok access token expired";
 
-const BLOCKED_CREDENTIAL_ERRORS = new Set([
-  "credentials_expired",
-  "credentials_missing",
-  "sqlite3_unavailable",
-  "sqlite_read_error",
-]);
-
 export function annotateQuotaAdvice(
   response: Omit<QuotaAxiResponse, "schemaVersion">,
 ): QuotaAxiResponse {
@@ -85,11 +78,7 @@ function needsGrokTokenRefreshAdvice(provider: ProviderQuota): boolean {
 }
 
 function isBlockedCredentialAttempt(attempt: SourceAttempt): boolean {
-  return (
-    !isKeychainSource(attempt.source) &&
-    attempt.status === "skipped" &&
-    Boolean(attempt.error && BLOCKED_CREDENTIAL_ERRORS.has(attempt.error))
-  );
+  return !isKeychainSource(attempt.source) && attempt.status !== "success";
 }
 
 /** Providers name their Keychain source `keychain` or `<store>-keychain`. */
