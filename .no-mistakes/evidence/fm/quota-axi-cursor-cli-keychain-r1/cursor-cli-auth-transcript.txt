@@ -1,0 +1,128 @@
+Cursor CLI-only end-to-end auth transcript
+
+1. Plain auth call before a grant: identity and keychain-item presence are detected without reading the token value.
+{
+  "generatedAt": "2026-08-12T03:34:19.351Z",
+  "schemaVersion": 1,
+  "auth": [
+    {
+      "provider": "cursor",
+      "sources": [
+        {
+          "source": "state-vscdb",
+          "path": "/var/folders/5x/4nqprlbx0518k3ybcb1sz6gr0000gn/T/no-mistakes-evidence/01KZSRR7AP9V9SQ0TBRG0TK0Y5/cursor-cli-e2e/state.vscdb",
+          "status": "missing"
+        },
+        {
+          "source": "cli-keychain",
+          "path": "/var/folders/5x/4nqprlbx0518k3ybcb1sz6gr0000gn/T/no-mistakes-evidence/01KZSRR7AP9V9SQ0TBRG0TK0Y5/cursor-cli-e2e/cli-config.json",
+          "status": "skipped",
+          "error": "keychain_prompt_required",
+          "credentialPresent": true
+        }
+      ]
+    }
+  ]
+}
+
+2. Plain quota call before a grant: the end-user report gives the keychain reason and remedy.
+{
+  "generatedAt": "2026-08-12T03:34:19.393Z",
+  "schemaVersion": 3,
+  "providers": [
+    {
+      "provider": "cursor",
+      "label": "Cursor",
+      "source": "unavailable",
+      "windows": [],
+      "state": {
+        "status": "auth_required",
+        "stale": false,
+        "error": "Cursor sign-in required",
+        "sourcesTried": [
+          "state-vscdb",
+          "cli-keychain"
+        ],
+        "reason": "keychain_access_required",
+        "remedyCommand": "quota-axi --allow-keychain-prompt"
+      },
+      "attempts": [
+        {
+          "source": "state-vscdb",
+          "status": "skipped",
+          "error": "credentials_missing"
+        },
+        {
+          "source": "cli-keychain",
+          "status": "skipped",
+          "error": "keychain_prompt_required",
+          "credentialPresent": true
+        }
+      ],
+      "quotaSemantics": {
+        "status": "unknown",
+        "description": "No quota windows are available, so no effective remaining percentage can be computed.",
+        "effectiveAvailability": [],
+        "unresolvedWindowIds": []
+      }
+    }
+  ],
+  "help": [
+    "Tell your user: run `quota-axi --allow-keychain-prompt` once and approve Keychain access (\"Always Allow\") so quota-axi can read cursor's live quota."
+  ]
+}
+exit_status=1
+
+3. Explicit one-time grant: CLI keychain auth becomes available.
+{
+  "generatedAt": "2026-08-12T03:34:19.452Z",
+  "schemaVersion": 1,
+  "auth": [
+    {
+      "provider": "cursor",
+      "sources": [
+        {
+          "source": "state-vscdb",
+          "path": "/var/folders/5x/4nqprlbx0518k3ybcb1sz6gr0000gn/T/no-mistakes-evidence/01KZSRR7AP9V9SQ0TBRG0TK0Y5/cursor-cli-e2e/state.vscdb",
+          "status": "missing"
+        },
+        {
+          "source": "cli-keychain",
+          "path": "/var/folders/5x/4nqprlbx0518k3ybcb1sz6gr0000gn/T/no-mistakes-evidence/01KZSRR7AP9V9SQ0TBRG0TK0Y5/cursor-cli-e2e/cli-config.json",
+          "status": "available",
+          "credentialPresent": true
+        }
+      ]
+    }
+  ]
+}
+
+4. Later plain call reuses the recorded grant and remains available.
+{
+  "generatedAt": "2026-08-12T03:34:19.505Z",
+  "schemaVersion": 1,
+  "auth": [
+    {
+      "provider": "cursor",
+      "sources": [
+        {
+          "source": "state-vscdb",
+          "path": "/var/folders/5x/4nqprlbx0518k3ybcb1sz6gr0000gn/T/no-mistakes-evidence/01KZSRR7AP9V9SQ0TBRG0TK0Y5/cursor-cli-e2e/state.vscdb",
+          "status": "missing"
+        },
+        {
+          "source": "cli-keychain",
+          "path": "/var/folders/5x/4nqprlbx0518k3ybcb1sz6gr0000gn/T/no-mistakes-evidence/01KZSRR7AP9V9SQ0TBRG0TK0Y5/cursor-cli-e2e/cli-config.json",
+          "status": "available",
+          "credentialPresent": true
+        }
+      ]
+    }
+  ]
+}
+
+Resolved security command arguments (presence-only checks omit -w; gated value reads include -w):
+find-generic-password -a cursor-user -s cursor-access-token
+find-generic-password -a cursor-user -s cursor-access-token
+find-generic-password -a cursor-user -w -s cursor-access-token
+find-generic-password -a cursor-user -w -s cursor-access-token

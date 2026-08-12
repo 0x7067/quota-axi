@@ -1,0 +1,6 @@
+#!/bin/sh
+printf '%s\n' "$*" >> "$SECURITY_CALL_LOG"
+case " $* " in
+  *' -w '*) printf '%s\n' 'fake-e2e-cursor-access-token' ;;
+  *) printf '%s\n' 'keychain item metadata' ;;
+esac

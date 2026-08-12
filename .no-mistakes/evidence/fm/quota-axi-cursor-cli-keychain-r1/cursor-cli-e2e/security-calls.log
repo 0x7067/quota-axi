@@ -1,0 +1,4 @@
+find-generic-password -a cursor-user -s cursor-access-token
+find-generic-password -a cursor-user -s cursor-access-token
+find-generic-password -a cursor-user -w -s cursor-access-token
+find-generic-password -a cursor-user -w -s cursor-access-token
