@@ -127,6 +127,35 @@ function stubCursorUsage(): ReturnType<typeof vi.fn> {
   return fetchMock;
 }
 
+function stubEditorUsageFailure(status: number): ReturnType<typeof vi.fn> {
+  const fetchMock = vi.fn(async (url: unknown, init?: RequestInit) => {
+    const authorization = new Headers(init?.headers).get("authorization");
+    if (
+      authorization === "Bearer editor-token" &&
+      String(url).includes("GetCurrentPeriodUsage")
+    ) {
+      return new Response("{}", {
+        status,
+        headers: status === 429 ? { "retry-after": "60" } : undefined,
+      });
+    }
+    if (String(url).includes("GetPlanInfo")) {
+      return new Response(JSON.stringify({ planInfo: { planName: "pro" } }), {
+        status: 200,
+      });
+    }
+    return new Response(
+      JSON.stringify({
+        billingCycleEnd: "1783036800000",
+        planUsage: { totalPercentUsed: 12 },
+      }),
+      { status: 200 },
+    );
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
+}
+
 describe("Cursor CLI keychain credential source", () => {
   it("resolves CLI-only sign-in from the cursor-access-token keychain item", async () => {
     writeCliConfig();
@@ -402,6 +431,54 @@ describe("Cursor editor state.vscdb source (regression)", () => {
     ]);
     expect(JSON.stringify(result)).not.toContain(FAKE_KEYCHAIN_SECRET);
   });
+
+  it.each([401, 403])(
+    "falls back to CLI auth after editor auth receives %i",
+    async (status) => {
+      writeCliConfig();
+      const { calls } = mockProcess({ editorToken: "editor-token" });
+      stubEditorUsageFailure(status);
+
+      const result = await withPlatform("darwin", async () => {
+        const { fetchQuota } = await import("../../src/providers/cursor.js");
+        return fetchQuota({ allowKeychainPrompt: true });
+      });
+
+      expect(result.state.status).toBe("fresh");
+      expect(result.account?.email).toBe("person@example.invalid");
+      expect(result.attempts).toEqual([
+        {
+          source: "state-vscdb",
+          status: "failed",
+          error: "Cursor sign-in required",
+        },
+        { source: "cli-keychain", status: "success" },
+      ]);
+      expect(securityCalls(calls)).toHaveLength(1);
+      expect(securityCalls(calls)[0]?.args).toContain("-w");
+      expect(JSON.stringify(result)).not.toContain(FAKE_KEYCHAIN_SECRET);
+    },
+  );
+
+  it.each([429, 500])(
+    "does not consult CLI auth after editor usage receives %i",
+    async (status) => {
+      writeCliConfig();
+      const { calls } = mockProcess({ editorToken: "editor-token" });
+      stubEditorUsageFailure(status);
+
+      const result = await withPlatform("darwin", async () => {
+        const { fetchQuota } = await import("../../src/providers/cursor.js");
+        return fetchQuota({ allowKeychainPrompt: true });
+      });
+
+      expect(result.state.status).toBe(
+        status === 429 ? "rate_limited" : "error",
+      );
+      expect(securityCalls(calls)).toEqual([]);
+      expect(JSON.stringify(result)).not.toContain(FAKE_KEYCHAIN_SECRET);
+    },
+  );
 
   it("still resolves editor auth without consulting the keychain", async () => {
     writeCliConfig();

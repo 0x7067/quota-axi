@@ -80,18 +80,7 @@ export async function fetchQuota(
     try {
       const quota = await fetchCursorUsage(resolution.credentials);
       attempts[attempts.length - 1] = { source: "api", status: "success" };
-      return successProvider({
-        provider: "cursor",
-        label: "Cursor",
-        source: "api",
-        plan: quota.plan,
-        account: quota.account,
-        windows: quota.windows,
-        credits: quota.credits,
-        refreshedAt: quota.refreshedAt,
-        sourcesTried: sourceNames(attempts),
-        attempts,
-      });
+      return cursorSuccess(quota, attempts);
     } catch (error) {
       finalError = errorMessage(error);
       attempts[attempts.length - 1] = {
@@ -99,7 +88,49 @@ export async function fetchQuota(
         status: "failed",
         error: finalError,
       };
-      if (error instanceof RateLimitError) retryAfter = error.retryAfter;
+      if (
+        error instanceof CursorAuthError &&
+        resolution.source === "state-vscdb" &&
+        isCursorCliSourceSupported()
+      ) {
+        attempts[attempts.length - 1] = {
+          source: "state-vscdb",
+          status: "failed",
+          error: finalError,
+        };
+        const cliState = await readCliCredentialState(options);
+        if (cliState.status === "available") {
+          attempts.push({ source: "cli-keychain", status: "failed" });
+          try {
+            const quota = await fetchCursorUsage(cliState.credentials);
+            attempts[attempts.length - 1] = {
+              source: "cli-keychain",
+              status: "success",
+            };
+            return cursorSuccess(quota, attempts);
+          } catch (cliError) {
+            finalError = errorMessage(cliError);
+            attempts[attempts.length - 1] = {
+              source: "cli-keychain",
+              status: "failed",
+              error: finalError,
+            };
+            if (cliError instanceof RateLimitError)
+              retryAfter = cliError.retryAfter;
+          }
+        } else {
+          attempts.push({
+            source: cliState.source.source,
+            status: "skipped",
+            error: cursorCredentialError(cliState),
+            ...(cliState.source.credentialPresent === undefined
+              ? {}
+              : { credentialPresent: cliState.source.credentialPresent }),
+          });
+        }
+      } else if (error instanceof RateLimitError) {
+        retryAfter = error.retryAfter;
+      }
     }
   } else {
     const primary = resolution.unavailable[0];
@@ -151,19 +182,28 @@ export async function inspectAuth(
  */
 async function resolveCredentials(options: ProviderOptions): Promise<{
   credentials?: CursorCredentials;
+  source?: "state-vscdb" | "cli-keychain";
   unavailable: UnavailableCredentialState[];
 }> {
   const unavailable: UnavailableCredentialState[] = [];
   const editorState = await readCredentialState();
   if (editorState.status === "available") {
-    return { credentials: editorState.credentials, unavailable };
+    return {
+      credentials: editorState.credentials,
+      source: "state-vscdb",
+      unavailable,
+    };
   }
   unavailable.push(editorState);
 
   if (!isCursorCliSourceSupported()) return { unavailable };
   const cliState = await readCliCredentialState(options);
   if (cliState.status === "available") {
-    return { credentials: cliState.credentials, unavailable };
+    return {
+      credentials: cliState.credentials,
+      source: "cli-keychain",
+      unavailable,
+    };
   }
   unavailable.push(cliState);
   return { unavailable };
@@ -332,7 +372,7 @@ async function postDashboardRpc(
 
 function rejectUnusableUsageResponse(response: Response): void {
   if (response.status === 401 || response.status === 403) {
-    throw new Error("Cursor sign-in required");
+    throw new CursorAuthError();
   }
   if (response.status === 429) {
     throw new RateLimitError(
@@ -502,6 +542,30 @@ function errorMessage(error: unknown): string {
   if (error instanceof Error && error.name === "AbortError")
     return "Cursor quota request timed out";
   return error instanceof Error ? error.message : "Cursor quota unavailable";
+}
+
+function cursorSuccess(
+  quota: Awaited<ReturnType<typeof fetchCursorUsage>>,
+  attempts: SourceAttempt[],
+): ProviderQuota {
+  return successProvider({
+    provider: "cursor",
+    label: "Cursor",
+    source: "api",
+    plan: quota.plan,
+    account: quota.account,
+    windows: quota.windows,
+    credits: quota.credits,
+    refreshedAt: quota.refreshedAt,
+    sourcesTried: sourceNames(attempts),
+    attempts,
+  });
+}
+
+class CursorAuthError extends Error {
+  constructor() {
+    super("Cursor sign-in required");
+  }
 }
 
 class RateLimitError extends Error {
