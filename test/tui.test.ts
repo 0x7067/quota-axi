@@ -381,6 +381,54 @@ describe("renderQuotaTui structure", () => {
     expect(findCardLine(lines, 0, "97% session")).toBeDefined();
   });
 
+  it("uses the mapped headline window's reset marker instead of another window's runway", () => {
+    for (const [mappedId, otherId] of [
+      ["five_hour", "seven_day"],
+      ["seven_day", "five_hour"],
+    ]) {
+      const response = fixtureResponse();
+      const claude = response.providers[0];
+      const mapped = claude.windows.find((window) => window.id === mappedId);
+      const other = claude.windows.find((window) => window.id === otherId);
+      const availability = claude.quotaSemantics?.effectiveAvailability[0];
+      expect(mapped).toBeDefined();
+      expect(other).toBeDefined();
+      expect(availability).toBeDefined();
+      if (!mapped || !other || !availability) continue;
+
+      mapped.percentRemaining = 84;
+      mapped.pace = { ...mapped.pace, timeRemainingPercent: 19.7 };
+      other.percentRemaining = 95;
+      other.pace = { ...other.pace, timeRemainingPercent: 97.3 };
+      availability.effectivePercentRemaining = 84;
+      availability.limitingWindowIds = [mapped.id];
+      availability.runway = {
+        status: "projected_exhaustion",
+        usableRunwaySeconds: 360000,
+        limitingWindowId: other.id,
+        projectionConfidence: "established",
+        projectionBasis: "cycle_average",
+      };
+      response.providers = [claude];
+
+      const lines = renderQuotaTui(response, {
+        timeZone: "America/Los_Angeles",
+      }).split("\n");
+      const headlineIndex = lines.findIndex((line) =>
+        line.includes(`84% ${mapped.label}`),
+      );
+      expect(headlineIndex).toBeGreaterThanOrEqual(0);
+      const headlineBar = lines[headlineIndex + 1];
+      const mappedRow = findLine(lines, `│   ${mapped.label}`);
+
+      // The main and sub-bars use different widths, but both must position the
+      // marker from their mapped window's reset clock (19.7%), not the other
+      // window's runway projection.
+      expect(headlineBar).toContain(barText(thinBar(84, 19.7, 41)));
+      expect(mappedRow).toContain(barText(thinBar(84, 19.7, 22)));
+    }
+  });
+
   it("compacts tied limiting windows and falls back to the scope wording", () => {
     const response = fixtureResponse();
     const grok = response.providers[4];
