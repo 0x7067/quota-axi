@@ -6,6 +6,7 @@ import {
   shortWindowLabel,
   thinBar,
 } from "../src/tui.js";
+import { withQuotaSemantics } from "../src/interpretation.js";
 import type { ProviderQuota, QuotaAxiResponse } from "../src/types.js";
 
 const GENERATED_AT = "2026-08-06T23:21:15.000Z";
@@ -835,12 +836,7 @@ describe("renderQuotaTui structure", () => {
     const claude = response.providers[0];
     claude.state.status = "stale";
     claude.state.stale = true;
-    claude.quotaSemantics = {
-      status: "unknown",
-      description: "test",
-      effectiveAvailability: [],
-    };
-    for (const window of claude.windows) delete window.pace;
+    response.providers[0] = withQuotaSemantics(claude, GENERATED_AT);
     const lines = renderQuotaTui(response, {
       timeZone: "America/Los_Angeles",
     }).split("\n");
@@ -851,6 +847,146 @@ describe("renderQuotaTui structure", () => {
       "runway unknown",
     );
   });
+});
+
+describe("cards for providers with no combinable bound", () => {
+  /**
+   * Cursor reports real per-window usage but quota-axi cannot say whether those
+   * windows are independent or jointly bounding, so the real interpretation
+   * yields no effective availability at all.
+   */
+  function cursorProvider(stale = false): ProviderQuota {
+    const window = (
+      id: string,
+      label: string,
+      percentUsed: number,
+    ): ProviderQuota["windows"][number] => ({
+      id,
+      label,
+      kind: "monthly",
+      percentUsed,
+      percentRemaining: 100 - percentUsed,
+      resetsAt: "2026-08-20T00:00:00.000Z",
+    });
+    return withQuotaSemantics(
+      {
+        provider: "cursor",
+        label: "Cursor",
+        source: "state-vscdb",
+        plan: "pro",
+        windows: [
+          window("included_usage", "included usage", 42),
+          window("auto_usage", "auto usage", 12),
+          window("api_usage", "API usage", 0),
+        ],
+        state: {
+          status: stale ? "stale" : "fresh",
+          stale,
+          checkedAt: GENERATED_AT,
+          sourcesTried: ["state-vscdb"],
+        },
+      },
+      GENERATED_AT,
+    );
+  }
+
+  function renderWithCursor(stale = false): string[] {
+    return renderQuotaTui(
+      {
+        generatedAt: GENERATED_AT,
+        schemaVersion: 3,
+        providers: [claudeProvider(), cursorProvider(stale)],
+      },
+      { timeZone: "America/Los_Angeles" },
+    ).split("\n");
+  }
+
+  function unfamiliarClaude(stale: boolean): ProviderQuota {
+    const provider = claudeProvider();
+    provider.windows.push({
+      id: "unexpected_limit",
+      label: "unexpected limit",
+      kind: "weekly",
+      percentUsed: 20,
+      percentRemaining: 80,
+      resetsAt: "2026-08-12T00:00:00.000Z",
+    });
+    provider.state.status = stale ? "stale" : "fresh";
+    provider.state.stale = stale;
+    return withQuotaSemantics(provider, GENERATED_AT);
+  }
+
+  it("names the card per-window instead of showing unknown headroom", () => {
+    const lines = renderWithCursor();
+    const headline = findCardLine(lines, 1, "per-window usage");
+    expect(headline).toContain("no combined bound");
+    const card = lines.map((line) => line.slice(CARD_COLUMNS + 2)).join("\n");
+    expect(card).not.toContain("effective unknown");
+    expect(card).not.toContain("runway unknown");
+  });
+
+  it("drops the empty effective bar rather than rendering an empty track", () => {
+    const lines = renderWithCursor();
+    const emptyTrack = lines
+      .map((line) => stripAnsi(line).slice(CARD_COLUMNS + 2))
+      .filter((line) => /^│\s+─{10,}\s+│$/.test(line));
+    expect(emptyTrack).toHaveLength(0);
+  });
+
+  it("keeps the per-window rows it does have", () => {
+    const lines = renderWithCursor();
+    expect(findCardLine(lines, 1, "includ…")).toContain("58%");
+    expect(findCardLine(lines, 1, "auto ")).toContain("88%");
+    expect(findCardLine(lines, 1, "api ")).toContain("100%");
+  });
+
+  it("still marks the card stale when the snapshot is stale", () => {
+    const lines = renderWithCursor(true);
+    expect(findCardLine(lines, 1, "● cursor")).toContain("stale");
+    expect(findCardLine(lines, 1, "stale · per-window usage")).toContain(
+      "no combined bound",
+    );
+  });
+
+  it("leaves a provider with combinable bounds rendering its effective bar", () => {
+    const lines = renderWithCursor();
+    const withoutCursor = renderQuotaTui(
+      {
+        generatedAt: GENERATED_AT,
+        schemaVersion: 3,
+        providers: [claudeProvider()],
+      },
+      { timeZone: "America/Los_Angeles" },
+    ).split("\n");
+    const claudeCard = lines.map((line) => line.slice(0, CARD_COLUMNS));
+    expect(claudeCard.slice(2, 2 + withoutCursor.length - 2)).toEqual(
+      withoutCursor.slice(2).map((line) => line.slice(0, CARD_COLUMNS)),
+    );
+    expect(findCardLine(lines, 0, "72% week")).toBeDefined();
+  });
+
+  it.each([
+    ["fresh", false, "effective unknown"],
+    ["stale", true, "stale · effective unknown"],
+  ])(
+    "keeps the %s effective headline for partially understood providers",
+    (_label, stale, headline) => {
+      const output = renderQuotaTui(
+        {
+          generatedAt: GENERATED_AT,
+          schemaVersion: 3,
+          providers: [unfamiliarClaude(stale)],
+        },
+        { timeZone: "America/Los_Angeles" },
+      );
+      const lines = output.split("\n");
+      expect(findLine(lines, headline)).toContain("runway unknown");
+      expect(output).not.toContain("per-window usage");
+      expect(
+        lines.some((line) => /^│\s+─{10,}\s+│$/.test(stripAnsi(line))),
+      ).toBe(true);
+    },
+  );
 });
 
 describe("thin bars with pace markers", () => {
