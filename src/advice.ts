@@ -78,7 +78,22 @@ function needsGrokTokenRefreshAdvice(provider: ProviderQuota): boolean {
 }
 
 function isBlockedCredentialAttempt(attempt: SourceAttempt): boolean {
-  return !isKeychainSource(attempt.source) && attempt.status !== "success";
+  if (isKeychainSource(attempt.source)) return false;
+  if (attempt.status === "skipped") return true;
+  return (
+    attempt.status === "failed" &&
+    isDefinitiveCredentialRejection(attempt.error)
+  );
+}
+
+function isDefinitiveCredentialRejection(error: string | undefined): boolean {
+  if (!error) return false;
+  return (
+    /^credentials_(?:missing|invalid|expired)$/i.test(error) ||
+    /\bsign-in required\b/i.test(error) ||
+    /\b(?:unauthorized|forbidden)\b/i.test(error) ||
+    /(?:^|\D)(?:401|403)(?:\D|$)/.test(error)
+  );
 }
 
 /** Providers name their Keychain source `keychain` or `<store>-keychain`. */
