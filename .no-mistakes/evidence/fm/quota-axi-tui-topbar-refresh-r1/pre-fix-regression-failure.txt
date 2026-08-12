@@ -1,0 +1,69 @@
+[?25l
+ RUN  v3.0.0 /Users/kunchen/.no-mistakes/worktrees/6eca570dbcdb/01KZSSVQV00Z6KPJ7NHAPXY71Z
+
+ ❯ test/tui.test.ts (38 tests | 1 failed | 37 skipped) 9ms
+   ↓ renderQuotaTui structure > summarizes the fleet in the dim header with local time
+   ↓ renderQuotaTui structure > zips live provider cards two-up with live providers first
+   ↓ renderQuotaTui structure > keeps every line within the effective width and aligns card borders
+   ↓ renderQuotaTui structure > promotes effective headroom with the runway verdict on the headline
+   ↓ renderQuotaTui structure > names the binding window on the headline instead of the model scope
+   ↓ renderQuotaTui structure > names a session-bound headline after the session window
+   × renderQuotaTui structure > uses the mapped headline window's reset marker instead of another window's runway 9ms
+     → expected '│   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━…' to contain '━━━━━━━━┃━━━━━━━━━━━━━━━━━━━━━━━━━╸──…'
+   ↓ renderQuotaTui structure > compacts tied limiting windows and falls back to the scope wording
+   ↓ renderQuotaTui structure > omits the triangle for the no-seconds exhaustion fallback
+   ↓ renderQuotaTui structure > preserves a long model-window period beside the longest verdict
+   ↓ renderQuotaTui structure > preserves a long first window and tie count beside the longest verdict
+   ↓ renderQuotaTui structure > aligns unequal two-up cards with padding inside the shorter box
+   ↓ renderQuotaTui structure > renders a model scope without its machine prefix when it fits
+   ↓ renderQuotaTui structure > compacts long model-window names without hiding their period
+   ↓ renderQuotaTui structure > renders aligned per-window rows with reset countdown and no burn chip
+   ↓ renderQuotaTui structure > shortens window labels into the 8-char column
+   ↓ renderQuotaTui structure > omits the marker when a window's pace is unknown
+   ↓ renderQuotaTui structure > omits redundant absolute projected exhaustion notes
+   ↓ renderQuotaTui structure > renders signed-out providers as dim cards excluded from totals
+   ↓ renderQuotaTui structure > leaves the pace marker to the bars instead of a legend line
+   ↓ renderQuotaTui structure > appends the live key hint only when a footer hint is supplied
+   ↓ renderQuotaTui structure > reflows to a single column below the two-up width
+   ↓ renderQuotaTui structure > appends account and source-attempt footers only with full
+   ↓ renderQuotaTui structure > preserves full account and attempt evidence within terminal width
+   ↓ renderQuotaTui structure > bounds CJK account footers by terminal display columns
+   ↓ renderQuotaTui structure > bounds emoji account footers by terminal display columns
+   ↓ renderQuotaTui structure > sanitizes terminal controls before layout and rendering
+   ↓ renderQuotaTui structure > marks a stale provider and keeps effective headroom unknown
+   ↓ thin bars with pace markers > places the marker at the linear-pace position over the fill
+   ↓ thin bars with pace markers > styles fill by health thresholds and the marker as the pace cursor
+   ↓ thin bars with pace markers > omits the marker when pace is unknown instead of faking one
+   ↓ thin bars with pace markers > keeps a nonzero fill visible and a nonfull bar open at the edges
+   ↓ countdown formatting > uses two units and degrades to one to stay within six chars
+   ↓ color handling > emits plain glyph skeleton when color is off
+   ↓ color handling > emits truecolor SGR sequences that strip back to the plain skeleton
+   ↓ color handling > maps the palette to 256-color and 16-color depths
+   ↓ color handling > colors runway exhaustion independently from healthy headroom
+   ↓ color handling > detects color depth from the environment
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  test/tui.test.ts > renderQuotaTui structure > uses the mapped headline window's reset marker instead of another window's runway
+AssertionError: expected '│   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━…' to contain '━━━━━━━━┃━━━━━━━━━━━━━━━━━━━━━━━━━╸──…'
+
+Expected: [32m"━━━━━━━━[7m┃[27m━━━━━━━━━━━━━━━━━━━━━━━━━╸─────[7m─[27m"[39m
+Received: [31m"[7m│   [27m━━━━━━━━[7m━[27m━━━━━━━━━━━━━━━━━━━━━━━━━╸─────[7m┃   │[27m"[39m
+
+ ❯ test/tui.test.ts:427:27
+    425|       // marker from their mapped window's reset clock (19.7%), not th…
+    426|       // window's runway projection.
+    427|       expect(headlineBar).toContain(barText(thinBar(84, 19.7, 41)));
+       |                           ^
+    428|       expect(mappedRow).toContain(barText(thinBar(84, 19.7, 22)));
+    429|     }
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 37 skipped (38)
+   Start at  18:39:50
+   Duration  258ms (transform 72ms, setup 0ms, collect 79ms, tests 9ms, environment 0ms, prepare 42ms)
+
+[?25h
