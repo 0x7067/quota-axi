@@ -71,24 +71,19 @@ type GrokCredentials = {
   expiresAt?: string;
 };
 
+type CliCredentialCandidate = {
+  credentials: GrokCredentials;
+  localState: "valid" | "expired";
+  refreshable: boolean;
+};
+
 type CredentialState =
   | {
-      status: "available";
-      credentials: GrokCredentials;
+      status: "available" | "expired";
+      candidates: CliCredentialCandidate[];
       source: AuthSourceReport;
     }
-  | { status: "missing" | "invalid"; source: AuthSourceReport }
-  | {
-      status: "expired";
-      source: AuthSourceReport;
-      refreshable: boolean;
-      /**
-       * The newest stored-expired session credential, retained so the
-       * consumer quota attempt can double as its liveness probe. Stored
-       * expiry is advisory; only the endpoint's rejection is definitive.
-       */
-      credentials?: GrokCredentials;
-    };
+  | { status: "missing" | "invalid"; source: AuthSourceReport };
 
 /** Opaque attempt payloads for the shared credential-selection loop. */
 type GrokAttemptCredential =
@@ -160,19 +155,20 @@ async function fetchQuotaWithDependencies(
   const piResolution = await dependencies.piXaiBroker.resolve();
 
   const candidates: SelectionCandidate<GrokAttemptCredential>[] = [];
-  if (cliState.status === "available") {
-    candidates.push({
-      source: GROK_SOURCE,
-      localState: "valid",
-      credential: { kind: "cli", credentials: cliState.credentials },
-    });
-  } else if (cliState.status === "expired" && cliState.credentials) {
-    candidates.push({
-      source: GROK_SOURCE,
-      localState: "expired",
-      credential: { kind: "cli", credentials: cliState.credentials },
-      refreshable: cliState.refreshable,
-    });
+  if (cliState.status === "available" || cliState.status === "expired") {
+    candidates.push(
+      ...cliState.candidates.map((candidate) => ({
+        source: GROK_SOURCE,
+        localState: candidate.localState,
+        credential: {
+          kind: "cli" as const,
+          credentials: candidate.credentials,
+        },
+        ...(candidate.localState === "expired"
+          ? { refreshable: candidate.refreshable }
+          : {}),
+      })),
+    );
   }
   if (piResolution.status === "available") {
     candidates.push({
@@ -197,10 +193,14 @@ async function fetchQuotaWithDependencies(
   );
 
   const attempts = grokAttempts(cliState, piResolution, selection);
-  const cliResult = selection.results.find(
+  const cliResults = selection.results.filter(
     (result) => result.source === GROK_SOURCE,
   );
-  const cliRejected = cliResult?.outcome === "rejected";
+  const cliResult =
+    cliResults.find((result) => result.outcome === "quota") ??
+    cliResults.find((result) => result.outcome === "transient") ??
+    [...cliResults].reverse().find((result) => result.outcome === "rejected") ??
+    cliResults.find((result) => result.outcome !== "not_tried");
   const cliTransient = cliResult?.outcome === "transient";
   const consumerError = cliResult?.error;
   const retryAfter = selection.retryAfter;
@@ -226,7 +226,7 @@ async function fetchQuotaWithDependencies(
   const authStatus =
     selection.outcome === "live_no_quota"
       ? "usable"
-      : classifyGrokAuthStatus(cliState, piResolution, cliRejected);
+      : classifyGrokAuthStatus(cliState, piResolution, selection);
 
   if (authStatus === "usable") {
     // Valid model auth (CLI and/or Pi) without consumer windows is not logout.
@@ -271,10 +271,9 @@ async function fetchQuotaWithDependencies(
 
   let finalError: string;
   if (authStatus === "expired_refreshable") {
-    finalError =
-      cliState.status === "expired" && cliState.refreshable
-        ? GROK_ACCESS_TOKEN_EXPIRED_ERROR
-        : "Pi xAI access token expired";
+    finalError = hasRefreshableCliCandidate(cliState)
+      ? GROK_ACCESS_TOKEN_EXPIRED_ERROR
+      : "Pi xAI access token expired";
   } else if (piResolution.status === "error") {
     finalError = GROK_PI_CREDENTIAL_RESOLUTION_ERROR;
   } else {
@@ -386,10 +385,14 @@ function grokAttempts(
 ): SourceAttempt[] {
   const attempts: SourceAttempt[] = [];
 
-  const cliResult = selection.results.find(
+  const cliResults = selection.results.filter(
     (result) => result.source === GROK_SOURCE,
   );
-  if (cliResult && cliResult.outcome !== "not_tried") {
+  const cliResult =
+    cliResults.find((result) => result.outcome === "quota") ??
+    cliResults.find((result) => result.outcome === "transient") ??
+    [...cliResults].reverse().find((result) => result.outcome === "rejected");
+  if (cliResult) {
     attempts.push(
       cliResult.outcome === "quota"
         ? { source: GROK_SOURCE, status: "success" }
@@ -467,18 +470,31 @@ async function inspectAuthWithDependencies(
 function classifyGrokAuthStatus(
   cliState: CredentialState,
   piResolution: PiXaiCredentialResolution,
-  consumerAuthRejected: boolean,
+  selection: CredentialSelection<NormalizedGrokQuota>,
 ): ProviderAuthStatus {
   const piUsable = piResolution.status === "available";
-  // Local CLI presence is not enough after a definitive consumer auth rejection
-  // unless an independent Pi credential still establishes model usability.
-  const cliUsable = cliState.status === "available" && !consumerAuthRejected;
+  const cliUsable = selection.results.some(
+    (result) =>
+      result.source === GROK_SOURCE &&
+      result.localState === "valid" &&
+      result.outcome !== "rejected",
+  );
   if (cliUsable || piUsable) return "usable";
-  const cliRefreshable = cliState.status === "expired" && cliState.refreshable;
   const piRefreshable =
     piResolution.status === "expired" && piResolution.refreshable;
-  if (cliRefreshable || piRefreshable) return "expired_refreshable";
+  if (hasRefreshableCliCandidate(cliState) || piRefreshable)
+    return "expired_refreshable";
   return "unusable";
+}
+
+function hasRefreshableCliCandidate(state: CredentialState): boolean {
+  return (
+    (state.status === "available" || state.status === "expired") &&
+    state.candidates.some(
+      (candidate) =>
+        candidate.localState === "expired" && candidate.refreshable,
+    )
+  );
 }
 
 function piSourceAttempt(resolution: PiXaiCredentialResolution): SourceAttempt {
@@ -1007,48 +1023,28 @@ function extractCredentialState(
       status: "invalid",
       source: authSource(source, path, "invalid"),
     };
-  let expired = false;
-  let expiredRefreshable = false;
-  let expiredCredentials: GrokCredentials | undefined;
-  let expiredAtMs = Number.NEGATIVE_INFINITY;
-  for (const candidate of selectedCredentialCandidates(data)) {
-    const expiresAt = candidate.expiresAt;
-    if (isExpired(expiresAt)) {
-      expired = true;
-      if (candidate.hasRefreshToken) expiredRefreshable = true;
-      // Retain the newest stored-expired credential: stored expiry is
-      // advisory, so the consumer attempt still probes it before any
-      // expired verdict.
-      const parsedExpiry =
-        expiresAt === undefined ? NaN : Date.parse(expiresAt);
-      if (!Number.isNaN(parsedExpiry) && parsedExpiry > expiredAtMs) {
-        expiredAtMs = parsedExpiry;
-        expiredCredentials = {
-          key: candidate.key,
-          email: candidate.email,
-          teamId: candidate.teamId,
-          expiresAt,
-        };
-      }
-      continue;
-    }
+  const candidates = selectedCredentialCandidates(data).map((candidate) => ({
+    credentials: {
+      key: candidate.key,
+      email: candidate.email,
+      teamId: candidate.teamId,
+      expiresAt: candidate.expiresAt,
+    },
+    localState: isExpired(candidate.expiresAt)
+      ? ("expired" as const)
+      : ("valid" as const),
+    refreshable: candidate.hasRefreshToken,
+  }));
+  if (candidates.length > 0) {
+    const status = candidates.some(
+      (candidate) => candidate.localState === "valid",
+    )
+      ? "available"
+      : "expired";
     return {
-      status: "available",
-      credentials: {
-        key: candidate.key,
-        email: candidate.email,
-        teamId: candidate.teamId,
-        expiresAt,
-      },
-      source: authSource(source, path, "available"),
-    };
-  }
-  if (expired) {
-    return {
-      status: "expired",
-      source: authSource(source, path, "expired"),
-      refreshable: expiredRefreshable,
-      credentials: expiredCredentials,
+      status,
+      candidates,
+      source: authSource(source, path, status),
     };
   }
   return {

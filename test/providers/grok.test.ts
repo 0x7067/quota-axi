@@ -699,6 +699,48 @@ describe("Grok auth discovery", () => {
     });
   });
 
+  it("continues after a rejected valid session to a later live session", async () => {
+    writeAuth({
+      rejected_session_fixture: {
+        key: "rejected-session-token-fixture",
+        expires_at: "2035-01-01T00:00:00.000Z",
+      },
+      live_session_fixture: {
+        key: "live-session-token-fixture",
+        email: "live@example.invalid",
+        expires_at: "2035-01-01T00:00:00.000Z",
+      },
+    });
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      const authorization = (init?.headers as Record<string, string>)
+        ?.Authorization;
+      return authorization === "Bearer rejected-session-token-fixture"
+        ? grpcResponse(new Uint8Array(), { status: 403 })
+        : grpcResponse();
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await fetchQuota({ allowKeychainPrompt: false });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(result).toMatchObject({
+      source: "web",
+      account: { email: "live@example.invalid" },
+      state: { status: "fresh", stale: false, authStatus: "usable" },
+      attempts: [
+        { source: "web", status: "success" },
+        {
+          source: "pi:xai",
+          status: "skipped",
+          error: "credentials_missing",
+        },
+      ],
+    });
+    expect(result.windows.length).toBeGreaterThan(0);
+    expect(result.state.error).toBeUndefined();
+    expect(JSON.stringify(result)).not.toContain("session-token-fixture");
+  });
+
   it("prefers session-scoped auth over API-key entries", async () => {
     writeAuth({
       "https://api.x.ai/v1": {
@@ -942,6 +984,47 @@ describe("Grok expired access-token classification", () => {
     expect(fetchMock).toHaveBeenCalledOnce();
     expect(JSON.stringify(result)).not.toContain("expired-access-token");
     expect(JSON.stringify(result)).not.toContain("fixture-refresh-token");
+  });
+
+  it("tries each stored-expired session until one returns fresh quota", async () => {
+    writeAuth({
+      rejected_expired_session_fixture: {
+        key: "rejected-expired-session-token-fixture",
+        expires_at: "2020-01-01T00:00:00.000Z",
+      },
+      live_expired_session_fixture: {
+        key: "live-expired-session-token-fixture",
+        email: "live@example.invalid",
+        expires_at: "2021-01-01T00:00:00.000Z",
+      },
+    });
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      const authorization = (init?.headers as Record<string, string>)
+        ?.Authorization;
+      return authorization === "Bearer rejected-expired-session-token-fixture"
+        ? grpcResponse(new Uint8Array(), { status: 403 })
+        : grpcResponse();
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await fetchQuota({ allowKeychainPrompt: false });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(result).toMatchObject({
+      source: "web",
+      account: { email: "live@example.invalid" },
+      state: { status: "fresh", stale: false, authStatus: "usable" },
+      attempts: [
+        { source: "web", status: "success" },
+        {
+          source: "pi:xai",
+          status: "skipped",
+          error: "credentials_missing",
+        },
+      ],
+    });
+    expect(result.windows.length).toBeGreaterThan(0);
+    expect(JSON.stringify(result)).not.toContain("session-token-fixture");
   });
 
   it("keeps true sign-in required when a rejected expired session has no refresh token", async () => {
