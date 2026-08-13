@@ -31,7 +31,7 @@ quota-axi is data only: it never routes, recommends a provider, model, harness, 
 route, proxies, intercepts, logs in, imports browser cookies, or mutates provider state. Default
 output has no ordering preference. The explicit `models --sort runway` comparator only orders
 quota evidence, preserves ties, and is never a recommendation. It reads local provider auth sources and calls
-first-party provider quota, usage, billing, or entitlement endpoints; it never launches the
+first-party provider quota, usage, billing, entitlement, or read-only credential-liveness endpoints; it never launches the
 Claude, Cursor, Grok, Pi, or Kimi CLIs, so it cannot spend the quota it measures.
 
 ## When to use
@@ -74,7 +74,9 @@ or when comparing supported local provider headroom side by side.
    usable token; quota-axi never reads `cursor-refresh-token`, so an expired CLI access token
    requires `cursor-agent login`. Legacy Claude markers are not reused.
 7. For Grok, read `state.authStatus` before any logout wording. `expired_refreshable` means a
-   local session still looks signed in but short-lived access expired. Only when quota-axi also
+   local session still looks signed in but short-lived access expired and a bounded read-only
+   liveness attempt could not validate it (an empirically live stored-expired bearer reports
+   fresh quota or `usable` instead). Only when quota-axi also
    emits `reason: credentials_expired` / `remedyCommand: grok` should you tell your user to
    open the Grok CLI once; Pi-only expiry has no Grok remedy because Grok cannot refresh Pi-owned
    credentials. Do not treat soft expiry as full sign-out, and do not ask quota-axi to refresh
