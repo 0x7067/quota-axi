@@ -74,7 +74,9 @@ or when comparing supported local provider headroom side by side.
    usable token; quota-axi never reads `cursor-refresh-token`, so an expired CLI access token
    requires `cursor-agent login`. Legacy Claude markers are not reused.
 7. For Grok, read `state.authStatus` before any logout wording. `expired_refreshable` means a
-   local session still looks signed in but short-lived access expired. Only when quota-axi also
+   local session still looks signed in but short-lived access expired and a bounded read-only
+   liveness attempt could not validate it (an empirically live stored-expired bearer reports
+   fresh quota or `usable` instead). Only when quota-axi also
    emits `reason: credentials_expired` / `remedyCommand: grok` should you tell your user to
    open the Grok CLI once; Pi-only expiry has no Grok remedy because Grok cannot refresh Pi-owned
    credentials. Do not treat soft expiry as full sign-out, and do not ask quota-axi to refresh
