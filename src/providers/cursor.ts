@@ -76,15 +76,23 @@ export async function fetchQuota(
   }
 
   if (resolution.credentials) {
-    attempts.push({ source: "api", status: "failed" });
+    // The editor-credential fetch keeps its established `api` attempt name; a
+    // CLI-resolved fetch is named for its credential store so `sourcesTried`
+    // shows that the Keychain token, not the absent editor store, answered.
+    const quotaSource =
+      resolution.source === "cli-keychain" ? "cli-keychain" : "api";
+    attempts.push({ source: quotaSource, status: "failed" });
     try {
       const quota = await fetchCursorUsage(resolution.credentials);
-      attempts[attempts.length - 1] = { source: "api", status: "success" };
+      attempts[attempts.length - 1] = {
+        source: quotaSource,
+        status: "success",
+      };
       return cursorSuccess(quota, attempts);
     } catch (error) {
       finalError = errorMessage(error);
       attempts[attempts.length - 1] = {
-        source: "api",
+        source: quotaSource,
         status: "failed",
         error: finalError,
       };
@@ -133,7 +141,7 @@ export async function fetchQuota(
       }
     }
   } else {
-    const primary = resolution.unavailable[0];
+    const primary = primaryUnavailable(resolution.unavailable);
     finalError = cursorFinalError(primary, cursorCredentialError(primary));
   }
 
@@ -176,9 +184,11 @@ export async function inspectAuth(
 
 /**
  * The Cursor editor and CLI keep credentials in different stores, and either
- * source is enough. Quota fetching tries the non-prompting editor store first;
- * it reads the CLI Keychain value only when the editor token is absent or
- * rejected by Cursor.
+ * source is enough, so a CLI-only machine with no editor `state.vscdb` can
+ * still refresh quota after Keychain access is granted. Quota fetching tries
+ * the non-prompting editor store first;
+ * it reads the CLI Keychain value when the editor token is absent, unreadable,
+ * or rejected by Cursor.
  */
 async function resolveCredentials(options: ProviderOptions): Promise<{
   credentials?: CursorCredentials;
@@ -207,6 +217,20 @@ async function resolveCredentials(options: ProviderOptions): Promise<{
   }
   unavailable.push(cliState);
   return { unavailable };
+}
+
+/**
+ * A CLI-only machine has no editor store at all, so reporting the editor's
+ * `credentials_missing` would tell a signed-in `cursor-agent` user to sign in
+ * again. Prefer a source that still holds a credential - a Keychain value read
+ * waiting on the one-time prompt - so the error carries its actual remedy.
+ */
+function primaryUnavailable(
+  states: UnavailableCredentialState[],
+): UnavailableCredentialState {
+  return (
+    states.find((state) => state.source.credentialPresent === true) ?? states[0]
+  );
 }
 
 async function readCliCredentialState(
