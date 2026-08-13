@@ -62,7 +62,7 @@ quota-axi is data only: it never routes, recommends a provider, model, harness, 
 route, proxies, intercepts, logs in, imports browser cookies, or mutates provider state. Default
 output has no ordering preference. The explicit \`models --sort runway\` comparator only orders
 quota evidence, preserves ties, and is never a recommendation. It reads local provider auth sources and calls
-first-party provider quota, usage, billing, or entitlement endpoints; it never launches the
+first-party provider quota, usage, billing, entitlement, or read-only credential-liveness endpoints; it never launches the
 Claude, Cursor, Grok, Pi, or Kimi CLIs, so it cannot spend the quota it measures.
 
 ## When to use
