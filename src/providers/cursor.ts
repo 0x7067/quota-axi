@@ -184,8 +184,9 @@ export async function inspectAuth(
 
 /**
  * The Cursor editor and CLI keep credentials in different stores, and either
- * source is enough, so a CLI-only machine with no editor `state.vscdb` still
- * refreshes quota. Quota fetching tries the non-prompting editor store first;
+ * source is enough, so a CLI-only machine with no editor `state.vscdb` can
+ * still refresh quota after Keychain access is granted. Quota fetching tries
+ * the non-prompting editor store first;
  * it reads the CLI Keychain value when the editor token is absent, unreadable,
  * or rejected by Cursor.
  */
