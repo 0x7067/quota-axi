@@ -1,0 +1,68 @@
+{
+  "generatedAt": "2026-08-13T06:23:04.422Z",
+  "schemaVersion": 3,
+  "providers": [
+    {
+      "provider": "cursor",
+      "label": "Cursor",
+      "source": "api",
+      "plan": "Ultra",
+      "windows": [
+        {
+          "id": "included_usage",
+          "label": "included usage",
+          "kind": "monthly",
+          "percentUsed": 0,
+          "resetsAt": "2026-09-11T23:30:07.000Z",
+          "percentRemaining": 100,
+          "pace": {
+            "status": "unknown",
+            "reason": "missing_cycle"
+          }
+        },
+        {
+          "id": "auto_usage",
+          "label": "auto usage",
+          "kind": "monthly",
+          "percentUsed": 0,
+          "resetsAt": "2026-09-11T23:30:07.000Z",
+          "percentRemaining": 100,
+          "pace": {
+            "status": "unknown",
+            "reason": "missing_cycle"
+          }
+        },
+        {
+          "id": "api_usage",
+          "label": "API usage",
+          "kind": "monthly",
+          "percentUsed": 0,
+          "resetsAt": "2026-09-11T23:30:07.000Z",
+          "percentRemaining": 100,
+          "pace": {
+            "status": "unknown",
+            "reason": "missing_cycle"
+          }
+        }
+      ],
+      "state": {
+        "status": "fresh",
+        "stale": false,
+        "refreshedAt": "2026-08-13T06:23:04.760Z",
+        "sourcesTried": [
+          "api"
+        ]
+      },
+      "quotaSemantics": {
+        "status": "unknown",
+        "description": "quota-axi does not know whether Cursor's reported windows are independent or jointly bounding, so it does not claim an effective remaining percentage.",
+        "effectiveAvailability": [],
+        "unresolvedWindowIds": [
+          "included_usage",
+          "auto_usage",
+          "api_usage"
+        ]
+      }
+    }
+  ]
+}
