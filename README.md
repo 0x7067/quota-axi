@@ -439,7 +439,7 @@ reservePercentPoints = percentRemaining - timeRemainingPercent
 
 Pace is calculated only from trusted cycle evidence:
 
-- Prefer provider-reported `startsAt` + `resetsAt` (Grok current period; Cursor's monthly billing cycle, whose start comes from the payload's cycle start or the previous renewal date).
+- Prefer trusted `startsAt` + `resetsAt` pairs (Grok's provider-reported current period; Cursor's monthly billing cycle, whose start comes from the payload's cycle start or the previous renewal date).
 - Otherwise use provider-owned `windowSeconds` with `resetsAt` (Codex durations; Claude fixed 5h/7d; Kimi fixed 5h/weekly).
 - Do not infer monthly, rolling, or unlabeled periods.
 
