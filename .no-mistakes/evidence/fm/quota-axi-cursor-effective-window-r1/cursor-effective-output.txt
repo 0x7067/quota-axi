@@ -1,0 +1,227 @@
+=== JSON OUTPUT ===
+{
+  "schemaVersion": 3,
+  "generatedAt": "2026-07-15T12:00:00.000Z",
+  "providers": [
+    {
+      "provider": "cursor",
+      "label": "Cursor",
+      "source": "fixture",
+      "plan": "pro",
+      "windows": [
+        {
+          "id": "included_usage",
+          "label": "included usage",
+          "kind": "monthly",
+          "percentUsed": 42,
+          "percentRemaining": 58,
+          "resetsAt": "2026-08-01T00:00:00.000Z",
+          "pace": {
+            "status": "unknown",
+            "reason": "missing_cycle"
+          }
+        },
+        {
+          "id": "auto_usage",
+          "label": "auto usage",
+          "kind": "monthly",
+          "percentUsed": 12,
+          "percentRemaining": 88,
+          "resetsAt": "2026-08-01T00:00:00.000Z",
+          "pace": {
+            "status": "unknown",
+            "reason": "missing_cycle"
+          }
+        },
+        {
+          "id": "api_usage",
+          "label": "API usage",
+          "kind": "monthly",
+          "percentUsed": 79,
+          "percentRemaining": 21,
+          "resetsAt": "2026-08-01T00:00:00.000Z",
+          "pace": {
+            "status": "unknown",
+            "reason": "missing_cycle"
+          }
+        },
+        {
+          "id": "spend_limit",
+          "label": "spend limit",
+          "kind": "monthly",
+          "percentUsed": 60,
+          "percentRemaining": 40,
+          "resetsAt": "2026-08-01T00:00:00.000Z",
+          "pace": {
+            "status": "unknown",
+            "reason": "missing_cycle"
+          }
+        },
+        {
+          "id": "mystery_limit",
+          "label": "unfamiliar limit",
+          "kind": "monthly",
+          "percentUsed": 97,
+          "percentRemaining": 3,
+          "resetsAt": "2026-08-01T00:00:00.000Z",
+          "pace": {
+            "status": "unknown",
+            "reason": "missing_cycle"
+          }
+        }
+      ],
+      "state": {
+        "status": "fresh",
+        "stale": false,
+        "refreshedAt": "2026-07-15T12:00:00.000Z",
+        "sourcesTried": [
+          "fixture"
+        ]
+      },
+      "quotaSemantics": {
+        "status": "partial",
+        "description": "Cursor's included, auto, API usage, and spend-limit windows jointly bound every model, so effective remaining is the minimum across those named windows. Unfamiliar windows are not folded into that bound, so they stay unresolved.",
+        "effectiveAvailability": [
+          {
+            "scope": "all_models",
+            "status": "known",
+            "effectivePercentRemaining": 21,
+            "boundedBy": [
+              "included_usage",
+              "auto_usage",
+              "api_usage",
+              "spend_limit"
+            ],
+            "limitingWindowIds": [
+              "api_usage"
+            ],
+            "pace": {
+              "status": "unknown",
+              "unknownWindowIds": [
+                "included_usage",
+                "auto_usage",
+                "api_usage",
+                "spend_limit"
+              ]
+            },
+            "runway": {
+              "status": "unknown",
+              "unmeasurableWindowIds": [
+                "included_usage",
+                "auto_usage",
+                "api_usage",
+                "spend_limit"
+              ]
+            }
+          }
+        ],
+        "unresolvedWindowIds": [
+          "mystery_limit"
+        ]
+      }
+    },
+    {
+      "provider": "copilot",
+      "label": "GitHub Copilot",
+      "source": "fixture",
+      "plan": "pro",
+      "windows": [
+        {
+          "id": "chat",
+          "label": "chat",
+          "kind": "monthly",
+          "percentUsed": 42,
+          "percentRemaining": 58,
+          "resetsAt": "2026-08-01T00:00:00.000Z",
+          "pace": {
+            "status": "unknown",
+            "reason": "missing_cycle"
+          }
+        },
+        {
+          "id": "completions",
+          "label": "completions",
+          "kind": "monthly",
+          "percentUsed": 12,
+          "percentRemaining": 88,
+          "resetsAt": "2026-08-01T00:00:00.000Z",
+          "pace": {
+            "status": "unknown",
+            "reason": "missing_cycle"
+          }
+        },
+        {
+          "id": "premium_interactions",
+          "label": "premium interactions",
+          "kind": "monthly",
+          "percentUsed": 0,
+          "percentRemaining": 100,
+          "resetsAt": "2026-08-01T00:00:00.000Z",
+          "pace": {
+            "status": "unknown",
+            "reason": "missing_cycle"
+          }
+        }
+      ],
+      "state": {
+        "status": "fresh",
+        "stale": false,
+        "refreshedAt": "2026-07-15T12:00:00.000Z",
+        "sourcesTried": [
+          "fixture"
+        ]
+      },
+      "quotaSemantics": {
+        "status": "unknown",
+        "description": "quota-axi does not know whether GitHub Copilot's reported windows are independent or jointly bounding, so it does not claim an effective remaining percentage.",
+        "effectiveAvailability": [],
+        "unresolvedWindowIds": [
+          "chat",
+          "completions",
+          "premium_interactions"
+        ]
+      }
+    }
+  ]
+}
+
+=== DEFAULT TOON OUTPUT ===
+bin: quota-axi
+description: Report local agent-provider quota windows for routing-aware agents
+generatedAt: "2026-07-15T12:00:00.000Z"
+providers[2]{provider,plan,source,status,authStatus,refreshedAt}:
+  cursor,pro,fixture,fresh,unknown,"2026-07-15T12:00:00.000Z"
+  copilot,pro,fixture,fresh,unknown,"2026-07-15T12:00:00.000Z"
+windows[8]{provider,id,label,percentRemaining,resetsAt,pace,state}:
+  cursor,included_usage,included usage,58,"2026-08-01T00:00:00.000Z",unknown,fresh
+  cursor,auto_usage,auto usage,88,"2026-08-01T00:00:00.000Z",unknown,fresh
+  cursor,api_usage,API usage,21,"2026-08-01T00:00:00.000Z",unknown,fresh
+  cursor,spend_limit,spend limit,40,"2026-08-01T00:00:00.000Z",unknown,fresh
+  cursor,mystery_limit,unfamiliar limit,3,"2026-08-01T00:00:00.000Z",unknown,fresh
+  copilot,chat,chat,58,"2026-08-01T00:00:00.000Z",unknown,fresh
+  copilot,completions,completions,88,"2026-08-01T00:00:00.000Z",unknown,fresh
+  copilot,premium_interactions,premium interactions,100,"2026-08-01T00:00:00.000Z",unknown,fresh
+effective[2]{provider,scope,effectivePercentRemaining,boundedBy,limitingWindowIds,runway,usableRunwaySeconds,projectedExhaustedAt,limitingWindowId,projectionConfidence,projectionBasis,unmeasurableWindowIds,unresolvedWindowIds,relationshipStatus}:
+  cursor,all_models,21,included_usage + auto_usage + api_usage + spend_limit,api_usage,unknown,unknown,unknown,unknown,unknown,unknown,included_usage + auto_usage + api_usage + spend_limit,mystery_limit,partial
+  copilot,unresolved,unknown,none,unknown,unknown,unknown,unknown,unknown,unknown,unknown,none,chat + completions + premium_interactions,unknown
+help[4]:
+  Default TOON reports effective headroom and usable runway; use --json or --full for reserve diagnostics
+  Run `quota-axi --provider claude --json` for JSON output
+  Run `quota-axi --full` to include account, source-attempt, and reserve details
+  Run `quota-axi auth` to inspect local auth source availability without printing secrets
+
+=== TUI OUTPUT ===
+  quota-axi · 2026-07-15 12:00 UTC · 2 live · 0 signed out
+
+╭─ ● cursor ──────────────────── pro · fixture ─╮  ╭─ ● copilot ─────────────────── pro · fixture ─╮
+│                                               │  │                                               │
+│   21% api usage              runway unknown   │  │   per-window usage          no combined bound │
+│   ━━━━━━━━╸────────────────────────────────   │  │                                               │
+│                                               │  │   chat    ━━━━━━━━━━━━━─────────  58%  16d    │
+│   includ… ━━━━━━━━━━━━━─────────  58%  16d    │  │   comple… ━━━━━━━━━━━━━━━━━━━╸──  88%  16d    │
+│   auto    ━━━━━━━━━━━━━━━━━━━╸──  88%  16d    │  │   premiu… ━━━━━━━━━━━━━━━━━━━━━━ 100%  16d    │
+│   api     ━━━━╸─────────────────  21%  16d    │  │                                               │
+│   spend … ━━━━━━━━━─────────────  40%  16d    │  │                                               │
+│   unfami… ╸─────────────────────   3%  16d    │  │                                               │
+│                                               │  │                                               │
+╰───────────────────────────────────────────────╯  ╰───────────────────────────────────────────────╯
