@@ -1,0 +1,67 @@
+CURSOR FIXTURE (no credentials or tokens)
+{
+  "billingCycleEnd": "2026-07-03T00:00:00.000Z",
+  "planUsage": {
+    "totalPercentUsed": 97,
+    "autoPercentUsed": 25,
+    "apiPercentUsed": 10
+  }
+}
+
+END-USER TUI
+  quota-axi · 2026-06-20 00:00 UTC · 1 live · 0 signed out
+
+╭─ ● cursor ──────────────────────── pro · api ─╮
+│                                               │
+│   3% included usage            empty in 12h   │
+│   ━─────────────────┃──────────────────────   │
+│                                               │
+│   includ… ╸─────────┃───────────   3%  13d 0h │
+│   auto    ━━━━━━━━━━┃━━━━━╸─────  75%  13d 0h │
+│   api     ━━━━━━━━━━┃━━━━━━━━━──  90%  13d 0h │
+│                                               │
+╰───────────────────────────────────────────────╯
+
+TOON
+bin: quota-axi
+description: Report local agent-provider quota windows for routing-aware agents
+generatedAt: "2026-06-20T00:00:00.000Z"
+providers[1]{provider,plan,source,status,authStatus,refreshedAt}:
+  cursor,pro,api,fresh,unknown,"2026-06-20T00:00:00.000Z"
+windows[3]{provider,id,label,percentRemaining,resetsAt,pace,state}:
+  cursor,included_usage,included usage,3,"2026-07-03T00:00:00.000Z",ahead,fresh
+  cursor,auto_usage,auto usage,75,"2026-07-03T00:00:00.000Z",behind,fresh
+  cursor,api_usage,API usage,90,"2026-07-03T00:00:00.000Z",behind,fresh
+effective[1]{provider,scope,effectivePercentRemaining,boundedBy,limitingWindowIds,runway,usableRunwaySeconds,projectedExhaustedAt,limitingWindowId,projectionConfidence,projectionBasis,unmeasurableWindowIds,unresolvedWindowIds,relationshipStatus}:
+  cursor,all_models,3,included_usage + auto_usage + api_usage,included_usage,projected_exhaustion,45427,"2026-06-20T12:37:06.804Z",included_usage,established,cycle_average,none,none,known
+help[4]:
+  Default TOON reports effective headroom and usable runway; use --json or --full for reserve diagnostics
+  Run `quota-axi --provider claude --json` for JSON output
+  Run `quota-axi --full` to include account, source-attempt, and reserve details
+  Run `quota-axi auth` to inspect local auth source availability without printing secrets
+
+JSON CONTRACT EXCERPT
+{
+  "startsAt": "2026-06-03T00:00:00.000Z",
+  "resetsAt": "2026-07-03T00:00:00.000Z",
+  "pace": {
+    "status": "ahead",
+    "timeRemainingPercent": 43.3333,
+    "elapsedPercent": 56.6667,
+    "reservePercentPoints": -40.3333,
+    "cycleBasis": "starts_at_resets_at",
+    "cycleSeconds": 2592000,
+    "burnMultiple": 1.7118,
+    "projectedExhaustedAt": "2026-06-20T12:37:06.804Z",
+    "projectionConfidence": "established",
+    "projectionBasis": "cycle_average"
+  },
+  "runway": {
+    "status": "projected_exhaustion",
+    "usableRunwaySeconds": 45427,
+    "projectedExhaustedAt": "2026-06-20T12:37:06.804Z",
+    "limitingWindowId": "included_usage",
+    "projectionConfidence": "established",
+    "projectionBasis": "cycle_average"
+  }
+}
