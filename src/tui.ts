@@ -302,8 +302,8 @@ function effectiveHeadline(
 
 /**
  * The headline block for a provider that reports real per-window usage but no
- * combinable bound (Cursor, Copilot): quota-axi does not know whether those
- * windows are independent or jointly bounding, so there is no combined
+ * combinable bound: quota-axi does not know whether those windows are
+ * independent or jointly bounding, so there is no combined
  * effective percentage, pace, or runway to show. Rendering the empty effective
  * bar there reads as a failure, so the block is replaced by a single line naming
  * what the card actually is - the per-window rows below carry the real data.
