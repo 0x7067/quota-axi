@@ -71,8 +71,6 @@ export type QuotaPace = {
   /** Linear cycle-average exhaustion timestamp when defined. */
   projectedExhaustedAt?: string;
   projectionConfidence?: "early" | "established";
-  /** Currently cycle-average; reserved for future bases. */
-  projectionBasis?: "cycle_average";
   cycleBasis?: "starts_at_resets_at" | "window_seconds";
   cycleSeconds?: number;
 };
@@ -97,8 +95,6 @@ export type EffectiveRunway = {
   limitingWindowId?: string;
   /** Present for cycle-average projected results, including `through_reset`. */
   projectionConfidence?: "early" | "established";
-  /** Present when the conclusion follows the current cycle-average observation. */
-  projectionBasis?: "cycle_average";
   /** Bounds that prevent a sound aggregate conclusion when status is `unknown`. */
   unmeasurableWindowIds?: string[];
 };
@@ -190,7 +186,8 @@ export type EffectiveAvailability = {
 
 export type QuotaSemantics = {
   status: "known" | "partial" | "unknown";
-  description: string;
+  /** Fixed per-provider prose. Omitted from default `--json`; see `--full`. */
+  description?: string;
   effectiveAvailability: EffectiveAvailability[];
   unresolvedWindowIds?: string[];
 };
@@ -204,8 +201,10 @@ export type SourceAttempt = {
 
 export type ProviderQuota = {
   provider: ProviderId;
-  label: string;
-  source: ProviderSource;
+  /** Display name. Omitted from default `--json`; see `--full`. */
+  label?: string;
+  /** Report provenance. Omitted from default `--json`; see `--full`. */
+  source?: ProviderSource;
   plan?: string;
   account?: {
     email?: string;
@@ -235,14 +234,15 @@ export type ProviderQuota = {
     reason?: ProviderStateReason;
     remedyCommand?: string;
     untrustedWindowIds?: string[];
-    sourcesTried: string[];
+    /** Omitted from default `--json`; see `--full`. */
+    sourcesTried?: string[];
   };
   attempts?: SourceAttempt[];
 };
 
 export type QuotaAxiResponse = {
   generatedAt: string;
-  schemaVersion: 4;
+  schemaVersion: 5;
   providers: ProviderQuota[];
   help?: string[];
 };

@@ -35,138 +35,101 @@ $ npx -y quota-axi
 bin: ~/.npm/_npx/.../quota-axi
 description: Report local agent-provider quota windows for routing-aware agents
 generatedAt: "2026-03-15T16:42:00.000Z"
-providers[6]{provider,plan,source,status,authStatus,refreshedAt}:
-  claude,pro,oauth,fresh,unknown,"2026-03-15T16:41:55.000Z"
-  codex,plus,cli-rpc,fresh,unknown,"2026-03-15T16:41:58.000Z"
-  cursor,pro,api,fresh,unknown,"2026-03-15T16:41:59.000Z"
-  copilot,individual,api,fresh,unknown,"2026-03-15T16:42:00.000Z"
-  grok,unknown,web,fresh,usable,"2026-03-15T16:42:00.000Z"
-  kimi,unknown,api,fresh,unknown,"2026-03-15T16:42:00.000Z"
-windows[15]{provider,id,label,percentRemaining,resetsAt,pace,state}:
-  claude,five_hour,session,82,"2026-03-15T20:10:48.000Z",behind,fresh
-  claude,seven_day,week,64,"2026-03-20T17:59:45.600Z",ahead,fresh
-  claude,seven_day_opus,opus week,93,"2026-03-20T17:29:31.200Z",behind,fresh
-  claude,"model:fable",Fable week,71,"2026-03-20T08:25:12.000Z",behind,fresh
-  codex,five_hour,session,58,"2026-03-15T19:36:54.000Z",on_pace,fresh
-  codex,weekly,week,47,"2026-03-19T09:54:28.800Z",ahead,fresh
-  codex,"model:gpt-5.1-codex:5h",GPT-5.1-Codex session,100,"2026-03-15T20:48:00.000Z",behind,fresh
-  cursor,included_usage,included usage,72,"2026-04-01T00:00:00.000Z",behind,fresh
-  cursor,auto_usage,auto usage,91,"2026-04-01T00:00:00.000Z",behind,fresh
-  cursor,api_usage,API usage,100,"2026-04-01T00:00:00.000Z",behind,fresh
-  copilot,chat,chat,84,"2026-04-01T00:00:00.000Z",unknown,fresh
-  copilot,premium_interactions,premium interactions,53,"2026-04-01T00:00:00.000Z",unknown,fresh
-  grok,credits,credits,67,"2026-04-01T00:00:00.000Z",behind,fresh
-  kimi,weekly,week,74,"2026-03-20T12:17:02.400Z",behind,fresh
-  kimi,five_hour,session,88,"2026-03-15T20:45:00.000Z",behind,fresh
-effective[9]{provider,scope,effectivePercentRemaining,spendPriority,boundedBy,limitingWindowIds,runway,usableRunwaySeconds,projectedExhaustedAt,limitingWindowId,projectionConfidence,projectionBasis,unmeasurableWindowIds,unresolvedWindowIds,relationshipStatus}:
-  claude,all_models,64,-0.3798,"five_hour + seven_day",seven_day,projected_exhaustion,298906,"2026-03-19T03:43:45.600Z",seven_day,established,cycle_average,none,none,known
-  claude,seven_day_opus,64,0.3218,"five_hour + seven_day + seven_day_opus",seven_day,projected_exhaustion,298906,"2026-03-19T03:43:45.600Z",seven_day,established,cycle_average,none,none,known
-  claude,"model:fable",64,-0.0932,"five_hour + seven_day + model:fable",seven_day,projected_exhaustion,298906,"2026-03-19T03:43:45.600Z",seven_day,established,cycle_average,none,none,known
-  codex,all_models,47,-0.2383,"five_hour + weekly",weekly,projected_exhaustion,10365,"2026-03-15T19:34:45.428Z",five_hour,established,cycle_average,none,none,known
-  codex,"model:gpt-5.1-codex",47,-0.1973,"five_hour + weekly + model:gpt-5.1-codex:5h",weekly,projected_exhaustion,10365,"2026-03-15T19:34:45.428Z",five_hour,established,cycle_average,none,none,known
-  cursor,all_models,72,1.4067,"included_usage + auto_usage + api_usage",included_usage,through_reset,unknown,unknown,unknown,established,cycle_average,none,none,known
-  copilot,unresolved,unknown,unknown,none,unknown,unknown,unknown,unknown,unknown,unknown,unknown,none,"chat + premium_interactions",unknown
-  grok,all_products,67,0.5778,credits,credits,through_reset,unknown,unknown,unknown,established,cycle_average,none,none,known
-  kimi,all_models,74,0.2484,"weekly + five_hour",weekly,through_reset,unknown,unknown,unknown,established,cycle_average,none,none,known
-help[4]:
-  Default TOON reports effective headroom and usable runway; use --json or --full for reserve diagnostics
-  Run `quota-axi --provider claude --json` for JSON output
-  Run `quota-axi --full` to include account, source-attempt, and reserve details
-  Run `quota-axi auth` to inspect local auth source availability without printing secrets
+quota[8]{provider,scope,effectivePercentRemaining,spendPriority,runway,confidence,limitedBy,resetsAt}:
+  claude,all_models,64,-0.3798,projected_exhaustion,established,seven_day,"2026-03-20T17:59:45.600Z"
+  claude,seven_day_opus,64,0.3218,projected_exhaustion,established,seven_day,"2026-03-20T17:59:45.600Z"
+  claude,"model:fable",64,-0.0932,projected_exhaustion,established,seven_day,"2026-03-20T17:59:45.600Z"
+  codex,all_models,47,-0.2383,projected_exhaustion,established,weekly,"2026-03-19T09:54:28.800Z"
+  codex,"model:gpt-5.1-codex",47,-0.1973,projected_exhaustion,established,weekly,"2026-03-19T09:54:28.800Z"
+  cursor,all_models,72,1.4067,through_reset,established,included_usage,"2026-04-01T00:00:00.000Z"
+  grok,all_products,67,0.5778,through_reset,established,credits,"2026-04-01T00:00:00.000Z"
+  kimi,all_models,74,0.2484,through_reset,established,weekly,"2026-03-20T12:17:02.400Z"
+exhaustion[5]{provider,scope,usableRunwaySeconds,projectedExhaustedAt,limitingWindowId}:
+  claude,all_models,298906,"2026-03-19T03:43:45.600Z",seven_day
+  claude,seven_day_opus,298906,"2026-03-19T03:43:45.600Z",seven_day
+  claude,"model:fable",298906,"2026-03-19T03:43:45.600Z",seven_day
+  codex,all_models,10365,"2026-03-15T19:34:45.428Z",five_hour
+  codex,"model:gpt-5.1-codex",10365,"2026-03-15T19:34:45.428Z",five_hour
+attention[1]{provider,scope,kind,detail,remedy}:
+  copilot,all,unresolved_windows,chat + premium_interactions,none
+help[1]:
+  Run `quota-axi --full` for windows, pace, reserve, and account evidence
 ```
 
-`--json` emits the same normalized model as structured JSON instead of TOON:
+Default TOON is decision-shaped: `quota[]` carries one fully populated row per measurable scope, and the sparse `exhaustion[]` and `attention[]` blocks carry the finite-runway and non-nominal facts. See [Default report blocks](#default-report-blocks).
+
+`--json` emits the normalized model instead. Derivation inputs are demoted to `--full`; see [Output tiers](#output-tiers).
 
 ```sh
 $ quota-axi --provider claude --json
 {
   "generatedAt": "2026-03-15T16:42:00.000Z",
-  "schemaVersion": 4,
+  "schemaVersion": 5,
   "providers": [
     {
       "provider": "claude",
-      "label": "Claude",
-      "source": "oauth",
       "plan": "pro",
       "windows": [
         {
           "id": "five_hour",
           "label": "session",
           "kind": "session",
-          "percentUsed": 18,
           "percentRemaining": 82,
           "resetsAt": "2026-03-15T20:10:48.000Z",
-          "windowSeconds": 18000,
           "pace": {
             "status": "behind",
-            "timeRemainingPercent": 69.6,
-            "elapsedPercent": 30.4,
             "reservePercentPoints": 12.4,
-            "burnMultiple": 0.5921,
-            "projectedExhaustedAt": "2026-03-15T23:37:28.000Z",
-            "projectionConfidence": "established",
-            "projectionBasis": "cycle_average",
-            "cycleBasis": "window_seconds",
-            "cycleSeconds": 18000
+            "burnMultiple": 0.5921
           }
         },
         {
           "id": "seven_day",
           "label": "week",
           "kind": "weekly",
-          "percentUsed": 36,
           "percentRemaining": 64,
           "resetsAt": "2026-03-20T17:59:45.600Z",
-          "windowSeconds": 604800,
           "pace": {
             "status": "ahead",
-            "timeRemainingPercent": 72.2,
-            "elapsedPercent": 27.8,
             "reservePercentPoints": -8.2,
-            "burnMultiple": 1.295,
-            "projectedExhaustedAt": "2026-03-19T03:43:45.600Z",
-            "projectionConfidence": "established",
-            "projectionBasis": "cycle_average",
-            "cycleBasis": "window_seconds",
-            "cycleSeconds": 604800
+            "burnMultiple": 1.295
           }
         },
         {
           "id": "model:fable",
           "label": "Fable week",
           "kind": "model",
-          "percentUsed": 29,
           "percentRemaining": 71,
           "resetsAt": "2026-03-20T08:25:12.000Z",
-          "windowSeconds": 604800,
           "pace": {
             "status": "behind",
-            "timeRemainingPercent": 66.5,
-            "elapsedPercent": 33.5,
             "reservePercentPoints": 4.5,
-            "burnMultiple": 0.8657,
-            "projectedExhaustedAt": "2026-03-21T10:29:20.275Z",
-            "projectionConfidence": "established",
-            "projectionBasis": "cycle_average",
-            "cycleBasis": "window_seconds",
-            "cycleSeconds": 604800
+            "burnMultiple": 0.8657
           }
         }
       ],
+      "state": {
+        "status": "fresh",
+        "stale": false
+      },
       "quotaSemantics": {
         "status": "known",
-        "description": "Claude account windows bound every model. A model-specific window is an additional bound, so that model's effective remaining percentage is the minimum across the named windows.",
         "effectiveAvailability": [
           {
             "scope": "all_models",
             "status": "known",
             "effectivePercentRemaining": 64,
-            "boundedBy": ["five_hour", "seven_day"],
-            "limitingWindowIds": ["seven_day"],
+            "boundedBy": [
+              "five_hour",
+              "seven_day"
+            ],
+            "limitingWindowIds": [
+              "seven_day"
+            ],
             "pace": {
               "status": "mixed",
-              "aheadWindowIds": ["seven_day"],
-              "behindWindowIds": ["five_hour"],
+              "aheadWindowIds": [
+                "seven_day"
+              ],
               "worstReservePercentPoints": -8.2,
               "worstReserveWindowId": "seven_day"
             },
@@ -175,8 +138,7 @@ $ quota-axi --provider claude --json
               "usableRunwaySeconds": 298906,
               "projectedExhaustedAt": "2026-03-19T03:43:45.600Z",
               "limitingWindowId": "seven_day",
-              "projectionConfidence": "established",
-              "projectionBasis": "cycle_average"
+              "projectionConfidence": "established"
             },
             "selection": {
               "status": "known",
@@ -187,12 +149,19 @@ $ quota-axi --provider claude --json
             "scope": "model:fable",
             "status": "known",
             "effectivePercentRemaining": 64,
-            "boundedBy": ["five_hour", "seven_day", "model:fable"],
-            "limitingWindowIds": ["seven_day"],
+            "boundedBy": [
+              "five_hour",
+              "seven_day",
+              "model:fable"
+            ],
+            "limitingWindowIds": [
+              "seven_day"
+            ],
             "pace": {
               "status": "mixed",
-              "aheadWindowIds": ["seven_day"],
-              "behindWindowIds": ["five_hour", "model:fable"],
+              "aheadWindowIds": [
+                "seven_day"
+              ],
               "worstReservePercentPoints": -8.2,
               "worstReserveWindowId": "seven_day"
             },
@@ -201,8 +170,7 @@ $ quota-axi --provider claude --json
               "usableRunwaySeconds": 298906,
               "projectedExhaustedAt": "2026-03-19T03:43:45.600Z",
               "limitingWindowId": "seven_day",
-              "projectionConfidence": "established",
-              "projectionBasis": "cycle_average"
+              "projectionConfidence": "established"
             },
             "selection": {
               "status": "known",
@@ -210,12 +178,6 @@ $ quota-axi --provider claude --json
             }
           }
         ]
-      },
-      "state": {
-        "status": "fresh",
-        "stale": false,
-        "sourcesTried": ["oauth", "oauth-profile"],
-        "refreshedAt": "2026-03-15T16:41:55.000Z"
       }
     }
   ]
@@ -347,10 +309,10 @@ It is generated from `src/skill.ts`; update it with `pnpm run build:skill` and v
 
 - On an interactive terminal the report stays up and refreshes every 5 minutes until you press `q` (or Ctrl+C), with a `Press q to quit` footer hint. `--refresh` sets the interval (30s-24h) and `--once` renders a single frame. A non-TTY stdout or stdin (pipes, CI, screenshots) always renders one frame and exits.
 - Live frames paint on the alternate screen and repaint immediately on terminal resize; quitting restores the screen and prints the final frame so the last report stays in scrollback.
-- Each live card with a combinable bound leads with the `effective[]` rollup (min across bounding windows), colored by headroom: >=50% healthy, 20-50% tight, <20% critical. Per-window rows, including per-model breakouts, are the supporting detail.
+- Each live card with a combinable bound leads with the effective-availability rollup (min across bounding windows), colored by headroom: >=50% healthy, 20-50% tight, <20% critical. Per-window rows, including per-model breakouts, are the supporting detail.
 - The headline is labeled with the window it actually is: the minimum across bounding windows always equals at least one named window, so the label names the `limitingWindowIds` window (`week`, `session`, `credits`) and changes per provider and over time. Tied limiting windows read `credits + grok build`, compacting to `credits +2` when the names do not fit; a model- or product-scoped headline appends its scope, and any unresolved limiter falls back to the scope wording (`all models`).
 - The bar fill is current headroom; the `┃` marker sits at the binding window's `pace.timeRemainingPercent`, the fill position of exactly linear burn. The headline marker therefore matches the corresponding `limitingWindowIds` sub-bar even when another window supplies the finite-runway `empty in` verdict. Fill ending left of the marker means burning faster than the reset clock. The marker is omitted when that window's pace is unknown.
-- Pace is shown by the bar and marker alone, never as a numeric burn multiple. The runway verdict on the headline reads `on pace ✓` for `through_reset` and `empty in 7h 21m` for `projected_exhaustion`. Two-up rows keep both card bottoms aligned by padding the shorter card inside its border. The TUI does not display the per-scope selection signal; that signal remains on the JSON and TOON machine surfaces. Those surfaces also keep the `through_reset` vocabulary and the full `pace` object.
+- Pace is shown by the bar and marker alone, never as a numeric burn multiple. The runway verdict on the headline reads `on pace ✓` for `through_reset` and `empty in 7h 21m` for `projected_exhaustion`. Two-up rows keep both card bottoms aligned by padding the shorter card inside its border. The TUI does not display the per-scope selection signal; that signal remains on the JSON and TOON machine surfaces. Those surfaces also keep the `through_reset` vocabulary and the full `pace` object. The TUI renders from the complete in-memory model, so `--json` tiering never removes anything it draws.
 - A provider whose window relationships are wholly unknown (Copilot, with every window unresolved) has no combined effective percentage, pace, or runway to show, so its card replaces the headline block with a single `per-window usage · no combined bound` line and leads straight into its real per-window rows. Partially understood providers keep the effective-unknown headline. No combined headroom, pace, or runway number is invented.
 - Signed-out and failed providers stay visible as dimmed cards and are excluded from the fleet totals in the header.
 - Width comes from the terminal, clamped to 80-120 columns; below the two-up width the grid reflows to one column. Color honors `NO_COLOR`, `TERM=dumb`, and non-TTY stdout (the glyph skeleton is kept), re-enables with `FORCE_COLOR`, and uses truecolor when `COLORTERM` advertises it, falling back to 256-color then ANSI-16.
@@ -358,22 +320,73 @@ It is generated from `src/skill.ts`; update it with `pnpm run build:skill` and v
 
 ## Output Model
 
-The `quota` command's `--json` emits `schemaVersion: 4`.
+The `quota` command's `--json` emits `schemaVersion: 5`.
 
 ### Normalized schema contract
 
 The package publishes TypeScript declarations from its package root, so consumers can use `import type { QuotaAxiResponse, ModelsResponse } from "quota-axi"`. The adapter contract is `ProviderAdapter` in and normalized `ProviderQuota` out: adapters report observed quota data, never rank, mutate provider state, or retain raw responses.
 
-`schemaVersion` is command-specific. Additive optional fields do not bump it. A semantic or incompatible shape change does. The `quota` report is version 4, `auth` is version 1, and `models` is version 1.
+`schemaVersion` is command-specific. Additive optional fields do not bump it. A semantic or incompatible shape change does. The `quota` report is version 5, `auth` is version 1, and `models` is version 1.
+
+### Default report blocks
+
+Default TOON is organized by the reading agent's decision rather than by quota-axi's data structures:
+
+| Block          | Rows                                                                                                                                                                                                                                                                                             |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `quota[]`      | One row per **measurable** scope: `provider`, `scope`, `effectivePercentRemaining`, `spendPriority`, `runway`, `confidence`, `limitedBy`, `resetsAt`. Every column is populated on every row. `limitedBy` is the scope's `limitingWindowIds`, and `resetsAt` is that binding window's own reset. |
+| `exhaustion[]` | **Sparse.** One row per scope with a finite exhaustion point: `usableRunwaySeconds`, `projectedExhaustedAt`, `limitingWindowId`. `exhaustion[0]:` means nothing is projected to run out.                                                                                                         |
+| `attention[]`  | **Sparse.** Every non-nominal fact: `provider`, `scope`, `kind`, `detail`, `remedy`.                                                                                                                                                                                                             |
+
+A `quota[]` row whose `runway` is `projected_exhaustion` or `exhausted_now` has exactly one matching `exhaustion[]` row, joined on `provider` + `scope`. A row with `through_reset` or `unknown` has none, by definition: `through_reset` deliberately has no deadline and `unknown` has none to state.
+
+`attention[]` kinds:
+
+| `kind`                                                  | `scope` | Meaning                                                                                              |
+| ------------------------------------------------------- | ------- | ---------------------------------------------------------------------------------------------------- |
+| `stale`                                                 | `all`   | The report is stale diagnostic data. `detail` names the last refresh; no scope gets a `quota[]` row. |
+| `auth_required`, `rate_limited`, `unavailable`, `error` | `all`   | The provider state status. `detail` is `state.error`, plus the retry-after instant for a rate limit. |
+| `no_quota`                                              | `all`   | The provider reported no measurable scope and nothing else would have named it.                      |
+| `unresolved_windows`                                    | `all`   | `quotaSemantics.unresolvedWindowIds`: unfamiliar vendor windows not folded into any bound.           |
+| `untrusted_windows`                                     | `all`   | `state.untrustedWindowIds`: limits that could not be parsed authoritatively.                         |
+| `headroom_unknown`                                      | scope   | The scope reports no effective percentage. `detail` names the windows that block it.                 |
+| `unmeasurable`                                          | scope   | Headroom is known but a bound blocks `runway`, `spendPriority`, or both. `detail` names which.       |
+
+`remedy` carries `state.remedyCommand` when one exists, and situational agent-directed advice is still prepended to `help`.
+
+Two invariants hold for every report:
+
+- **Every requested provider appears at least once**, in `quota[]` or `attention[]` or both. A provider is never silently absent, and a provider with no `quota[]` row always states its `state.authStatus` - including a positive `usable` - as `(auth <status>)` in its `attention[]` detail.
+- **`quota[]` rows stay in provider-declaration order**, never sorted by any metric. A compact table with a `spendPriority` column must never read as a published ranking.
+
+An unknown or stale scope deliberately gets **no** `quota[]` row: the absence of a number is the correct encoding of "no number", and the scope is named in `attention[]` instead.
+
+### Output tiers
+
+`--full` adds; it never subtracts. Default TOON carries the three decision blocks; `--full` TOON adds the `providers[]`, `windows[]`, `scopeAudit[]`, `accounts[]`, and `attempts[]` audit blocks. Default `--json` carries the normalized model with derivation inputs demoted; `--full` restores them with **no renames and no re-nesting** - a demoted field is simply absent until `--full`, in the exact position and under the exact name it has there.
+
+| Demoted to `--full` in `--json`                                                                                                       |
+| ------------------------------------------------------------------------------------------------------------------------------------- |
+| `providers[].label`, `providers[].source`                                                                                             |
+| `state.refreshedAt`, `state.sourcesTried`                                                                                             |
+| `windows[].percentUsed`, `windows[].startsAt`, `windows[].windowSeconds`                                                              |
+| `windows[].pace.timeRemainingPercent`, `elapsedPercent`, `cycleBasis`, `cycleSeconds`, `projectedExhaustedAt`, `projectionConfidence` |
+| `quotaSemantics.description`                                                                                                          |
+| `effectiveAvailability[].pace.behindWindowIds`, `onPaceWindowIds`                                                                     |
+| Account identity (`account`) and per-source `attempts`                                                                                |
+
+Everything a consumer branches on stays in the default tier: `state.status`, `stale`, `authStatus`, `error`, `reason`, `remedyCommand`, `retryAfter`, `untrustedWindowIds`; window `pace.status`, `reason`, `reservePercentPoints`, `burnMultiple`; `quotaSemantics.status` and `unresolvedWindowIds`; and every scope's `effectivePercentRemaining`, `boundedBy`, `limitingWindowIds`, `runway`, `selection`, and pace `aheadWindowIds` / `unknownWindowIds` / `worstReservePercentPoints`. `credits` also stays, so a consumer can avoid misreading it as exhaustion.
+
+`--tui` renders from the complete in-memory model, so demotion never changes what the human report draws.
 
 ### Quota report shape
 
-| Object                        | Fields                                                                                                       |
-| ----------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| Quota report                  | `providers`                                                                                                  |
-| Provider report               | `provider`, `label`, `source`, `windows`, `quotaSemantics`, `state`, optional `plan`, and optional `credits` |
-| Provider report with `--full` | Optional `account` identity and per-source `attempts`                                                        |
-| Account identity (`--full`)   | Optional `email`, `organization`, `accountId`, and `identityStatus`                                          |
+| Object                        | Fields                                                                                    |
+| ----------------------------- | ----------------------------------------------------------------------------------------- |
+| Quota report                  | `providers`                                                                               |
+| Provider report               | `provider`, `windows`, `quotaSemantics`, `state`, optional `plan`, and optional `credits` |
+| Provider report with `--full` | Also `label`, `source`, optional `account` identity, and per-source `attempts`            |
+| Account identity (`--full`)   | Optional `email`, `organization`, `accountId`, and `identityStatus`                       |
 
 Account identity and per-source `attempts` are omitted unless `--full` is passed.
 Claude `identityStatus` is `verified` only when Anthropic returns an authoritative account identifier; `email` and `organization` are display-only and must not be used for duplicate detection.
@@ -384,8 +397,8 @@ Claude `identityStatus` is `verified` only when Anthropic returns an authoritati
 | -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `status`             | Provider status                                                                                                                                             |
 | `stale`              | Whether the provider report is stale                                                                                                                        |
-| `sourcesTried`       | Sources tried for the provider                                                                                                                              |
-| `refreshedAt`        | Optional refresh timestamp                                                                                                                                  |
+| `sourcesTried`       | Sources tried for the provider (`--full`)                                                                                                                   |
+| `refreshedAt`        | Optional refresh timestamp (`--full`)                                                                                                                       |
 | `error`              | Optional error                                                                                                                                              |
 | `retryAfter`         | Optional retry-after state                                                                                                                                  |
 | `reason`             | Optional reason                                                                                                                                             |
@@ -441,7 +454,6 @@ reservePercentPoints = percentRemaining - timeRemainingPercent
 | `burnMultiple`                            | `percentUsed / elapsedPercent` when elapsed > 0                                                                                               |
 | `projectedExhaustedAt`                    | Linear cycle-average exhaustion timestamp when defined                                                                                        |
 | `projectionConfidence`                    | `early` when elapsed < 10% of the cycle; otherwise `established`                                                                              |
-| `projectionBasis`                         | Currently always `cycle_average`                                                                                                              |
 | `cycleBasis`                              | `starts_at_resets_at` when both boundaries are trusted; otherwise `window_seconds` with `resetsAt`                                            |
 | `cycleSeconds`                            | Trusted cycle duration used for the math                                                                                                      |
 
@@ -451,7 +463,9 @@ Pace is calculated only from trusted cycle evidence:
 - Otherwise use provider-owned `windowSeconds` with `resetsAt` (Codex durations; Claude fixed 5h/7d; Kimi fixed 5h/weekly).
 - Do not infer monthly, rolling, or unlabeled periods.
 
-Default TOON keeps token cost low: window rows expose `pace` status, while effective rows put `spendPriority` immediately after effective headroom and retain usable runway evidence. It intentionally omits raw numeric reserve columns. `--full` adds reserve, per-window projection diagnostics, and a `selection[]` block with status and unmeasurable bounds; `--json` always retains the normalized selection and diagnostic objects. Pace, runway, and `selection` are recomputed on every report from `generatedAt` and are not written to the quota cache.
+Every projection quota-axi publishes is cycle-average. There is deliberately no `projectionBasis` field: its absence means `cycle_average`, and a future non-cycle-average basis would name itself.
+
+Default TOON keeps token cost low: `quota[]` puts `spendPriority` immediately after effective headroom and carries the runway verdict, its confidence, and the binding window's reset, while per-window rows and raw numeric reserve live in `--full`. Default `--json` keeps `pace.status`, `reason`, `reservePercentPoints`, and `burnMultiple`, and demotes the cycle-progress inputs those are derived from. Pace, runway, and `selection` are recomputed on every report from `generatedAt` and are not written to the quota cache.
 
 Each `effectiveAvailability` entry also carries a compact `pace` summary over **every** bounding window for that scope (not only the current lowest-remaining limiter): per-status window lists, including `aheadWindowIds` and `unknownWindowIds`, plus `worstReservePercentPoints` / `worstReserveWindowId` (most negative signed reserve among known-pace windows). Different windows keep their own reset horizons; quota-axi does not invent one synthetic reset for a scope. This is factual inspectable data, never a provider/model routing recommendation.
 
@@ -461,20 +475,24 @@ Each `effectiveAvailability` entry also carries a compact `pace` summary over **
 
 `effectiveAvailability[].runway` is an optional, additive field derived from every authoritative `boundedBy` window using the report's single `generatedAt` clock. It is completion-risk evidence, not a score or recommendation.
 
-| `runway.status`        | Meaning                                                                                                                                                                                                                                          |
-| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `exhausted_now`        | A bounding window reports zero remaining now. `usableRunwaySeconds` is `0`; `limitingWindowId` names that bound.                                                                                                                                 |
-| `projected_exhaustion` | Every bound is measurable and one or more cycle-average projections exhaust before their own resets. The earliest one supplies `usableRunwaySeconds`, `projectedExhaustedAt`, `limitingWindowId`, `projectionConfidence`, and `projectionBasis`. |
-| `through_reset`        | Every measurable bound reaches its own current-cycle reset before projected exhaustion. There is deliberately no synthetic finite deadline or combined reset timestamp.                                                                          |
-| `unknown`              | A stale, missing, malformed, or otherwise unmeasurable authoritative bound prevents a sound aggregate conclusion. `unmeasurableWindowIds` names the blockers.                                                                                    |
+| `runway.status`        | Meaning                                                                                                                                                                                                                       |
+| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `exhausted_now`        | A bounding window reports zero remaining now. `usableRunwaySeconds` is `0`; `limitingWindowId` names that bound.                                                                                                              |
+| `projected_exhaustion` | Every bound is measurable and one or more cycle-average projections exhaust before their own resets. The earliest one supplies `usableRunwaySeconds`, `projectedExhaustedAt`, `limitingWindowId`, and `projectionConfidence`. |
+| `through_reset`        | Every measurable bound reaches its own current-cycle reset before projected exhaustion. There is deliberately no synthetic finite deadline or combined reset timestamp.                                                       |
+| `unknown`              | A stale, missing, malformed, or otherwise unmeasurable authoritative bound prevents a sound aggregate conclusion. `unmeasurableWindowIds` names the blockers.                                                                 |
 
-`usableRunwaySeconds` is nonnegative and is present only for finite results. `projectionConfidence` is `early` or `established`; `projectionBasis` is currently `cycle_average`. Zero observed usage with a valid current cycle proves `through_reset` under that same cycle-average basis. Named model or product windows are additional bounds only for their applicable scopes, so they can become the effective limiting window without changing other scopes.
+In default TOON the finite-runway detail moves to `exhaustion[]`; `runway` and `projectionConfidence` stay as the `runway` and `confidence` columns of the scope's `quota[]` row, and `unmeasurableWindowIds` becomes an `attention[]` row naming the blocked signals.
+
+`usableRunwaySeconds` is nonnegative and is present only for finite results. `projectionConfidence` is `early` or `established`. Zero observed usage with a valid current cycle proves `through_reset` under that same cycle-average basis. Named model or product windows are additional bounds only for their applicable scopes, so they can become the effective limiting window without changing other scopes.
 
 A bounding window with no `resetsAt` at all has not been triggered yet (e.g. a Claude `five_hour` window before its first request this window) rather than being a data gap. When that untriggered window also reports zero usage (100% remaining, 0% used), it is treated as fully available and excluded from `unmeasurableWindowIds`, so it never forces `runway.status: unknown` by itself; the report's other bounding windows still determine the aggregate. Its 100% can still contribute to `effectivePercentRemaining` as a headroom bound. quota-axi never synthesizes a `resetsAt` or starts the countdown client-side. A missing `resetsAt` paired with any other usage shape (unknown usage, or nonzero usage without an active clock) is a real data gap, not "not yet triggered," and still fails closed into `unmeasurableWindowIds` - alongside stale data, missing usage percent, an expired or malformed `resetsAt` that is actually present, and a missing projection when usage is nonzero and the cycle is known.
 
 ### Per-scope selection signal
 
 `effectiveAvailability[].selection` is an optional, per-scope object published for every scope quota-axi reports, including `unknown` and stale ones. It is the primary published selection signal: one scalar per scope, comparable across scopes, providers, and accounts. Consumers that need to distinguish accounts can request the optional account identity with `--full`.
+
+In default TOON the scalar is the `spendPriority` column of the scope's `quota[]` row - there is no separate `selection[]` block, at any tier, because the column already carries it. An unmeasurable scalar renders the literal `unknown`, never `0`: `0` is exact utilization, a completely different claim.
 
 | Field                   | Meaning                                                                             |
 | ----------------------- | ----------------------------------------------------------------------------------- |

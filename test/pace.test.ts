@@ -130,7 +130,6 @@ describe("computeWindowPace", () => {
     );
     expect(early.status).toBe("ahead");
     expect(early.projectionConfidence).toBe("early");
-    expect(early.projectionBasis).toBe("cycle_average");
     expect(early.projectedExhaustedAt).toEqual(expect.any(String));
 
     const zeroElapsed = computeWindowPace(
@@ -179,7 +178,6 @@ describe("computeWindowPace", () => {
     expect(pace.burnMultiple).toBeDefined();
     expect(pace.projectedExhaustedAt).toBeUndefined();
     expect(pace.projectionConfidence).toBeUndefined();
-    expect(pace.projectionBasis).toBeUndefined();
   });
 
   it("returns unknown for stale, missing, expired, rolling, and invalid cycles", () => {
@@ -408,7 +406,6 @@ describe("computeEffectiveRunway", () => {
         usableRunwaySeconds: 151_200,
         limitingWindowId: "weekly",
         projectionConfidence: "established",
-        projectionBasis: "cycle_average",
         projectedExhaustedAt: first.pace?.projectedExhaustedAt,
       },
     );
@@ -443,7 +440,6 @@ describe("computeEffectiveRunway", () => {
     ).toEqual({
       status: "through_reset",
       projectionConfidence: "established",
-      projectionBasis: "cycle_average",
     });
   });
 
@@ -509,7 +505,6 @@ describe("computeEffectiveRunway", () => {
     expect(computeEffectiveRunway([fiveHour, sevenDay], GENERATED_AT)).toEqual({
       status: "through_reset",
       projectionConfidence: "established",
-      projectionBasis: "cycle_average",
     });
   });
 
@@ -554,7 +549,6 @@ describe("computeEffectiveRunway", () => {
     expect(computeEffectiveRunway([early], GENERATED_AT)).toMatchObject({
       status: "projected_exhaustion",
       projectionConfidence: "early",
-      projectionBasis: "cycle_average",
       usableRunwaySeconds: 30_240,
     });
 

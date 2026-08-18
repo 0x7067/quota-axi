@@ -700,7 +700,8 @@ function fullFooterLines(provider: ProviderQuota, width: number): string[] {
     (attempt) =>
       `${attempt.source} (${attempt.status}${attempt.error ? `: ${attempt.error}` : ""})`,
   );
-  const tried = attempts.length > 0 ? attempts : provider.state.sourcesTried;
+  const tried =
+    attempts.length > 0 ? attempts : (provider.state.sourcesTried ?? []);
   const completeParts = [...accountParts];
   if (tried.length > 0) completeParts.push(`tried ${tried.join(" → ")}`);
   const complete = completeParts.join(" · ");
@@ -713,7 +714,7 @@ function fullFooterLines(provider: ProviderQuota, width: number): string[] {
     );
   } else {
     lines.push(
-      ...provider.state.sourcesTried.map((source) =>
+      ...(provider.state.sourcesTried ?? []).map((source) =>
         truncate(`  tried ${source}`, width),
       ),
     );

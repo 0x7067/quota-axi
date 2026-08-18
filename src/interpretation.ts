@@ -98,7 +98,7 @@ function semanticsFor(
     case "copilot":
       return unknownSemantics(
         provider.windows,
-        `quota-axi does not know whether ${provider.label}'s reported windows are independent or jointly bounding, so it does not claim an effective remaining percentage.`,
+        `quota-axi does not know whether ${provider.label ?? provider.provider}'s reported windows are independent or jointly bounding, so it does not claim an effective remaining percentage.`,
       );
   }
 }

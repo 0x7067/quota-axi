@@ -91,7 +91,6 @@ export function computeWindowPace(
         ).toISOString();
         pace.projectionConfidence =
           elapsedPercent < PACE_EARLY_ELAPSED_PERCENT ? "early" : "established";
-        pace.projectionBasis = "cycle_average";
       }
     }
   }
@@ -171,12 +170,13 @@ export function computeEffectiveRunway(
       continue;
     }
 
+    // A window pace only carries a projection pair when the cycle-average
+    // projection succeeded, so the pair itself is the basis check.
     const exhaustedAtMs = parseTimestamp(pace?.projectedExhaustedAt);
     if (
       exhaustedAtMs === undefined ||
       exhaustedAtMs <= generatedAtMs ||
-      pace?.projectionConfidence === undefined ||
-      pace.projectionBasis !== "cycle_average"
+      pace?.projectionConfidence === undefined
     ) {
       unmeasurableWindowIds.push(window.id);
       continue;
@@ -195,7 +195,6 @@ export function computeEffectiveRunway(
     return {
       status: "through_reset",
       projectionConfidence: lowestConfidence,
-      projectionBasis: "cycle_average",
     };
   }
 
@@ -211,7 +210,6 @@ export function computeEffectiveRunway(
     projectedExhaustedAt: new Date(limiting.exhaustedAtMs).toISOString(),
     limitingWindowId: limiting.window.id,
     projectionConfidence: limiting.window.pace?.projectionConfidence,
-    projectionBasis: "cycle_average",
   };
 }
 

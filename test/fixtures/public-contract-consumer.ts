@@ -9,7 +9,7 @@ import {
 
 const quota: QuotaAxiResponse = {
   generatedAt: "2026-08-05T12:00:00.000Z",
-  schemaVersion: 4,
+  schemaVersion: 5,
   providers: [],
 };
 
@@ -38,6 +38,16 @@ const scope: EffectiveAvailability = {
 const spendPriority: number | undefined =
   scope.selection?.[SELECTION_SCALAR_KEY];
 
+// Demoted fields are optional in the published contract: default `--json`
+// omits them and `--full` supplies them.
+const demoted: Array<string | undefined> = [
+  quota.providers[0]?.label,
+  quota.providers[0]?.source,
+  quota.providers[0]?.state.sourcesTried?.[0],
+  quota.providers[0]?.quotaSemantics?.description,
+];
+
 void models;
 void spendPriority;
+void demoted;
 void compareModelsByRunway(model, model);

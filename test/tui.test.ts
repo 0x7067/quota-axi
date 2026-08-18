@@ -91,7 +91,6 @@ function claudeProvider(): ProviderQuota {
           runway: {
             status: "through_reset",
             projectionConfidence: "early",
-            projectionBasis: "cycle_average",
           },
         },
       ],
@@ -157,7 +156,6 @@ function codexProvider(): ProviderQuota {
             projectedExhaustedAt: "2026-08-07T06:42:36.000Z",
             limitingWindowId: "weekly",
             projectionConfidence: "established",
-            projectionBasis: "cycle_average",
           },
         },
       ],
@@ -213,7 +211,6 @@ function grokProvider(): ProviderQuota {
             projectedExhaustedAt: "2026-08-09T14:33:15.000Z",
             limitingWindowId: "credits",
             projectionConfidence: "established",
-            projectionBasis: "cycle_average",
           },
         },
       ],
@@ -408,7 +405,6 @@ describe("renderQuotaTui structure", () => {
         usableRunwaySeconds: 360000,
         limitingWindowId: other.id,
         projectionConfidence: "established",
-        projectionBasis: "cycle_average",
       };
       response.providers = [claude];
 
@@ -1128,7 +1124,6 @@ describe("color handling", () => {
       usableRunwaySeconds: 3600,
       limitingWindowId: "seven_day",
       projectionConfidence: "established",
-      projectionBasis: "cycle_average",
     };
     const projected = renderQuotaTui(response, {
       colorDepth: "truecolor",
@@ -1143,7 +1138,6 @@ describe("color handling", () => {
       status: "exhausted_now",
       usableRunwaySeconds: 0,
       projectionConfidence: "established",
-      projectionBasis: "cycle_average",
     };
     const exhausted = renderQuotaTui(response, {
       colorDepth: "truecolor",

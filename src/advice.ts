@@ -18,19 +18,20 @@ export function annotateQuotaAdvice(
   const help = providers.flatMap(providerHelpLines);
   return {
     generatedAt: response.generatedAt,
-    schemaVersion: 4,
+    schemaVersion: 5,
     providers,
     ...(help.length > 0 ? { help } : {}),
   };
 }
 
+/**
+ * Situational advice stays first because it is actionable; only the tier hint
+ * is worth repeating on every invocation.
+ */
 export function quotaHelpLines(response: QuotaAxiResponse): string[] {
   return [
     ...(response.help ?? []),
-    "Default TOON reports effective headroom and usable runway; use --json or --full for reserve diagnostics",
-    "Run `quota-axi --provider claude --json` for JSON output",
-    "Run `quota-axi --full` to include account, source-attempt, and reserve details",
-    "Run `quota-axi auth` to inspect local auth source availability without printing secrets",
+    "Run `quota-axi --full` for windows, pace, reserve, and account evidence",
   ];
 }
 

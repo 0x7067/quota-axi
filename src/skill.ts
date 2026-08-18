@@ -77,6 +77,18 @@ or when comparing supported local provider headroom side by side.
 ## Workflow
 
 1. Run \`npx -y quota-axi\` for compact TOON output covering supported providers' quota windows.
+   Default TOON has three decision-shaped blocks. \`quota[]\` has one fully populated row per
+   measurable scope: \`provider\`, \`scope\`, \`effectivePercentRemaining\`, \`spendPriority\`,
+   \`runway\`, \`confidence\`, \`limitedBy\`, and the binding window's \`resetsAt\`. Sparse
+   \`exhaustion[]\` adds \`usableRunwaySeconds\`, \`projectedExhaustedAt\`, and \`limitingWindowId\`
+   for the scopes with a finite exhaustion point only, joined back on \`provider\` + \`scope\`;
+   \`exhaustion[0]:\` means nothing is projected to run out. Sparse \`attention[]\` carries every
+   non-nominal fact as \`provider,scope,kind,detail,remedy\` - auth, staleness, rate limits,
+   unresolved or untrusted windows, and unmeasurable bounds. Every requested provider appears in
+   \`quota[]\` or \`attention[]\` or both, never silently absent, and \`quota[]\` rows are in
+   provider-declaration order, never sorted by any metric: it is not a ranking. A scope with
+   unknown or stale headroom gets no \`quota[]\` row at all - read its \`attention[]\` row instead
+   of inferring a number.
 2. Scope to one provider with \`--provider claude\` or to a subset with \`--provider cursor,copilot,grok,kimi\`.
 3. Pass \`--json\` for the normalized machine-readable model instead of TOON. Read
    \`quotaSemantics.effectiveAvailability\` rather than treating a model window in isolation:
@@ -93,8 +105,11 @@ or when comparing supported local provider headroom side by side.
    comparable across scopes, providers, and accounts, and it is advisory data only: it never
    overrides \`runway\`, and quota-axi does not rank or route with it. When any bounding window has
    no usable pace, the whole scope is \`status: "unknown"\` with \`unmeasurableWindowIds\` and no
-   scalar - never read an absent scalar as healthy. Default TOON omits raw numeric reserve;
-   \`--json\` and \`--full\` retain it. If relationship status is \`partial\` or \`unknown\`, do not infer
+   scalar, and its TOON cell reads the literal \`unknown\` - never read an absent or \`unknown\`
+   scalar as healthy, and never read it as \`0\`, which means exact utilization. Default TOON omits
+   raw numeric reserve; \`--json\` and \`--full\` retain it. Every projection is cycle-average, so
+   there is no \`projectionBasis\` field: its absence means \`cycle_average\`. If relationship status
+   is \`partial\` or \`unknown\`, do not infer
    one. Stale reports keep raw windows for diagnostics, but effective availability, pace, runway,
    and selection are always unknown; never route from a stale raw percentage as though it were current
    headroom. Default output has no ordering preference. For a provider-native model evidence join,
@@ -103,7 +118,18 @@ or when comparing supported local provider headroom side by side.
    includes catalog provenance and unmatched model windows. \`--sort runway\` is an explicit,
    documented quota-evidence comparator, not a provider, model, harness, credential, or route
    recommendation; inspect \`sort.tieGroups\` rather than treating equal evidence as a preference.
-4. Pass \`--full\` to include account identity, per-source attempts, and raw reserve diagnostics.
+4. Pass \`--full\` to include account identity, per-source attempts, raw reserve diagnostics, and
+   the derivation inputs default \`--json\` demotes. \`--full\` only ever adds, with no renames and
+   no re-nesting: a demoted field is simply absent until \`--full\`, in the same position under the
+   same name. Demoted are provider \`label\`/\`source\`, \`state.refreshedAt\`/\`sourcesTried\`,
+   window \`percentUsed\`/\`startsAt\`/\`windowSeconds\`, the window pace cycle-progress inputs
+   (\`timeRemainingPercent\`, \`elapsedPercent\`, \`cycleBasis\`, \`cycleSeconds\`,
+   \`projectedExhaustedAt\`, \`projectionConfidence\`), \`quotaSemantics.description\`, and scope
+   pace \`behindWindowIds\`/\`onPaceWindowIds\`. Everything you branch on stays in default
+   \`--json\`: state status/auth/reason/remedy fields, window \`pace.status\`, \`reason\`,
+   \`reservePercentPoints\` and \`burnMultiple\`, \`quotaSemantics.status\` and
+   \`unresolvedWindowIds\`, every scope's \`runway\` and \`selection\`, scope pace
+   \`aheadWindowIds\`/\`unknownWindowIds\`, and \`credits\` (never read \`credits\` as exhaustion).
 5. Run \`npx -y quota-axi auth\` to check local auth-source availability without printing
    secret values.
 6. On macOS, Claude and Cursor CLI Keychain value reads are skipped by default until the user

@@ -236,7 +236,6 @@ describe("quota semantics", () => {
         limitingWindowId: "model:fable",
         usableRunwaySeconds: 50_400,
         projectionConfidence: "established",
-        projectionBasis: "cycle_average",
       },
     });
   });
