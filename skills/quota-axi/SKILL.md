@@ -52,12 +52,13 @@ or when comparing supported local provider headroom side by side.
    `exhaustion[]` adds `usableRunwaySeconds`, `projectedExhaustedAt`, and `limitingWindowId`
    for the scopes with a finite exhaustion point only, joined back on `provider` + `scope`;
    `exhaustion[0]:` means nothing is projected to run out. Sparse `attention[]` carries every
-   non-nominal fact as `provider,scope,kind,detail,remedy` - auth, staleness, rate limits,
-   unresolved or untrusted windows, and unmeasurable bounds. Every requested provider appears in
-   `quota[]` or `attention[]` or both, never silently absent, and `quota[]` rows are in
-   provider-declaration order, never sorted by any metric: it is not a ranking. A scope with
+   non-nominal fact as `provider,scope,kind,detail,remedy` - auth, staleness, state reasons,
+   rate limits, unresolved or untrusted windows, and unmeasurable bounds. Every requested provider
+   appears in `quota[]` or `attention[]` or both, never silently absent, and `quota[]` rows
+   are in provider-declaration order, never sorted by any metric: it is not a ranking. A scope with
    unknown or stale headroom gets no `quota[]` row at all - read its `attention[]` row instead
-   of inferring a number.
+   of inferring a number. If that scope has finite runway, the attention detail preserves the
+   runway verdict and limiting window without creating an orphan `exhaustion[]` row.
 2. Scope to one provider with `--provider claude` or to a subset with `--provider cursor,copilot,grok,kimi`.
 3. Pass `--json` for the normalized machine-readable model instead of TOON. Read
    `quotaSemantics.effectiveAvailability` rather than treating a model window in isolation:

@@ -344,12 +344,12 @@ A `quota[]` row whose `runway` is `projected_exhaustion` or `exhausted_now` has 
 
 | `kind`                                                  | `scope` | Meaning                                                                                              |
 | ------------------------------------------------------- | ------- | ---------------------------------------------------------------------------------------------------- |
-| `stale`                                                 | `all`   | The report is stale diagnostic data. `detail` names the last refresh; no scope gets a `quota[]` row. |
-| `auth_required`, `rate_limited`, `unavailable`, `error` | `all`   | The provider state status. `detail` is `state.error`, plus the retry-after instant for a rate limit. |
+| `stale`                                                 | `all`   | The report is stale diagnostic data. `detail` names the last refresh and any `state.reason`; no scope gets a `quota[]` row. |
+| `auth_required`, `rate_limited`, `unavailable`, `error` | `all`   | The provider state status. `detail` is `state.error`, any `state.reason`, plus the retry-after instant for a rate limit. |
 | `no_quota`                                              | `all`   | The provider reported no measurable scope and nothing else would have named it.                      |
 | `unresolved_windows`                                    | `all`   | `quotaSemantics.unresolvedWindowIds`: unfamiliar vendor windows not folded into any bound.           |
 | `untrusted_windows`                                     | `all`   | `state.untrustedWindowIds`: limits that could not be parsed authoritatively.                         |
-| `headroom_unknown`                                      | scope   | The scope reports no effective percentage. `detail` names the windows that block it.                 |
+| `headroom_unknown`                                      | scope   | The scope reports no effective percentage. `detail` names the windows that block it and any finite runway verdict with its limiting window. |
 | `unmeasurable`                                          | scope   | Headroom is known but a bound blocks `runway`, `spendPriority`, or both. `detail` names which.       |
 
 `remedy` carries `state.remedyCommand` when one exists, and situational agent-directed advice is still prepended to `help`.

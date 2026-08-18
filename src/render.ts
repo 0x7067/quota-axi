@@ -113,12 +113,14 @@ function quotaBlocks(response: QuotaAxiResponse): ProviderBlocks {
           provider: provider.provider,
           scope: scope.scope,
           kind: "headroom_unknown",
-          detail: headroomBlockers(scope),
+          detail: unknownHeadroomDetail(scope),
           remedy: NONE,
         });
       } else {
         measured = true;
         blocks.quota.push(quotaRow(provider, scope));
+        const exhaustion = exhaustionRow(provider, scope);
+        if (exhaustion) blocks.exhaustion.push(exhaustion);
         const blocked = blockedSignals(scope);
         if (blocked) {
           scopeAttention.push({
@@ -130,8 +132,6 @@ function quotaBlocks(response: QuotaAxiResponse): ProviderBlocks {
           });
         }
       }
-      const exhaustion = exhaustionRow(provider, scope);
-      if (exhaustion) blocks.exhaustion.push(exhaustion);
     }
 
     blocks.attention.push(
@@ -238,9 +238,12 @@ function primaryProviderRow(provider: ProviderQuota): AttentionRow | undefined {
   const state = provider.state;
   if (!state.stale && state.status === "fresh") return undefined;
   const kind = state.stale ? "stale" : state.status;
-  const detail = state.stale
+  const baseDetail = state.stale
     ? `last refreshed ${state.refreshedAt ?? UNKNOWN}`
     : (state.error ?? kind);
+  const detail = state.reason
+    ? `${baseDetail}${DETAIL_SEPARATOR}reason ${state.reason}`
+    : baseDetail;
   return {
     provider: provider.provider,
     scope: "all",
@@ -255,6 +258,18 @@ function primaryProviderRow(provider: ProviderQuota): AttentionRow | undefined {
 /** Which windows suppress the scope's headroom, so absence is explained. */
 function headroomBlockers(scope: EffectiveAvailability): string {
   return joinIds(unmeasurableIds(scope)) ?? joinIds(scope.boundedBy) ?? UNKNOWN;
+}
+
+function unknownHeadroomDetail(scope: EffectiveAvailability): string {
+  const blockers = headroomBlockers(scope);
+  const runway = scope.runway;
+  if (
+    runway?.status !== "exhausted_now" &&
+    runway?.status !== "projected_exhaustion"
+  ) {
+    return blockers;
+  }
+  return `${blockers}${DETAIL_SEPARATOR}${runway.status} limited by ${runway.limitingWindowId ?? UNKNOWN}`;
 }
 
 /** Which windows block a derived signal on a scope that does report headroom. */

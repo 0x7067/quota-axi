@@ -257,7 +257,7 @@ describe("CLI quota rendering", () => {
       "attention[3]{provider,scope,kind,detail,remedy}:",
     );
     expect(output).toContain(
-      'claude,all,stale,"last refreshed 2026-07-06T18:10:00Z",quota-axi --allow-keychain-prompt',
+      'claude,all,stale,"last refreshed 2026-07-06T18:10:00Z · reason keychain_access_required",quota-axi --allow-keychain-prompt',
     );
     expect(output).toContain(
       "claude,all_models,headroom_unknown,five_hour,none",
@@ -782,7 +782,7 @@ describe("default TOON decision blocks", () => {
         "claude",
         "all",
         "stale",
-        "last refreshed 2026-07-06T18:10:00Z",
+        "last refreshed 2026-07-06T18:10:00Z · reason keychain_access_required",
         "quota-axi --allow-keychain-prompt",
       ],
       ["claude", "all_models", "headroom_unknown", "five_hour", "none"],
@@ -799,6 +799,45 @@ describe("default TOON decision blocks", () => {
 
     expect(toonRows(output, "quota")[0]?.[4]).toBe("through_reset");
     expect(output).toContain("exhaustion[0]:");
+  });
+
+  it("keeps unknown-scope exhaustion in attention without an orphan row", async () => {
+    useTempCache();
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-15T12:00:00.000Z"));
+    PROVIDERS.claude = providerWithQuota({
+      ...freshClaudeQuota(),
+      windows: [
+        {
+          id: "five_hour",
+          label: "session",
+          kind: "session",
+          percentUsed: 100,
+          percentRemaining: 0,
+          startsAt: "2026-07-15T07:00:00.000Z",
+          resetsAt: "2026-07-15T17:00:00.000Z",
+        },
+        {
+          id: "seven_day",
+          label: "week",
+          kind: "weekly",
+          startsAt: "2026-07-12T00:00:00.000Z",
+          resetsAt: "2026-07-19T00:00:00.000Z",
+        },
+      ],
+    });
+
+    const output = await capture(["--provider", "claude"]);
+
+    expect(toonRows(output, "quota")).toEqual([]);
+    expect(toonRows(output, "exhaustion")).toEqual([]);
+    expect(toonRows(output, "attention")).toContainEqual([
+      "claude",
+      "all_models",
+      "headroom_unknown",
+      "seven_day · exhausted_now limited by five_hour",
+      "none",
+    ]);
   });
 
   it("states a positive auth fact for a provider with no quota[] row", async () => {
