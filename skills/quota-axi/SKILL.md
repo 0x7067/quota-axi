@@ -1,6 +1,6 @@
 ---
 name: quota-axi
-description: "Report local Claude, Codex, Cursor, GitHub Copilot, Grok, and Kimi quota windows via the quota-axi CLI - remaining effective usable runway, percentages, reset times, cycle-average pace vs the reset clock, and provider status read from local auth sources, with no routing, provider mutation, or default ordering preference. Use before deciding whether it is safe to keep spending a provider's quota, when the user asks about usage, rate limits, pace, or remaining quota, or when comparing local provider headroom."
+description: "Report local Claude, Codex, Cursor, GitHub Copilot, Grok, and Kimi quota windows via the quota-axi CLI - remaining effective usable runway, percentages, reset times, cycle-average pace vs the reset clock, a per-scope selection signal, and provider status read from local auth sources, with no routing, provider mutation, or default ordering preference. Use before deciding whether it is safe to keep spending a provider's quota, when the user asks about usage, rate limits, pace, or remaining quota, or when comparing local provider headroom."
 user-invocable: false
 author: Kun Chen (kunchenguid)
 metadata:
@@ -30,7 +30,10 @@ You do not need quota-axi installed globally - invoke it with `npx -y quota-axi`
 quota-axi is data only: it never routes, recommends a provider, model, harness, credential, or
 route, proxies, intercepts, logs in, imports browser cookies, or mutates provider state. Default
 output has no ordering preference. The explicit `models --sort runway` comparator only orders
-quota evidence, preserves ties, and is never a recommendation. It reads local provider auth sources and calls
+quota evidence, preserves ties, and is never a recommendation. quota-axi additionally publishes one
+derived per-scope comparative selection signal, `effectiveAvailability[].selection`, as data
+computed from figures it already reports; it still ranks nothing and routes nowhere, and the
+consumer decides what to do with it. It reads local provider auth sources and calls
 first-party provider quota, usage, billing, entitlement, or read-only credential-liveness endpoints; it never launches the
 Claude, Cursor, Grok, Pi, or Kimi CLIs, so it cannot spend the quota it measures.
 
@@ -43,6 +46,19 @@ or when comparing supported local provider headroom side by side.
 ## Workflow
 
 1. Run `npx -y quota-axi` for compact TOON output covering supported providers' quota windows.
+   Default TOON has three decision-shaped blocks. `quota[]` has one fully populated row per
+   measurable scope: `provider`, `scope`, `effectivePercentRemaining`, `spendPriority`,
+   `runway`, `confidence`, `limitedBy`, and the binding window's `resetsAt`. Sparse
+   `exhaustion[]` adds `usableRunwaySeconds`, `projectedExhaustedAt`, and `limitingWindowId`
+   for the scopes with a finite exhaustion point only, joined back on `provider` + `scope`;
+   `exhaustion[0]:` means nothing is projected to run out. Sparse `attention[]` carries every
+   non-nominal fact as `provider,scope,kind,detail,remedy` - auth, staleness, state reasons,
+   rate limits, unresolved or untrusted windows, and unmeasurable bounds. Every requested provider
+   appears in `quota[]` or `attention[]` or both, never silently absent, and `quota[]` rows
+   are in provider-declaration order, never sorted by any metric: it is not a ranking. A scope with
+   unknown or stale headroom gets no `quota[]` row at all - read its `attention[]` row instead
+   of inferring a number. If that scope has finite runway, the attention detail preserves the
+   runway verdict and limiting window without creating an orphan `exhaustion[]` row.
 2. Scope to one provider with `--provider claude` or to a subset with `--provider cursor,copilot,grok,kimi`.
 3. Pass `--json` for the normalized machine-readable model instead of TOON. Read
    `quotaSemantics.effectiveAvailability` rather than treating a model window in isolation:
@@ -52,17 +68,38 @@ or when comparing supported local provider headroom side by side.
    `usableRunwaySeconds`, `projectedExhaustedAt`, limiting window, and confidence; `through_reset`
    deliberately has no synthetic deadline; `exhausted_now` is zero runway; and `unknown` names
    unmeasurable bounds instead of inventing a conclusion. Read each window's `pace` (and the
-   effective scope's pace summary) for diagnostics. Default TOON omits raw numeric reserve;
-   `--json` and `--full` retain it. If relationship status is `partial` or `unknown`, do not infer
-   one. Stale reports keep raw windows for diagnostics, but effective availability, pace, and
-   runway are always unknown; never route from a stale raw percentage as though it were current
+   effective scope's pace summary) for diagnostics. Each scope also carries `selection`: when its
+   `status` is `known`, `spendPriority` is a signed, cycle-weighted scalar clamped to
+   [-100, 100] where positive means that scope's paid allowance is on track to reach reset unused,
+   `0` is exact utilization, and negative means it is overdrawn against the reset clock. It is
+   comparable across scopes, providers, and accounts, and it is advisory data only: it never
+   overrides `runway`, and quota-axi does not rank or route with it. When any bounding window has
+   no usable pace, the whole scope is `status: "unknown"` with `unmeasurableWindowIds` and no
+   scalar, and its TOON cell reads the literal `unknown` - never read an absent or `unknown`
+   scalar as healthy, and never read it as `0`, which means exact utilization. Default TOON omits
+   raw numeric reserve; `--json` and `--full` retain it. Every projection is cycle-average, so
+   there is no `projectionBasis` field: its absence means `cycle_average`. If relationship status
+   is `partial` or `unknown`, do not infer
+   one. Stale reports keep raw windows for diagnostics, but effective availability, pace, runway,
+   and selection are always unknown; never route from a stale raw percentage as though it were current
    headroom. Default output has no ordering preference. For a provider-native model evidence join,
    use `npx -y quota-axi models --intelligence high --json`. This catalog covers Claude, Codex,
    Grok, and Kimi only; its buckets are coarse editorial classifications, not scores. Its response
    includes catalog provenance and unmatched model windows. `--sort runway` is an explicit,
    documented quota-evidence comparator, not a provider, model, harness, credential, or route
    recommendation; inspect `sort.tieGroups` rather than treating equal evidence as a preference.
-4. Pass `--full` to include account identity, per-source attempts, and raw reserve diagnostics.
+4. Pass `--full` to include account identity, per-source attempts, raw reserve diagnostics, and
+   the derivation inputs default `--json` demotes. `--full` only ever adds, with no renames and
+   no re-nesting: a demoted field is simply absent until `--full`, in the same position under the
+   same name. Demoted are provider `label`/`source`, `state.refreshedAt`/`sourcesTried`,
+   window `percentUsed`/`startsAt`/`windowSeconds`, the window pace cycle-progress inputs
+   (`timeRemainingPercent`, `elapsedPercent`, `cycleBasis`, `cycleSeconds`,
+   `projectedExhaustedAt`, `projectionConfidence`), `quotaSemantics.description`, and scope
+   pace `behindWindowIds`/`onPaceWindowIds`. Everything you branch on stays in default
+   `--json`: state status/auth/reason/remedy fields, window `pace.status`, `reason`,
+   `reservePercentPoints` and `burnMultiple`, `quotaSemantics.status` and
+   `unresolvedWindowIds`, every scope's `runway` and `selection`, scope pace
+   `aheadWindowIds`/`unknownWindowIds`, and `credits` (never read `credits` as exhaustion).
 5. Run `npx -y quota-axi auth` to check local auth-source availability without printing
    secret values.
 6. On macOS, Claude and Cursor CLI Keychain value reads are skipped by default until the user

@@ -7,6 +7,7 @@ import { createModelsResponse, MODEL_CATALOG_PROVIDER_IDS } from "./models.js";
 import { nowIso } from "./lib/time.js";
 import { PROVIDERS } from "./providers/index.js";
 import {
+  quotaJsonReport,
   redactedResponse,
   renderAuthToon,
   renderModelsToon,
@@ -41,10 +42,13 @@ export async function quotaCommand(
   if (flags.tui) return quotaTuiReport(flags, options);
 
   const response = await loadQuota(flags.providers, options, false);
-  const redacted = redactedResponse(response, flags.full);
   return flags.json
-    ? JSON.stringify(redacted, null, 2)
-    : renderQuotaToon(redacted, binPath, flags.full);
+    ? JSON.stringify(quotaJsonReport(response, flags.full), null, 2)
+    : renderQuotaToon(
+        redactedResponse(response, flags.full),
+        binPath,
+        flags.full,
+      );
 }
 
 /**

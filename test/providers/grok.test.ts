@@ -1156,7 +1156,6 @@ describe("Grok expired access-token classification", () => {
 
     expect(grok).toMatchObject({
       provider: "grok",
-      source: "cache",
       state: {
         status: "stale",
         stale: true,
@@ -1167,6 +1166,8 @@ describe("Grok expired access-token classification", () => {
       },
     });
     expect(grok.attempts).toBeUndefined();
+    // `source` is a default-tier demotion, not a loss: `--full` still has it.
+    expect(grok.source).toBeUndefined();
     expect(grok.quotaSemantics).toMatchObject({
       status: "unknown",
       effectiveAvailability: [
@@ -1191,6 +1192,7 @@ describe("Grok expired access-token classification", () => {
       "--full",
     ]);
     const full = JSON.parse(fullText) as QuotaAxiResponse;
+    expect(full.providers[0]?.source).toBe("cache");
     // The probe of the stored-expired session failed transiently (no
     // definitive rejection), so the stored expired classification stands.
     expect(full.providers[0]?.attempts).toEqual([
@@ -1206,10 +1208,13 @@ describe("Grok expired access-token classification", () => {
       },
     ]);
 
+    // The remedy rides the provider's `attention[]` row; soft expiry keeps its
+    // positive auth fact because the scope produces no `quota[]` row.
     const toon = await captureCli(["--provider", "grok"]);
-    expect(toon).toContain("advice[1]{provider,reason,remedyCommand}:");
-    expect(toon).toContain("grok,credentials_expired,grok");
-    expect(toon).toMatch(/grok,unknown,cache,stale,expired_refreshable/);
+    expect(toon).toContain(
+      'grok,all,stale,"last refreshed 2026-07-20T00:00:00.000Z · reason credentials_expired (auth expired_refreshable)",grok',
+    );
+    expect(toon).toContain("grok,all_products,headroom_unknown,credits,none");
   });
 });
 
@@ -1650,9 +1655,11 @@ describe("Grok dual-source CLI and Pi xAI usability", () => {
     expect(json.providers[0]?.state.reason).toBeUndefined();
     expect(JSON.stringify(json)).not.toContain("pi-xai-access-token-fixture");
 
+    // A provider with no quota row still states its positive auth fact.
     const toon = await captureCli(["--provider", "grok"]);
-    expect(toon).toContain("authStatus");
-    expect(toon).toMatch(/grok,unknown,unavailable,unavailable,usable/);
+    expect(toon).toContain(
+      "grok,all,unavailable,Grok consumer quota unavailable (auth usable),none",
+    );
     expect(toon).not.toContain("credentials_expired");
     expect(toon).not.toContain("pi-xai-access-token-fixture");
   });
@@ -1729,7 +1736,12 @@ describe("Grok CLI rendering regression", () => {
       vi.fn(async () => grpcResponse(payload)),
     );
 
-    const jsonText = await captureCli(["--provider", "grok", "--json"]);
+    const jsonText = await captureCli([
+      "--provider",
+      "grok",
+      "--json",
+      "--full",
+    ]);
     const json = JSON.parse(jsonText) as QuotaAxiResponse;
     expect(json.providers[0]).toMatchObject({
       provider: "grok",
@@ -1743,9 +1755,12 @@ describe("Grok CLI rendering regression", () => {
       ],
     });
 
-    const toon = await captureCli(["--provider", "grok"]);
+    const toon = await captureCli(["--provider", "grok", "--full"]);
     expect(toon).toContain("grok,credits,credits,100");
     expect(toon).not.toContain("grok,credits,credits,unknown");
+    expect(await captureCli(["--provider", "grok"])).toContain(
+      "grok,all_products,100",
+    );
   });
 });
 

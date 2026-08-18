@@ -2,6 +2,7 @@ import {
   computeEffectiveRunway,
   computeWindowPace,
   summarizeEffectivePace,
+  summarizeEffectiveSelection,
 } from "./pace.js";
 import type {
   EffectiveAvailability,
@@ -41,6 +42,10 @@ function staleSemantics(semantics: QuotaSemantics): QuotaSemantics {
         status: "unknown",
         boundedBy,
         runway: {
+          status: "unknown" as const,
+          ...(boundedBy.length > 0 ? { unmeasurableWindowIds: boundedBy } : {}),
+        },
+        selection: {
           status: "unknown" as const,
           ...(boundedBy.length > 0 ? { unmeasurableWindowIds: boundedBy } : {}),
         },
@@ -93,7 +98,7 @@ function semanticsFor(
     case "copilot":
       return unknownSemantics(
         provider.windows,
-        `quota-axi does not know whether ${provider.label}'s reported windows are independent or jointly bounding, so it does not claim an effective remaining percentage.`,
+        `quota-axi does not know whether ${provider.label ?? provider.provider}'s reported windows are independent or jointly bounding, so it does not claim an effective remaining percentage.`,
       );
   }
 }
@@ -252,6 +257,16 @@ function kimiSemantics(
                     ...unresolvedWindowIds,
                   ],
                 },
+                // Unrecognized limits may add bounds this scope cannot see, so
+                // the selection scalar would be computed over an incomplete
+                // bound set. Report it unmeasurable rather than optimistic.
+                selection: {
+                  status: "unknown",
+                  unmeasurableWindowIds: [
+                    ...recognized.map(({ id }) => id),
+                    ...unresolvedWindowIds,
+                  ],
+                },
               },
             ]
           : [],
@@ -319,6 +334,7 @@ function availability(
   const boundedBy = windows.map(({ id }) => id);
   const remaining = windows.map(({ percentRemaining }) => percentRemaining);
   const pace = summarizeEffectivePace(windows);
+  const selection = summarizeEffectiveSelection(windows);
   if (
     remaining.length === 0 ||
     remaining.some((value) => value === undefined)
@@ -329,6 +345,7 @@ function availability(
       boundedBy,
       pace,
       runway: computeEffectiveRunway(windows, generatedAt),
+      selection,
     };
   }
   const effectivePercentRemaining = Math.min(...(remaining as number[]));
@@ -345,6 +362,7 @@ function availability(
       .map(({ id }) => id),
     pace,
     runway: computeEffectiveRunway(windows, generatedAt),
+    selection,
   };
 }
 
