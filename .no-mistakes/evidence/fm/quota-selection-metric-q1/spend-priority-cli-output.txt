@@ -1,0 +1,92 @@
+=== DEFAULT TOON ===
+bin: quota-axi
+description: Report local agent-provider quota windows for routing-aware agents
+generatedAt: "2026-07-15T12:00:00.000Z"
+providers[1]{provider,plan,source,status,authStatus,refreshedAt}:
+  kimi,unknown,pi-auth-json,fresh,unknown,none
+windows[1]{provider,id,label,percentRemaining,resetsAt,pace,state}:
+  kimi,weekly,week,70,"2026-07-19T00:00:00.000Z",behind,fresh
+effective[1]{provider,scope,effectivePercentRemaining,spendPriority,boundedBy,limitingWindowIds,runway,usableRunwaySeconds,projectedExhaustedAt,limitingWindowId,projectionConfidence,projectionBasis,unmeasurableWindowIds,unresolvedWindowIds,relationshipStatus}:
+  kimi,all_models,70,0.8,weekly,weekly,through_reset,unknown,unknown,unknown,established,cycle_average,none,none,known
+help[4]:
+  Default TOON reports effective headroom and usable runway; use --json or --full for reserve diagnostics
+  Run `quota-axi --provider claude --json` for JSON output
+  Run `quota-axi --full` to include account, source-attempt, and reserve details
+  Run `quota-axi auth` to inspect local auth source availability without printing secrets
+
+=== JSON ===
+{
+  "generatedAt": "2026-07-15T12:00:00.000Z",
+  "schemaVersion": 4,
+  "providers": [
+    {
+      "provider": "kimi",
+      "label": "Kimi",
+      "source": "pi-auth-json",
+      "windows": [
+        {
+          "id": "weekly",
+          "label": "week",
+          "kind": "weekly",
+          "percentUsed": 30,
+          "percentRemaining": 70,
+          "windowSeconds": 604800,
+          "resetsAt": "2026-07-19T00:00:00.000Z",
+          "pace": {
+            "status": "behind",
+            "timeRemainingPercent": 50,
+            "elapsedPercent": 50,
+            "reservePercentPoints": 20,
+            "cycleBasis": "window_seconds",
+            "cycleSeconds": 604800,
+            "burnMultiple": 0.6,
+            "projectedExhaustedAt": "2026-07-23T16:00:00.000Z",
+            "projectionConfidence": "established",
+            "projectionBasis": "cycle_average"
+          }
+        }
+      ],
+      "state": {
+        "status": "fresh",
+        "stale": false,
+        "sourcesTried": [
+          "pi-auth-json"
+        ]
+      },
+      "quotaSemantics": {
+        "status": "known",
+        "description": "Kimi's weekly and five-hour account windows jointly bound every model, so effective remaining is the minimum across the named windows.",
+        "effectiveAvailability": [
+          {
+            "scope": "all_models",
+            "status": "known",
+            "effectivePercentRemaining": 70,
+            "boundedBy": [
+              "weekly"
+            ],
+            "limitingWindowIds": [
+              "weekly"
+            ],
+            "pace": {
+              "status": "behind",
+              "behindWindowIds": [
+                "weekly"
+              ],
+              "worstReservePercentPoints": 20,
+              "worstReserveWindowId": "weekly"
+            },
+            "runway": {
+              "status": "through_reset",
+              "projectionConfidence": "established",
+              "projectionBasis": "cycle_average"
+            },
+            "selection": {
+              "status": "known",
+              "spendPriority": 0.8
+            }
+          }
+        ]
+      }
+    }
+  ]
+}
