@@ -1,0 +1,100 @@
+$ quota-axi --provider claude,cursor,codex --full
+bin: quota-axi
+description: Report local agent-provider quota windows for routing-aware agents
+generatedAt: "2026-08-18T04:19:27.119Z"
+providers[3]{provider,plan,source,status,authStatus,refreshedAt}:
+  claude,unknown,fixture,fresh,unknown,none
+  cursor,unknown,fixture,fresh,unknown,none
+  codex,unknown,fixture,fresh,unknown,none
+windows[5]{provider,id,label,percentRemaining,resetsAt,pace,state}:
+  claude,five_hour,session,90,"2026-08-18T07:19:27.118Z",behind,fresh
+  claude,seven_day,week,80,"2026-08-23T01:55:27.118Z",behind,fresh
+  claude,"model:fable",Fable week,95,"2026-08-23T01:55:27.118Z",behind,fresh
+  cursor,included_usage,monthly,35,"2026-08-28T04:19:27.118Z",behind,fresh
+  codex,five_hour,session,5,"2026-08-18T08:19:27.118Z",ahead,fresh
+effective[4]{provider,scope,effectivePercentRemaining,reclaimPriority,boundedBy,limitingWindowIds,runway,usableRunwaySeconds,projectedExhaustedAt,limitingWindowId,projectionConfidence,projectionBasis,unmeasurableWindowIds,unresolvedWindowIds,relationshipStatus}:
+  claude,all_models,80,0.4985,five_hour + seven_day,seven_day,through_reset,unknown,unknown,unknown,established,cycle_average,none,none,known
+  claude,"model:fable",80,0.8394,"five_hour + seven_day + model:fable",seven_day,through_reset,unknown,unknown,unknown,established,cycle_average,none,none,known
+  cursor,all_models,35,0.075,included_usage,included_usage,through_reset,unknown,unknown,unknown,established,cycle_average,none,none,known
+  codex,all_models,5,-4.6875,five_hour,five_hour,projected_exhaustion,189,"2026-08-18T04:22:36.592Z",five_hour,established,cycle_average,none,none,known
+windowPace[5]{provider,id,reserve,burnMultiple,projectedExhaustedAt,projectionConfidence,projectionBasis}:
+  claude,five_hour,30,0.25,"2026-08-18T22:19:27.128Z",established,cycle_average
+  claude,seven_day,10,0.6667,"2026-08-26T13:55:27.123Z",established,cycle_average
+  claude,"model:fable",25,0.1667,"2026-09-27T01:55:27.138Z",established,cycle_average
+  cursor,included_usage,1.6667,0.975,"2026-08-28T22:47:08.658Z",established,cycle_average
+  codex,five_hour,-75,4.75,"2026-08-18T04:22:36.592Z",established,cycle_average
+effectivePace[4]{provider,scope,pace,aheadWindowIds,unknownWindowIds,worstReserve,worstReserveWindowId}:
+  claude,all_models,behind,none,none,10,seven_day
+  claude,"model:fable",behind,none,none,10,seven_day
+  cursor,all_models,behind,none,none,1.6667,included_usage
+  codex,all_models,ahead,five_hour,none,-75,five_hour
+selection[4]{provider,scope,status,reclaimPriority,unmeasurableWindowIds}:
+  claude,all_models,known,0.4985,none
+  claude,"model:fable",known,0.8394,none
+  cursor,all_models,known,0.075,none
+  codex,all_models,known,-4.6875,none
+accounts[3]{provider,email,organization,accountId,identityStatus}:
+  claude,hidden,none,none,unknown
+  cursor,hidden,none,none,unknown
+  codex,hidden,none,none,unknown
+attempts[0]:
+help[4]:
+  Default TOON reports effective headroom and usable runway; use --json or --full for reserve diagnostics
+  Run `quota-axi --provider claude --json` for JSON output
+  Run `quota-axi --full` to include account, source-attempt, and reserve details
+  Run `quota-axi auth` to inspect local auth source availability without printing secrets
+
+
+$ quota-axi --provider claude,cursor,codex --json | jq '{schemaVersion, effective: [.providers[] | {provider, scopes: .quotaSemantics.effectiveAvailability | map({scope, selection, runway: .runway.status})}]} '
+{
+  "schemaVersion": 4,
+  "effective": [
+    {
+      "provider": "claude",
+      "scopes": [
+        {
+          "scope": "all_models",
+          "selection": {
+            "status": "known",
+            "reclaimPriority": 0.4985
+          },
+          "runway": "through_reset"
+        },
+        {
+          "scope": "model:fable",
+          "selection": {
+            "status": "known",
+            "reclaimPriority": 0.8394
+          },
+          "runway": "through_reset"
+        }
+      ]
+    },
+    {
+      "provider": "cursor",
+      "scopes": [
+        {
+          "scope": "all_models",
+          "selection": {
+            "status": "known",
+            "reclaimPriority": 0.075
+          },
+          "runway": "through_reset"
+        }
+      ]
+    },
+    {
+      "provider": "codex",
+      "scopes": [
+        {
+          "scope": "all_models",
+          "selection": {
+            "status": "known",
+            "reclaimPriority": -4.6875
+          },
+          "runway": "projected_exhaustion"
+        }
+      ]
+    }
+  ]
+}
