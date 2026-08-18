@@ -1212,7 +1212,7 @@ describe("Grok expired access-token classification", () => {
     // positive auth fact because the scope produces no `quota[]` row.
     const toon = await captureCli(["--provider", "grok"]);
     expect(toon).toContain(
-      'grok,all,stale,"last refreshed 2026-07-20T00:00:00.000Z (auth expired_refreshable)",grok',
+      'grok,all,stale,"last refreshed 2026-07-20T00:00:00.000Z · reason credentials_expired (auth expired_refreshable)",grok',
     );
     expect(toon).toContain("grok,all_products,headroom_unknown,credits,none");
   });
