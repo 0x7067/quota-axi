@@ -18,7 +18,7 @@ export function annotateQuotaAdvice(
   const help = providers.flatMap(providerHelpLines);
   return {
     generatedAt: response.generatedAt,
-    schemaVersion: 3,
+    schemaVersion: 4,
     providers,
     ...(help.length > 0 ? { help } : {}),
   };

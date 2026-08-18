@@ -16,7 +16,7 @@ Agents need quota state before they choose where work can safely run.
 Vendor dashboards are not shaped for shell automation, and local CLIs expose different windows, resets, and auth sources.
 
 quota-axi reports local Claude, Codex, Cursor, GitHub Copilot, Grok, and Kimi quota windows in one [AXI](https://axi.md)-shaped call.
-It is data only: it never routes, recommends a provider, model, harness, credential, or route, proxies, intercepts, logs in, imports browser cookies, or mutates provider state. Default output has no ordering preference. The opt-in `models --sort runway` surface applies only its documented deterministic comparator to quota evidence, preserves all evidence and explicit ties, and is not a recommendation.
+It is data only: it never routes, recommends a provider, model, harness, credential, or route, proxies, intercepts, logs in, imports browser cookies, or mutates provider state. Default output has no ordering preference. The opt-in `models --sort runway` surface applies only its documented deterministic comparator to quota evidence, preserves all evidence and explicit ties, and is not a recommendation. It publishes one derived per-scope comparative selection signal, [`selection`](#per-scope-selection-signal), as data computed from figures it already reports; the consumer, not quota-axi, does any routing or ranking with it.
 
 - **Official sources** - quota-axi reads local provider auth sources and calls first-party quota, usage, billing, entitlement, or read-only credential-liveness endpoints used by the local agents, with a read-only Codex app-server probe as fallback.
 - **Local first** - quota and auth reports run on the machine that holds the credentials; their network calls go to first-party provider endpoints, never a third-party relay.
@@ -58,16 +58,16 @@ windows[15]{provider,id,label,percentRemaining,resetsAt,pace,state}:
   grok,credits,credits,67,"2026-04-01T00:00:00.000Z",behind,fresh
   kimi,weekly,week,74,"2026-03-20T12:17:02.400Z",behind,fresh
   kimi,five_hour,session,88,"2026-03-15T20:45:00.000Z",behind,fresh
-effective[9]{provider,scope,effectivePercentRemaining,boundedBy,limitingWindowIds,runway,usableRunwaySeconds,projectedExhaustedAt,limitingWindowId,projectionConfidence,projectionBasis,unmeasurableWindowIds,unresolvedWindowIds,relationshipStatus}:
-  claude,all_models,64,"five_hour + seven_day",seven_day,projected_exhaustion,298906,"2026-03-19T03:43:45.600Z",seven_day,established,cycle_average,none,none,known
-  claude,"model:fable",64,"five_hour + seven_day + model:fable",seven_day,projected_exhaustion,298906,"2026-03-19T03:43:45.600Z",seven_day,established,cycle_average,none,none,known
-  claude,seven_day_opus,64,"five_hour + seven_day + seven_day_opus",seven_day,projected_exhaustion,298906,"2026-03-19T03:43:45.600Z",seven_day,established,cycle_average,none,none,known
-  codex,all_models,47,"five_hour + weekly",weekly,through_reset,unknown,unknown,unknown,established,cycle_average,none,none,known
-  codex,"model:gpt-5.1-codex",47,"five_hour + weekly + model:gpt-5.1-codex:5h",weekly,through_reset,unknown,unknown,unknown,established,cycle_average,none,none,known
-  cursor,all_models,72,"included_usage + auto_usage + api_usage",included_usage,through_reset,unknown,unknown,unknown,established,cycle_average,none,none,known
-  copilot,unresolved,unknown,none,unknown,unknown,unknown,unknown,unknown,unknown,unknown,none,"chat + premium_interactions",unknown
-  grok,all_products,67,credits,credits,through_reset,unknown,unknown,unknown,established,cycle_average,none,none,known
-  kimi,all_models,74,"weekly + five_hour",weekly,through_reset,unknown,unknown,unknown,established,cycle_average,none,none,known
+effective[9]{provider,scope,effectivePercentRemaining,reclaimPriority,boundedBy,limitingWindowIds,runway,usableRunwaySeconds,projectedExhaustedAt,limitingWindowId,projectionConfidence,projectionBasis,unmeasurableWindowIds,unresolvedWindowIds,relationshipStatus}:
+  claude,all_models,64,-0.3798,"five_hour + seven_day",seven_day,projected_exhaustion,298906,"2026-03-19T03:43:45.600Z",seven_day,established,cycle_average,none,none,known
+  claude,seven_day_opus,64,0.3218,"five_hour + seven_day + seven_day_opus",seven_day,projected_exhaustion,298906,"2026-03-19T03:43:45.600Z",seven_day,established,cycle_average,none,none,known
+  claude,"model:fable",64,-0.0932,"five_hour + seven_day + model:fable",seven_day,projected_exhaustion,298906,"2026-03-19T03:43:45.600Z",seven_day,established,cycle_average,none,none,known
+  codex,all_models,47,-0.2383,"five_hour + weekly",weekly,projected_exhaustion,10365,"2026-03-15T19:34:45.428Z",five_hour,established,cycle_average,none,none,known
+  codex,"model:gpt-5.1-codex",47,-0.1973,"five_hour + weekly + model:gpt-5.1-codex:5h",weekly,projected_exhaustion,10365,"2026-03-15T19:34:45.428Z",five_hour,established,cycle_average,none,none,known
+  cursor,all_models,72,1.4067,"included_usage + auto_usage + api_usage",included_usage,through_reset,unknown,unknown,unknown,established,cycle_average,none,none,known
+  copilot,unresolved,unknown,unknown,none,unknown,unknown,unknown,unknown,unknown,unknown,unknown,none,"chat + premium_interactions",unknown
+  grok,all_products,67,0.5778,credits,credits,through_reset,unknown,unknown,unknown,established,cycle_average,none,none,known
+  kimi,all_models,74,0.2484,"weekly + five_hour",weekly,through_reset,unknown,unknown,unknown,established,cycle_average,none,none,known
 help[4]:
   Default TOON reports effective headroom and usable runway; use --json or --full for reserve diagnostics
   Run `quota-axi --provider claude --json` for JSON output
@@ -81,7 +81,7 @@ help[4]:
 $ quota-axi --provider claude --json
 {
   "generatedAt": "2026-03-15T16:42:00.000Z",
-  "schemaVersion": 3,
+  "schemaVersion": 4,
   "providers": [
     {
       "provider": "claude",
@@ -177,6 +177,10 @@ $ quota-axi --provider claude --json
               "limitingWindowId": "seven_day",
               "projectionConfidence": "established",
               "projectionBasis": "cycle_average"
+            },
+            "selection": {
+              "status": "known",
+              "reclaimPriority": -0.3798
             }
           },
           {
@@ -199,6 +203,10 @@ $ quota-axi --provider claude --json
               "limitingWindowId": "seven_day",
               "projectionConfidence": "established",
               "projectionBasis": "cycle_average"
+            },
+            "selection": {
+              "status": "known",
+              "reclaimPriority": -0.0932
             }
           }
         ]
@@ -350,13 +358,13 @@ It is generated from `src/skill.ts`; update it with `pnpm run build:skill` and v
 
 ## Output Model
 
-The `quota` command's `--json` emits `schemaVersion: 3`.
+The `quota` command's `--json` emits `schemaVersion: 4`.
 
 ### Normalized schema contract
 
 The package publishes TypeScript declarations from its package root, so consumers can use `import type { QuotaAxiResponse, ModelsResponse } from "quota-axi"`. The adapter contract is `ProviderAdapter` in and normalized `ProviderQuota` out: adapters report observed quota data, never rank, mutate provider state, or retain raw responses.
 
-`schemaVersion` is command-specific. Additive optional fields do not bump it. A semantic or incompatible shape change does. The `quota` report is version 3, `auth` is version 1, and `models` is version 1.
+`schemaVersion` is command-specific. Additive optional fields do not bump it. A semantic or incompatible shape change does. The `quota` report is version 4, `auth` is version 1, and `models` is version 1.
 
 ### Quota report shape
 
@@ -399,7 +407,7 @@ Claude credential failures without a usable access token preserve the precise `c
 | Required  | `id`, `label`, `kind`                                                                           |
 | Optional  | Percentages, `startsAt`, reset fields, `windowSeconds`, credit-spend fields, and derived `pace` |
 
-Do not interpret a model window's percentage in isolation. `quotaSemantics.effectiveAvailability` reports the effective percentage for each understood scope, the complete `boundedBy` window set used to compute it, the currently limiting window IDs, and an effective `runway` aggregate. `all_models` applies to any model without a more specific scope; a matching `model:*` scope includes both account and model-specific bounds. Grok uses the analogous `all_products` and `product:*` scopes.
+Do not interpret a model window's percentage in isolation. `quotaSemantics.effectiveAvailability` reports the effective percentage for each understood scope, the complete `boundedBy` window set used to compute it, the currently limiting window IDs, an effective `runway` aggregate, and a per-scope [`selection`](#per-scope-selection-signal) signal. `all_models` applies to any model without a more specific scope; a matching `model:*` scope includes both account and model-specific bounds. Grok uses the analogous `all_products` and `product:*` scopes.
 
 A model-specific `scope` names the model window or the shared model prefix when multiple period windows describe one Codex model.
 
@@ -407,7 +415,7 @@ A model-specific `scope` names the model window or the shared model prefix when 
 
 Cursor's recognized windows (`included_usage`, `auto_usage`, `api_usage`, and optional `spend_limit`) all draw on the same plan billing cycle, so quota-axi treats them as jointly bounding and reports an `all_models` effective remaining equal to the lowest of them. That is the conservative reading: it never overstates headroom. An unfamiliar Cursor window is not folded into that minimum and does not create a bound of its own - it stays named in `unresolvedWindowIds` and turns the provider's semantics `partial` while the recognized-window bound remains. GitHub Copilot's window relationships are still unknown, so it reports no effective remaining.
 
-For every stale provider report, raw windows remain available for diagnostics but effective availability is always `unknown` and omits `effectivePercentRemaining` and `limitingWindowIds`. Window pace is `unknown` with reason `stale`, and each effective pace summary and effective `runway` is also `unknown` with its unmeasurable bounds named. Routing agents must not treat a stale raw percentage as current headroom.
+For every stale provider report, raw windows remain available for diagnostics but effective availability is always `unknown` and omits `effectivePercentRemaining` and `limitingWindowIds`. Window pace is `unknown` with reason `stale`, and each effective pace summary, effective `runway`, and `selection` is also `unknown` with its unmeasurable bounds named. Routing agents must not treat a stale raw percentage as current headroom.
 
 ### Pace signals
 
@@ -443,13 +451,15 @@ Pace is calculated only from trusted cycle evidence:
 - Otherwise use provider-owned `windowSeconds` with `resetsAt` (Codex durations; Claude fixed 5h/7d; Kimi fixed 5h/weekly).
 - Do not infer monthly, rolling, or unlabeled periods.
 
-Default TOON keeps token cost low: window rows expose `pace` status, while effective rows make effective headroom and usable runway primary. It intentionally omits raw numeric reserve columns. `--full` adds reserve and per-window projection diagnostics to TOON, and `--json` always retains them. Pace is recomputed on every report from `generatedAt` and is not written to the quota cache.
+Default TOON keeps token cost low: window rows expose `pace` status, while effective rows make effective headroom and usable runway primary. It intentionally omits raw numeric reserve columns. `--full` adds reserve and per-window projection diagnostics to TOON, and `--json` always retains them. Pace, runway, and `selection` are recomputed on every report from `generatedAt` and are not written to the quota cache.
 
 Each `effectiveAvailability` entry also carries a compact `pace` summary over **every** bounding window for that scope (not only the current lowest-remaining limiter): per-status window lists, including `aheadWindowIds` and `unknownWindowIds`, plus `worstReservePercentPoints` / `worstReserveWindowId` (most negative signed reserve among known-pace windows). Different windows keep their own reset horizons; quota-axi does not invent one synthetic reset for a scope. This is factual inspectable data, never a provider/model routing recommendation.
 
+`pace.worstReservePercentPoints` stays a single-window diagnostic and is deliberately not a scope-level comparative signal. The published per-scope comparative signal is [`selection`](#per-scope-selection-signal), which aggregates every bounding window instead of reporting one extreme.
+
 ### Effective usable runway
 
-`effectiveAvailability[].runway` is an optional, additive `schemaVersion: 3` field derived from every authoritative `boundedBy` window using the report's single `generatedAt` clock. It is completion-risk evidence, not a score or recommendation.
+`effectiveAvailability[].runway` is an optional, additive field derived from every authoritative `boundedBy` window using the report's single `generatedAt` clock. It is completion-risk evidence, not a score or recommendation.
 
 | `runway.status`        | Meaning                                                                                                                                                                                                                                          |
 | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -462,6 +472,40 @@ Each `effectiveAvailability` entry also carries a compact `pace` summary over **
 
 A bounding window with no `resetsAt` at all has not been triggered yet (e.g. a Claude `five_hour` window before its first request this window) rather than being a data gap. When that untriggered window also reports zero usage (100% remaining, 0% used), it is treated as fully available and excluded from `unmeasurableWindowIds`, so it never forces `runway.status: unknown` by itself; the report's other bounding windows still determine the aggregate. Its 100% can still contribute to `effectivePercentRemaining` as a headroom bound. quota-axi never synthesizes a `resetsAt` or starts the countdown client-side. A missing `resetsAt` paired with any other usage shape (unknown usage, or nonzero usage without an active clock) is a real data gap, not "not yet triggered," and still fails closed into `unmeasurableWindowIds` - alongside stale data, missing usage percent, an expired or malformed `resetsAt` that is actually present, and a missing projection when usage is nonzero and the cycle is known.
 
+### Per-scope selection signal
+
+`effectiveAvailability[].selection` is an optional, per-scope object published for every scope quota-axi reports, including `unknown` and stale ones. It is the primary published selection signal: one scalar per scope, comparable across scopes, providers, and (because each provider report carries its own account identity) accounts.
+
+| Field                   | Meaning                                                                             |
+| ----------------------- | ----------------------------------------------------------------------------------- |
+| `status`                | `known` when every bounding window is measurable; otherwise `unknown`               |
+| `reclaimPriority`       | The clamped scope scalar. Present only when `status` is `known`                     |
+| `unmeasurableWindowIds` | Bounding windows without usable pace. Present whenever one made the scope `unknown` |
+
+For each bounding window `w` of the scope:
+
+```text
+S_w         = percentRemaining_w - burnMultiple_w * timeRemainingPercent_w
+gap_w       = S_w / timeRemainingPercent_w
+scopeMetric = SUM(gap_w * cycleSeconds_w) / SUM(cycleSeconds_w)
+```
+
+`S_w` is the percentage points of that window's paid allowance projected to reach reset unused if the observed burn continues. Dividing by `timeRemainingPercent_w` makes windows on different reset clocks comparable, and weighting by `cycleSeconds_w` keeps a short session window from dominating a weekly or monthly one. The result is clamped to `[-100, +100]`.
+
+| `reclaimPriority` | Meaning                                                                                                       |
+| ----------------- | ------------------------------------------------------------------------------------------------------------- |
+| Positive          | Paid allowance is on track to reach reset **unused**; using this scope reclaims otherwise-forfeited allowance |
+| `0`               | Exact utilization: the scope is projected to finish its cycle with nothing left over and nothing overdrawn    |
+| Negative          | Overdrawn against the reset clock                                                                             |
+
+At `burnMultiple` 1, `S_w` reduces exactly to that window's `reservePercentPoints`; the metric generalizes reserve to projected forfeiture at the observed burn pace.
+
+Any bounding window without usable pace makes the **whole scope** unmeasurable: `status` is `unknown`, no scalar is emitted, and `unmeasurableWindowIds` names the blockers. An unknown window is never assumed healthy and never treated as zero. A window whose remaining cycle time has effectively run out is unmeasurable rather than infinite. The one case where an absent `burnMultiple` is not a gap is a window with zero elapsed cycle time and zero usage: nothing can have been consumed yet, so its observed burn is `0` and the scope stays measurable.
+
+`selection` is derived per report from the same `generatedAt` clock as `pace` and `runway`, and is not cached.
+
+**This is data, not routing.** quota-axi still never routes, ranks a winner, orders providers preferentially, proxies, logs in, or mutates provider state. `selection` is a derived comparative _data_ signal computed entirely from figures quota-axi already reports; any routing, ranking, or preference is the consumer's decision. It is also advisory only: it never overrides `runway`, which remains the hard completion-risk evidence a consumer checks against its task horizon.
+
 ### Quota enums
 
 | Name                             | Values                                                                       |
@@ -473,6 +517,7 @@ A bounding window with no `resetsAt` at all has not been triggered yet (e.g. a C
 | Window pace statuses             | `ahead`, `on_pace`, `behind`, or `unknown`                                   |
 | Effective pace statuses          | `ahead`, `on_pace`, `behind`, `mixed`, or `unknown`                          |
 | Effective runway statuses        | `exhausted_now`, `projected_exhaustion`, `through_reset`, or `unknown`       |
+| Effective selection statuses     | `known` or `unknown`                                                         |
 | Pace projection confidence       | `early` or `established`                                                     |
 | Pace cycle basis                 | `starts_at_resets_at` or `window_seconds`                                    |
 | Quota relationship statuses      | `known`, `partial`, or `unknown`                                             |
@@ -592,6 +637,7 @@ Auth source entries can include `credentialPresent` when a non-secret probe conf
 - It sends credential values only to the first-party provider request they authenticate.
 - It never prints, logs, or caches credential values.
 - It never launches the Claude, Cursor, Grok, Pi, or Kimi CLIs, so it cannot spend quota or mutate provider credentials while measuring them.
+- It never routes, ranks a winner, or orders providers preferentially. Derived comparative signals, including `effectiveAvailability[].selection`, are published as data for the consumer to act on.
 
 ### Cache
 

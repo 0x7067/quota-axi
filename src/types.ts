@@ -118,6 +118,39 @@ export type EffectivePaceSummary = {
   worstReserveWindowId?: string;
 };
 
+/**
+ * Published field name of the per-scope selection scalar. Declared once so the
+ * scalar can be renamed in a single line without touching call sites.
+ */
+export const SELECTION_SCALAR_KEY = "reclaimPriority";
+
+/**
+ * Advisory per-scope selection data derived only from already-reported windows.
+ *
+ * When `status` is `known`, the scalar keyed by `SELECTION_SCALAR_KEY` is the
+ * cycle-weighted mean, across the scope's bounding windows, of
+ * `percentRemaining / timeRemainingPercent - burnMultiple`, clamped to
+ * [-100, 100]. Each term is the percentage points of paid allowance projected
+ * to reach reset unused, expressed per point of remaining cycle time. Positive
+ * means the scope is on track to forfeit allowance, `0` is exact utilization,
+ * and negative means it is overdrawn against the reset clock. At
+ * `burnMultiple` 1 each term reduces to the window's `reservePercentPoints`
+ * over the same denominator.
+ *
+ * It is comparative data, not a ranking, an ordering, or a recommendation, and
+ * it never supersedes `runway` as the completion-risk gate.
+ */
+export type EffectiveSelection = Partial<
+  Record<typeof SELECTION_SCALAR_KEY, number>
+> & {
+  status: "known" | "unknown";
+  /**
+   * Bounding windows whose pace is unknown or unusable. Any such window makes
+   * the whole scope unmeasurable and suppresses the scalar.
+   */
+  unmeasurableWindowIds?: string[];
+};
+
 export type QuotaWindow = {
   id: string;
   label: string;
@@ -147,6 +180,12 @@ export type EffectiveAvailability = {
    * from this report's single generatedAt clock. Not cached.
    */
   runway?: EffectiveRunway;
+  /**
+   * Advisory comparative selection data for this scope. Published as data for a
+   * consumer to compare scopes and accounts itself; quota-axi never ranks or
+   * routes. Not cached.
+   */
+  selection?: EffectiveSelection;
 };
 
 export type QuotaSemantics = {
@@ -203,7 +242,7 @@ export type ProviderQuota = {
 
 export type QuotaAxiResponse = {
   generatedAt: string;
-  schemaVersion: 3;
+  schemaVersion: 4;
   providers: ProviderQuota[];
   help?: string[];
 };

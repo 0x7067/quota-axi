@@ -285,7 +285,7 @@ describe("CLI quota rendering", () => {
     const codex = output.providers.find(
       (provider) => provider.provider === "codex",
     );
-    expect(output.schemaVersion).toBe(3);
+    expect(output.schemaVersion).toBe(4);
     expect(claude?.state.reason).toBe("keychain_access_required");
     expect(claude?.state.remedyCommand).toBe(
       "quota-axi --allow-keychain-prompt",
@@ -478,6 +478,10 @@ describe("CLI quota rendering", () => {
         status: "unknown",
         unmeasurableWindowIds: ["five_hour", "seven_day", "model:fable"],
       },
+      selection: {
+        status: "unknown",
+        unmeasurableWindowIds: ["five_hour", "seven_day", "model:fable"],
+      },
     });
   });
 
@@ -525,13 +529,13 @@ describe("CLI quota rendering", () => {
       "windows[2]{provider,id,label,percentRemaining,resetsAt,pace,state}:",
     );
     expect(compact).toContain(
-      "effective[2]{provider,scope,effectivePercentRemaining,boundedBy,limitingWindowIds,runway,usableRunwaySeconds,projectedExhaustedAt,limitingWindowId,projectionConfidence,projectionBasis,unmeasurableWindowIds,unresolvedWindowIds,relationshipStatus}:",
+      "effective[2]{provider,scope,effectivePercentRemaining,reclaimPriority,boundedBy,limitingWindowIds,runway,usableRunwaySeconds,projectedExhaustedAt,limitingWindowId,projectionConfidence,projectionBasis,unmeasurableWindowIds,unresolvedWindowIds,relationshipStatus}:",
     );
     expect(compact).toContain(
-      'claude,all_models,1,five_hour,five_hour,projected_exhaustion,178,"2026-07-15T12:02:58.181Z",five_hour,established,cycle_average,none,none,known',
+      'claude,all_models,1,-0.5102,five_hour,five_hour,projected_exhaustion,178,"2026-07-15T12:02:58.181Z",five_hour,established,cycle_average,none,none,known',
     );
     expect(compact).toContain(
-      'codex,all_models,55,weekly,weekly,projected_exhaustion,258720,"2026-07-18T11:52:00.000Z",weekly,established,cycle_average,none,none,known',
+      'codex,all_models,55,-0.4395,weekly,weekly,projected_exhaustion,258720,"2026-07-18T11:52:00.000Z",weekly,established,cycle_average,none,none,known',
     );
     expect(compact).not.toContain("windowPace[");
     expect(compact).not.toContain("worstReserve");
@@ -564,7 +568,7 @@ describe("CLI quota rendering", () => {
       /kimi,weekly,week,67\.5,"2027-02-08T04:05:06\.000Z",[^,]+,fresh/,
     );
     expect(toon).toContain(
-      "effective[1]{provider,scope,effectivePercentRemaining,boundedBy,limitingWindowIds,runway,usableRunwaySeconds,projectedExhaustedAt,limitingWindowId,projectionConfidence,projectionBasis,unmeasurableWindowIds,unresolvedWindowIds,relationshipStatus}:",
+      "effective[1]{provider,scope,effectivePercentRemaining,reclaimPriority,boundedBy,limitingWindowIds,runway,usableRunwaySeconds,projectedExhaustedAt,limitingWindowId,projectionConfidence,projectionBasis,unmeasurableWindowIds,unresolvedWindowIds,relationshipStatus}:",
     );
     expect(toon).not.toContain("synthetic-kimi-key");
     expect(toon).not.toMatch(/recommend|prefer provider|switch to/i);
@@ -572,7 +576,7 @@ describe("CLI quota rendering", () => {
     const json = JSON.parse(
       await capture(["--provider", "kimi", "--json"]),
     ) as QuotaAxiResponse;
-    expect(json.schemaVersion).toBe(3);
+    expect(json.schemaVersion).toBe(4);
     expect(json.providers).toEqual([
       expect.objectContaining({
         provider: "kimi",
@@ -706,7 +710,7 @@ describe("response redaction", () => {
   it("hides account identity and attempts unless --full is set", () => {
     const response: QuotaAxiResponse = {
       generatedAt: "2026-07-06T18:10:00Z",
-      schemaVersion: 3,
+      schemaVersion: 4,
       providers: [
         {
           provider: "claude",

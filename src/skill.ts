@@ -4,7 +4,7 @@ import { DESCRIPTION, TOP_HELP } from "./cli.js";
 // Kept terse and outcome-focused so it fires on "check quota/rate limits" intents.
 export const SKILL_DESCRIPTION =
   "Report local Claude, Codex, Cursor, GitHub Copilot, Grok, and Kimi quota windows via the quota-axi CLI - remaining " +
-  "effective usable runway, percentages, reset times, cycle-average pace vs the reset clock, and provider status read from local auth sources, " +
+  "effective usable runway, percentages, reset times, cycle-average pace vs the reset clock, a per-scope selection signal, and provider status read from local auth sources, " +
   "with no routing, provider mutation, or default ordering preference. Use before deciding whether it is safe " +
   "to keep spending a provider's quota, when the user asks about usage, rate limits, pace, or " +
   "remaining quota, or when comparing local provider headroom.";
@@ -61,7 +61,10 @@ You do not need quota-axi installed globally - invoke it with \`npx -y quota-axi
 quota-axi is data only: it never routes, recommends a provider, model, harness, credential, or
 route, proxies, intercepts, logs in, imports browser cookies, or mutates provider state. Default
 output has no ordering preference. The explicit \`models --sort runway\` comparator only orders
-quota evidence, preserves ties, and is never a recommendation. It reads local provider auth sources and calls
+quota evidence, preserves ties, and is never a recommendation. quota-axi additionally publishes one
+derived per-scope comparative selection signal, \`effectiveAvailability[].selection\`, as data
+computed from figures it already reports; it still ranks nothing and routes nowhere, and the
+consumer decides what to do with it. It reads local provider auth sources and calls
 first-party provider quota, usage, billing, entitlement, or read-only credential-liveness endpoints; it never launches the
 Claude, Cursor, Grok, Pi, or Kimi CLIs, so it cannot spend the quota it measures.
 
@@ -83,10 +86,17 @@ or when comparing supported local provider headroom side by side.
    \`usableRunwaySeconds\`, \`projectedExhaustedAt\`, limiting window, and confidence; \`through_reset\`
    deliberately has no synthetic deadline; \`exhausted_now\` is zero runway; and \`unknown\` names
    unmeasurable bounds instead of inventing a conclusion. Read each window's \`pace\` (and the
-   effective scope's pace summary) for diagnostics. Default TOON omits raw numeric reserve;
+   effective scope's pace summary) for diagnostics. Each scope also carries \`selection\`: when its
+   \`status\` is \`known\`, \`reclaimPriority\` is a signed, cycle-weighted scalar clamped to
+   [-100, 100] where positive means that scope's paid allowance is on track to reach reset unused,
+   \`0\` is exact utilization, and negative means it is overdrawn against the reset clock. It is
+   comparable across scopes, providers, and accounts, and it is advisory data only: it never
+   overrides \`runway\`, and quota-axi does not rank or route with it. When any bounding window has
+   no usable pace, the whole scope is \`status: "unknown"\` with \`unmeasurableWindowIds\` and no
+   scalar - never read an absent scalar as healthy. Default TOON omits raw numeric reserve;
    \`--json\` and \`--full\` retain it. If relationship status is \`partial\` or \`unknown\`, do not infer
-   one. Stale reports keep raw windows for diagnostics, but effective availability, pace, and
-   runway are always unknown; never route from a stale raw percentage as though it were current
+   one. Stale reports keep raw windows for diagnostics, but effective availability, pace, runway,
+   and selection are always unknown; never route from a stale raw percentage as though it were current
    headroom. Default output has no ordering preference. For a provider-native model evidence join,
    use \`npx -y quota-axi models --intelligence high --json\`. This catalog covers Claude, Codex,
    Grok, and Kimi only; its buckets are coarse editorial classifications, not scores. Its response

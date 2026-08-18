@@ -1,5 +1,7 @@
 import {
   compareModelsByRunway,
+  SELECTION_SCALAR_KEY,
+  type EffectiveAvailability,
   type ModelQuotaRecord,
   type ModelsResponse,
   type QuotaAxiResponse,
@@ -7,7 +9,7 @@ import {
 
 const quota: QuotaAxiResponse = {
   generatedAt: "2026-08-05T12:00:00.000Z",
-  schemaVersion: 3,
+  schemaVersion: 4,
   providers: [],
 };
 
@@ -27,5 +29,15 @@ const models: ModelsResponse = {
   models: [model],
 };
 
+const scope: EffectiveAvailability = {
+  scope: "all_models",
+  status: "known",
+  boundedBy: [],
+  selection: { status: "known", [SELECTION_SCALAR_KEY]: 1.5 },
+};
+const reclaimPriority: number | undefined =
+  scope.selection?.[SELECTION_SCALAR_KEY];
+
 void models;
+void reclaimPriority;
 void compareModelsByRunway(model, model);

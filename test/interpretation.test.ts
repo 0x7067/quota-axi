@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { withQuotaSemantics } from "../src/interpretation.js";
-import type { ProviderQuota, QuotaWindow } from "../src/types.js";
+import {
+  SELECTION_SCALAR_KEY,
+  type ProviderQuota,
+  type QuotaWindow,
+} from "../src/types.js";
 
 const GENERATED_AT = "2026-07-15T12:00:00.000Z";
 const WEEK_SECONDS = 604_800;
@@ -328,6 +332,10 @@ describe("quota semantics", () => {
             status: "unknown",
             unmeasurableWindowIds: ["weekly", "limit:2"],
           },
+          selection: {
+            status: "unknown",
+            unmeasurableWindowIds: ["weekly", "limit:2"],
+          },
         },
       ],
       unresolvedWindowIds: ["limit:2"],
@@ -532,5 +540,126 @@ describe("quota semantics", () => {
     expect(result.quotaSemantics?.description).not.toMatch(
       /recommend|prefer|switch|route/i,
     );
+  });
+});
+
+describe("per-scope selection signal", () => {
+  const HOUR_SECONDS = 3_600;
+  const FIVE_HOURS_SECONDS = 18_000;
+  const DAY_SECONDS = 86_400;
+
+  function after(seconds: number): string {
+    return new Date(Date.parse(GENERATED_AT) + seconds * 1000).toISOString();
+  }
+
+  function before(seconds: number): string {
+    return after(-seconds);
+  }
+
+  function scopes(provider: ProviderQuota): Map<string, number | undefined> {
+    const semantics = withQuotaSemantics(provider, GENERATED_AT).quotaSemantics;
+    return new Map(
+      (semantics?.effectiveAvailability ?? []).map((availability) => [
+        availability.scope,
+        availability.selection?.[SELECTION_SCALAR_KEY],
+      ]),
+    );
+  }
+
+  // Claude is under-consuming both account windows; Cursor is tracking its
+  // billing cycle almost exactly; Codex is nearly empty and well ahead of pace.
+  const claude = provider("claude", [
+    window("five_hour", "session", 90, {
+      windowSeconds: FIVE_HOURS_SECONDS,
+      resetsAt: after(3 * HOUR_SECONDS),
+    }),
+    window("seven_day", "weekly", 80, {
+      windowSeconds: WEEK_SECONDS,
+      resetsAt: after(5 * DAY_SECONDS),
+    }),
+    window("model:fable", "model", 95, {
+      windowSeconds: WEEK_SECONDS,
+      resetsAt: after(5 * DAY_SECONDS),
+    }),
+  ]);
+  const cursor = provider("cursor", [
+    window("included_usage", "monthly", 35, {
+      startsAt: before(20 * DAY_SECONDS),
+      resetsAt: after(10 * DAY_SECONDS),
+    }),
+  ]);
+  const codex = provider("codex", [
+    window("five_hour", "session", 5, {
+      windowSeconds: FIVE_HOURS_SECONDS,
+      resetsAt: after(4 * HOUR_SECONDS),
+    }),
+    window("weekly", "weekly", 10, {
+      windowSeconds: WEEK_SECONDS,
+      resetsAt: after(6 * DAY_SECONDS),
+    }),
+  ]);
+
+  it("scores an under-consuming subscription above a fully-utilized one", () => {
+    const claudeAllModels = scopes(claude).get("all_models");
+    const cursorAllModels = scopes(cursor).get("all_models");
+
+    expect(claudeAllModels).toBeCloseTo(0.444, 3);
+    expect(cursorAllModels).toBeCloseTo(0.075, 3);
+    expect(claudeAllModels!).toBeGreaterThan(0);
+    expect(claudeAllModels!).toBeGreaterThan(cursorAllModels!);
+  });
+
+  it("scores the least-consumed model scope highest within a provider", () => {
+    const claudeScopes = scopes(claude);
+    const fable = claudeScopes.get("model:fable");
+
+    expect(fable).toBeCloseTo(0.794, 3);
+    for (const [scope, value] of claudeScopes) {
+      if (scope === "model:fable") continue;
+      expect(fable!).toBeGreaterThan(value!);
+    }
+  });
+
+  it("scores a near-empty provider that is ahead of pace negative", () => {
+    const codexAllModels = scopes(codex).get("all_models");
+
+    expect(codexAllModels).toBeCloseTo(-6.14, 2);
+    expect(codexAllModels!).toBeLessThan(0);
+    expect(codexAllModels!).toBeLessThan(scopes(cursor).get("all_models")!);
+  });
+
+  it("keeps every stale scope's selection unknown with its bounds named", () => {
+    const stale: ProviderQuota = {
+      ...claude,
+      state: {
+        status: "stale",
+        stale: true,
+        refreshedAt: "2026-07-06T18:10:00Z",
+        sourcesTried: ["api"],
+      },
+    };
+
+    for (const availability of withQuotaSemantics(stale, GENERATED_AT)
+      .quotaSemantics!.effectiveAvailability) {
+      expect(availability.selection).toEqual({
+        status: "unknown",
+        unmeasurableWindowIds: availability.boundedBy,
+      });
+    }
+  });
+
+  it("makes a scope unmeasurable when a bounding window has no known pace", () => {
+    const missingCycle = provider("claude", [
+      window("five_hour", "session", 90, {
+        windowSeconds: FIVE_HOURS_SECONDS,
+        resetsAt: after(3 * HOUR_SECONDS),
+      }),
+      window("seven_day", "weekly", 80),
+    ]);
+
+    expect(
+      withQuotaSemantics(missingCycle, GENERATED_AT).quotaSemantics
+        ?.effectiveAvailability[0]?.selection,
+    ).toEqual({ status: "unknown", unmeasurableWindowIds: ["seven_day"] });
   });
 });

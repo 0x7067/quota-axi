@@ -1,6 +1,7 @@
 import { encode } from "@toon-format/toon";
 import { quotaHelpLines } from "./advice.js";
 import { collapseHome } from "./lib/fs.js";
+import { SELECTION_SCALAR_KEY } from "./types.js";
 import type {
   AuthProviderReport,
   ModelsResponse,
@@ -44,6 +45,7 @@ export function renderQuotaToon(
         provider: provider.provider,
         scope: "unresolved",
         effectivePercentRemaining: "unknown" as string | number,
+        [SELECTION_SCALAR_KEY]: "unknown" as string | number,
         boundedBy: "none",
         limitingWindowIds: "unknown",
         runway: "unknown",
@@ -64,6 +66,8 @@ export function renderQuotaToon(
       scope: availability.scope,
       effectivePercentRemaining:
         availability.effectivePercentRemaining ?? ("unknown" as const),
+      [SELECTION_SCALAR_KEY]:
+        availability.selection?.[SELECTION_SCALAR_KEY] ?? ("unknown" as const),
       boundedBy: availability.boundedBy.join(" + ") || "none",
       limitingWindowIds:
         availability.limitingWindowIds?.join(" + ") ?? "unknown",
@@ -136,6 +140,21 @@ export function renderQuotaToon(
         }),
       ),
     );
+    const selection = response.providers.flatMap((provider) =>
+      (provider.quotaSemantics?.effectiveAvailability ?? []).map(
+        (availability) => ({
+          provider: provider.provider,
+          scope: availability.scope,
+          status: availability.selection?.status ?? "unknown",
+          [SELECTION_SCALAR_KEY]:
+            availability.selection?.[SELECTION_SCALAR_KEY] ??
+            ("unknown" as const),
+          unmeasurableWindowIds:
+            availability.selection?.unmeasurableWindowIds?.join(" + ") ??
+            "none",
+        }),
+      ),
+    );
     const accounts = response.providers.map((provider) => ({
       provider: provider.provider,
       email: provider.account?.email ?? "hidden",
@@ -148,6 +167,7 @@ export function renderQuotaToon(
     );
     blocks.push(encode({ windowPace }));
     blocks.push(encode({ effectivePace }));
+    blocks.push(encode({ selection }));
     blocks.push(encode({ accounts }));
     blocks.push(encode({ attempts }));
   }
