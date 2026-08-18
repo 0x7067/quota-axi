@@ -1,0 +1,34 @@
+$ quota-axi --provider copilot
+bin: /Users/kunchen/.no-mistakes/worktrees/6eca570dbcdb/01M09R34XE4GQ85P20J29H4XE2/dist/bin/quota-axi.js
+description: Report local agent-provider quota windows for routing-aware agents
+generatedAt: "2026-08-18T06:28:12.960Z"
+quota[0]:
+exhaustion[0]:
+attention[1]{provider,scope,kind,detail,remedy}:
+  copilot,all,auth_required,GitHub Copilot sign-in required,none
+help[1]:
+  Run `quota-axi --full` for windows, pace, reserve, and account evidence
+[exit 1]
+
+$ quota-axi --provider copilot --json
+{
+  "generatedAt": "2026-08-18T06:28:13.001Z",
+  "schemaVersion": 5,
+  "providers": [
+    {
+      "provider": "copilot",
+      "windows": [],
+      "state": {
+        "status": "auth_required",
+        "stale": false,
+        "error": "GitHub Copilot sign-in required"
+      },
+      "quotaSemantics": {
+        "status": "unknown",
+        "effectiveAvailability": [],
+        "unresolvedWindowIds": []
+      }
+    }
+  ]
+}
+[exit 1]
