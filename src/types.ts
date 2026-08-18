@@ -122,7 +122,7 @@ export type EffectivePaceSummary = {
  * Published field name of the per-scope selection scalar. Declared once so the
  * scalar can be renamed in a single line without touching call sites.
  */
-export const SELECTION_SCALAR_KEY = "reclaimPriority";
+export const SELECTION_SCALAR_KEY = "spendPriority";
 
 /**
  * Advisory per-scope selection data derived only from already-reported windows.

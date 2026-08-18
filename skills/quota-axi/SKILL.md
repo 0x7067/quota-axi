@@ -56,7 +56,7 @@ or when comparing supported local provider headroom side by side.
    deliberately has no synthetic deadline; `exhausted_now` is zero runway; and `unknown` names
    unmeasurable bounds instead of inventing a conclusion. Read each window's `pace` (and the
    effective scope's pace summary) for diagnostics. Each scope also carries `selection`: when its
-   `status` is `known`, `reclaimPriority` is a signed, cycle-weighted scalar clamped to
+   `status` is `known`, `spendPriority` is a signed, cycle-weighted scalar clamped to
    [-100, 100] where positive means that scope's paid allowance is on track to reach reset unused,
    `0` is exact utilization, and negative means it is overdrawn against the reset clock. It is
    comparable across scopes, providers, and accounts, and it is advisory data only: it never

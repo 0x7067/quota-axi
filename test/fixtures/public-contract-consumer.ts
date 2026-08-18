@@ -35,9 +35,9 @@ const scope: EffectiveAvailability = {
   boundedBy: [],
   selection: { status: "known", [SELECTION_SCALAR_KEY]: 1.5 },
 };
-const reclaimPriority: number | undefined =
+const spendPriority: number | undefined =
   scope.selection?.[SELECTION_SCALAR_KEY];
 
 void models;
-void reclaimPriority;
+void spendPriority;
 void compareModelsByRunway(model, model);

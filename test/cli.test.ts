@@ -529,7 +529,7 @@ describe("CLI quota rendering", () => {
       "windows[2]{provider,id,label,percentRemaining,resetsAt,pace,state}:",
     );
     expect(compact).toContain(
-      "effective[2]{provider,scope,effectivePercentRemaining,reclaimPriority,boundedBy,limitingWindowIds,runway,usableRunwaySeconds,projectedExhaustedAt,limitingWindowId,projectionConfidence,projectionBasis,unmeasurableWindowIds,unresolvedWindowIds,relationshipStatus}:",
+      "effective[2]{provider,scope,effectivePercentRemaining,spendPriority,boundedBy,limitingWindowIds,runway,usableRunwaySeconds,projectedExhaustedAt,limitingWindowId,projectionConfidence,projectionBasis,unmeasurableWindowIds,unresolvedWindowIds,relationshipStatus}:",
     );
     expect(compact).toContain(
       'claude,all_models,1,-0.5102,five_hour,five_hour,projected_exhaustion,178,"2026-07-15T12:02:58.181Z",five_hour,established,cycle_average,none,none,known',
@@ -568,7 +568,7 @@ describe("CLI quota rendering", () => {
       /kimi,weekly,week,67\.5,"2027-02-08T04:05:06\.000Z",[^,]+,fresh/,
     );
     expect(toon).toContain(
-      "effective[1]{provider,scope,effectivePercentRemaining,reclaimPriority,boundedBy,limitingWindowIds,runway,usableRunwaySeconds,projectedExhaustedAt,limitingWindowId,projectionConfidence,projectionBasis,unmeasurableWindowIds,unresolvedWindowIds,relationshipStatus}:",
+      "effective[1]{provider,scope,effectivePercentRemaining,spendPriority,boundedBy,limitingWindowIds,runway,usableRunwaySeconds,projectedExhaustedAt,limitingWindowId,projectionConfidence,projectionBasis,unmeasurableWindowIds,unresolvedWindowIds,relationshipStatus}:",
     );
     expect(toon).not.toContain("synthetic-kimi-key");
     expect(toon).not.toMatch(/recommend|prefer provider|switch to/i);

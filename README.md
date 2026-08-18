@@ -58,7 +58,7 @@ windows[15]{provider,id,label,percentRemaining,resetsAt,pace,state}:
   grok,credits,credits,67,"2026-04-01T00:00:00.000Z",behind,fresh
   kimi,weekly,week,74,"2026-03-20T12:17:02.400Z",behind,fresh
   kimi,five_hour,session,88,"2026-03-15T20:45:00.000Z",behind,fresh
-effective[9]{provider,scope,effectivePercentRemaining,reclaimPriority,boundedBy,limitingWindowIds,runway,usableRunwaySeconds,projectedExhaustedAt,limitingWindowId,projectionConfidence,projectionBasis,unmeasurableWindowIds,unresolvedWindowIds,relationshipStatus}:
+effective[9]{provider,scope,effectivePercentRemaining,spendPriority,boundedBy,limitingWindowIds,runway,usableRunwaySeconds,projectedExhaustedAt,limitingWindowId,projectionConfidence,projectionBasis,unmeasurableWindowIds,unresolvedWindowIds,relationshipStatus}:
   claude,all_models,64,-0.3798,"five_hour + seven_day",seven_day,projected_exhaustion,298906,"2026-03-19T03:43:45.600Z",seven_day,established,cycle_average,none,none,known
   claude,seven_day_opus,64,0.3218,"five_hour + seven_day + seven_day_opus",seven_day,projected_exhaustion,298906,"2026-03-19T03:43:45.600Z",seven_day,established,cycle_average,none,none,known
   claude,"model:fable",64,-0.0932,"five_hour + seven_day + model:fable",seven_day,projected_exhaustion,298906,"2026-03-19T03:43:45.600Z",seven_day,established,cycle_average,none,none,known
@@ -180,7 +180,7 @@ $ quota-axi --provider claude --json
             },
             "selection": {
               "status": "known",
-              "reclaimPriority": -0.3798
+              "spendPriority": -0.3798
             }
           },
           {
@@ -206,7 +206,7 @@ $ quota-axi --provider claude --json
             },
             "selection": {
               "status": "known",
-              "reclaimPriority": -0.0932
+              "spendPriority": -0.0932
             }
           }
         ]
@@ -451,7 +451,7 @@ Pace is calculated only from trusted cycle evidence:
 - Otherwise use provider-owned `windowSeconds` with `resetsAt` (Codex durations; Claude fixed 5h/7d; Kimi fixed 5h/weekly).
 - Do not infer monthly, rolling, or unlabeled periods.
 
-Default TOON keeps token cost low: window rows expose `pace` status, while effective rows put `reclaimPriority` immediately after effective headroom and retain usable runway evidence. It intentionally omits raw numeric reserve columns. `--full` adds reserve, per-window projection diagnostics, and a `selection[]` block with status and unmeasurable bounds; `--json` always retains the normalized selection and diagnostic objects. Pace, runway, and `selection` are recomputed on every report from `generatedAt` and are not written to the quota cache.
+Default TOON keeps token cost low: window rows expose `pace` status, while effective rows put `spendPriority` immediately after effective headroom and retain usable runway evidence. It intentionally omits raw numeric reserve columns. `--full` adds reserve, per-window projection diagnostics, and a `selection[]` block with status and unmeasurable bounds; `--json` always retains the normalized selection and diagnostic objects. Pace, runway, and `selection` are recomputed on every report from `generatedAt` and are not written to the quota cache.
 
 Each `effectiveAvailability` entry also carries a compact `pace` summary over **every** bounding window for that scope (not only the current lowest-remaining limiter): per-status window lists, including `aheadWindowIds` and `unknownWindowIds`, plus `worstReservePercentPoints` / `worstReserveWindowId` (most negative signed reserve among known-pace windows). Different windows keep their own reset horizons; quota-axi does not invent one synthetic reset for a scope. This is factual inspectable data, never a provider/model routing recommendation.
 
@@ -479,7 +479,7 @@ A bounding window with no `resetsAt` at all has not been triggered yet (e.g. a C
 | Field                   | Meaning                                                                             |
 | ----------------------- | ----------------------------------------------------------------------------------- |
 | `status`                | `known` when every bounding window is measurable; otherwise `unknown`               |
-| `reclaimPriority`       | The clamped scope scalar. Present only when `status` is `known`                     |
+| `spendPriority`         | The clamped scope scalar. Present only when `status` is `known`                     |
 | `unmeasurableWindowIds` | Bounding windows without usable pace. Present whenever one made the scope `unknown` |
 
 For each bounding window `w` of the scope:
@@ -492,13 +492,13 @@ scopeMetric = SUM(gap_w * cycleSeconds_w) / SUM(cycleSeconds_w)
 
 `S_w` is the percentage points of that window's paid allowance projected to reach reset unused if the observed burn continues. Dividing by `timeRemainingPercent_w` makes windows on different reset clocks comparable, and weighting by `cycleSeconds_w` keeps a short session window from dominating a weekly or monthly one. The result is clamped to `[-100, +100]`.
 
-| `reclaimPriority` | Meaning                                                                                                       |
-| ----------------- | ------------------------------------------------------------------------------------------------------------- |
-| Positive          | Paid allowance is on track to reach reset **unused**; using this scope reclaims otherwise-forfeited allowance |
-| `0`               | Exact utilization: the scope is projected to finish its cycle with nothing left over and nothing overdrawn    |
-| Negative          | Overdrawn against the reset clock                                                                             |
+| `spendPriority` | Meaning                                                                                                                     |
+| --------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| Positive        | Paid allowance is on track to reach reset **unused**, so spending here reclaims allowance that would otherwise be forfeited |
+| `0`             | Exact utilization: the scope is projected to finish its cycle with nothing left over and nothing overdrawn                  |
+| Negative        | Overdrawn against the reset clock                                                                                           |
 
-At `burnMultiple` 1, `S_w` reduces exactly to that window's `reservePercentPoints`; the metric generalizes reserve to projected forfeiture at the observed burn pace.
+A higher `spendPriority` therefore marks the scope where spending recovers the most paid allowance that would otherwise expire unused. At `burnMultiple` 1, `S_w` reduces exactly to that window's `reservePercentPoints`; the metric generalizes reserve to projected forfeiture at the observed burn pace.
 
 Any bounding window without usable pace makes the **whole scope** unmeasurable: `status` is `unknown`, no scalar is emitted, and `unmeasurableWindowIds` names the blockers. An unknown window is never assumed healthy and never treated as zero. A window whose remaining cycle time has effectively run out is unmeasurable rather than infinite. The one case where an absent `burnMultiple` is not a gap is a window with zero elapsed cycle time and zero usage: nothing can have been consumed yet, so its observed burn is `0` and the scope stays measurable.
 
