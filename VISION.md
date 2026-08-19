@@ -26,7 +26,7 @@ It never logs in, never creates an identity, and never runs anything that spends
 It never drives a browser or imports browser state or cookies, because a surface built for a human page is flaky and yields numbers it cannot verify.
 Renewing a short-lived credential through its own first-party grant is allowed when that is what stands between quota-axi and an accurate report, and the renewed value is written back to the exact source it came from so later runs stay accurate too.
 Running a vendor's own read-only command to learn auth state is allowed for the same reason and under the same limit.
-A credential value leaves the process only as the bearer of the first-party request it authenticates, and is never printed, logged, cached, or written into a test fixture.
+A credential value leaves the process only as the bearer of the first-party request it authenticates or as a renewed value written back to its exact source, and is never printed, logged, cached, or written into a test fixture.
 A credential the user supplies explicitly is as legitimate a source as one discovered on disk, because people run this in more shapes than one machine with one seat.
 
 ## Absent data stays absent
@@ -35,7 +35,7 @@ Every number reported is a number a provider reported or a figure derived from e
 It never invents a window duration, a reset deadline, a relationship between windows, or a percentage.
 A conservative rule such as taking the lowest window as the effective bound applies only where that relationship is established as a fact about that provider, never as a default where relationships are unknown.
 Uncertainty gets louder as it propagates: an unmeasurable scope publishes no row, `spendPriority` renders the literal `unknown` rather than `0`, and an unknown pace marker is omitted rather than drawn.
-A number that has stopped being true is never published as a current one, because it misleads the agent acting on it, and a failed read is reported as a failed read.
+A number that has stopped being true is never served, even when labelled with its age and provenance, because it misleads the agent acting on it, and a failed read is reported as a failed read.
 
 ## Fixes land as machinery
 
