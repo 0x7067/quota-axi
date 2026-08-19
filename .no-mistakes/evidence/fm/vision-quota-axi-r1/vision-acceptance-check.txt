@@ -1,0 +1,14 @@
+VISION.md end-user document acceptance checks
+Base: b8b1a2c39c20dff0634cdb1548eac7c170e0164d
+Target: 4bdd0d86bdf3843f496f87768f9c166a3ad14181
+Changed paths: AGENTS.md, VISION.md
+[PASS] from-scratch baseline has no VISION.md
+[PASS] worktree VISION.md is byte-identical to target commit
+[PASS] documentation-only changed paths are exactly AGENTS.md and VISION.md
+[PASS] VISION.md is exactly 70 lines
+[PASS] plain hyphens only (no em dash)
+[PASS] each prose line is one complete line-ending sentence
+[PASS] identity opener uses required exists-so-that form
+[PASS] identity opener names exactly one owned surface
+[PASS] explicit Scope section exists
+[PASS] closing align/resist pair is present at the end
