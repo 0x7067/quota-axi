@@ -2,6 +2,9 @@
 
 This file is the project's committed home for project-intrinsic agent knowledge: build, test, release, architecture, and sharp-edge notes that should travel with the code.
 
+- [VISION.md](VISION.md) is the project's acceptance policy, co-authored with the repo owner against 17 recorded hypothetical verdicts; check a proposed surface against its closing aligns/resisted tests before building it.
+  It deliberately sits ahead of today's implementation in places: accuracy of the reported number is the first obligation, and boundaries such as read-only and never-launch hold as "least action that yields a true reading" rather than as absolutes.
+  README Security Posture remains the description of what actually ships today; do not restate VISION.md wording as a current guarantee.
 - quota-axi is data only.
 - It reports local Claude, Codex, Cursor, GitHub Copilot, Grok, and Kimi quota windows, and it must never route, recommend, rank a winner, order providers preferentially, proxy, intercept, log in, import browser cookies, or mutate provider state.
 - Data-only reconciliation: quota-axi does publish one derived per-scope comparative selection signal (`effectiveAvailability[].selection`), computed purely from figures it already reports. That is data, not routing - the consumer does any routing or ranking. Keep this distinction in `src/skill.ts` and README wording; never claim quota-axi recommends or ranks.
