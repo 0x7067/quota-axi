@@ -40,12 +40,11 @@ jobs:
       - run: npm publish --access public --provenance
         if: ${{ steps.release.outputs.release_created }}
 
-  # release-please opens its release PR with GITHUB_TOKEN, and GitHub creates no
-  # workflow runs for such PRs (verified on quota-axi PR #107: its head commit
-  # carried zero check runs and zero statuses). The "PR must be raised via
-  # no-mistakes" required check can therefore never report on a release PR by
-  # itself, which would leave every release blocked on a status that can never
-  # arrive.
+  # release-please opens its release PR with GITHUB_TOKEN. A pull_request
+  # workflow may be recorded as action_required, but it does not execute or
+  # emit the "PR must be raised via no-mistakes" check context. The required
+  # check can therefore never report on a release PR by itself, which would
+  # leave every release blocked on a status that can never arrive.
   #
   # Publish that status here instead, reusing the very same gate script the
   # required check runs, so the exemption decision has exactly one

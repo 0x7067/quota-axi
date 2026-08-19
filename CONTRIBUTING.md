@@ -9,8 +9,9 @@ We require this to reduce the maintainer's burden of reviewing and merging contr
 `no-mistakes` puts a local git proxy in front of your real remote.
 Pushing through it runs an AI-driven review/test/lint pipeline in an isolated worktree, forwards the push upstream only after every check passes, and opens a clean PR automatically.
 
-A GitHub Actions check (`Require no-mistakes`, published as the `PR must be raised via no-mistakes` status) runs on every PR targeting `main` and fails if the body is missing the deterministic signature that no-mistakes writes.
-It is a required status check on `main`, so a PR without the signature cannot be merged.
+For ordinary PRs targeting `main`, the `Require no-mistakes` workflow publishes the `PR must be raised via no-mistakes` status and fails if the body is missing the deterministic signature that no-mistakes writes. Release PRs opened with `GITHUB_TOKEN` cannot produce that pull-request check, so the push-triggered release workflow publishes the same context after applying the structural exemption below.
+
+The repository's `main` ruleset must require this context for enforcement; the workflow alone is advisory. Once required, a human-authored PR without the signature cannot be merged without an authorized ruleset bypass.
 
 Two exemptions exist, and both are decided by one script, [`.github/scripts/no-mistakes-gate.sh`](.github/scripts/no-mistakes-gate.sh):
 
