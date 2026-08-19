@@ -1,6 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -19,10 +18,23 @@ const requiredCheckContext = "PR must be raised via no-mistakes";
 
 type WorkflowStep = {
   name?: string;
+  if?: unknown;
   run?: string;
+  uses?: string;
+  with?: Record<string, unknown>;
   env?: Record<string, string>;
 };
 type WorkflowJob = { name?: string; if?: unknown; steps?: WorkflowStep[] };
+type WorkflowDocument = {
+  on?: Record<string, unknown>;
+  true?: Record<string, unknown>;
+  permissions?: Record<string, unknown>;
+  jobs?: Record<string, WorkflowJob>;
+};
+
+function loadGateWorkflow(): WorkflowDocument {
+  return loadYaml(readFileSync(gateWorkflowPath, "utf8")) as WorkflowDocument;
+}
 
 /**
  * The pull_request event fields the gate step reads through its `env:` block.
@@ -61,9 +73,7 @@ function lookup(event: PullRequestEvent, path: string): string {
  * workflow, so these cases drive the deployed configuration rather than a copy.
  */
 function loadGateStep(): Required<Pick<WorkflowStep, "run" | "env">> {
-  const doc = loadYaml(readFileSync(gateWorkflowPath, "utf8")) as {
-    jobs?: Record<string, WorkflowJob>;
-  };
+  const doc = loadGateWorkflow();
   const jobs = Object.entries(doc.jobs ?? {}).filter(
     ([, job]) => job?.name === requiredCheckContext,
   );
@@ -80,7 +90,9 @@ function loadGateStep(): Required<Pick<WorkflowStep, "run" | "env">> {
       `job ${jobId} must not carry a job-level if:; it decides exemptions in the gate script`,
     );
   }
-  const step = (job.steps ?? []).find((s) => (s.run ?? "").trim() !== "");
+  const step = (job.steps ?? []).find(
+    (s) => s.env?.PR_BODY !== undefined && (s.run ?? "").trim() !== "",
+  );
   if (!step?.run) throw new Error(`job ${jobId} has no run: step`);
   if (!step.env || Object.keys(step.env).length === 0) {
     throw new Error("gate step declares no env:, so it can never see the PR");
@@ -108,19 +120,13 @@ function resolveEnv(
 }
 
 /**
- * Run the workflow step's shell exactly as the runner would. `cwd` defaults to
- * the repo root, where the gate script is present; pointing it at an empty
- * directory reproduces the bootstrap case where the PR's base branch predates
- * the script and the checkout yields nothing.
+ * Run the workflow step's shell exactly as the runner would.
  */
-function runGate(
-  event: PullRequestEvent,
-  cwd: string = root,
-): { passed: boolean; output: string } {
+function runGate(event: PullRequestEvent): { passed: boolean; output: string } {
   const step = loadGateStep();
   try {
     const output = execFileSync("bash", ["-e", "-c", step.run], {
-      cwd,
+      cwd: root,
       env: { ...process.env, ...resolveEnv(step.env, event) },
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
@@ -292,70 +298,47 @@ describe("no-mistakes gate decisions", () => {
   }
 });
 
-describe("no-mistakes gate bootstrap fallback", () => {
-  // A base branch that predates .github/scripts/no-mistakes-gate.sh leaves the
-  // sparse checkout empty. The step must still decide, and must decide strictly:
-  // the signature alone, with none of the script's exemptions.
-  const emptyBase = () => mkdtempSync(join(tmpdir(), "quota-axi-gate-"));
-
-  it("passes a PR carrying the no-mistakes signature", () => {
-    const { passed, output } = runGate(
-      {
-        number: 118,
-        body: noMistakesBody,
-        author: "kunchenguid",
-        headRef: "fm/bootstrap",
-        headRepo: repo,
-        baseRepo: repo,
-      },
-      emptyBase(),
-    );
-    expect(passed, output).toBe(true);
-    expect(output).toContain("Base branch predates");
+describe("no-mistakes workflow trust boundary", () => {
+  it("runs only from the base-owned pull_request_target definition", () => {
+    const doc = loadGateWorkflow();
+    const triggers = doc.on ?? doc.true ?? {};
+    expect(triggers.pull_request).toBeUndefined();
+    expect(triggers.pull_request_target).toEqual({
+      types: ["opened", "edited", "synchronize", "reopened"],
+      branches: ["main"],
+    });
+    expect(doc.permissions).toEqual({
+      contents: "read",
+      "pull-requests": "read",
+      statuses: "write",
+    });
   });
 
-  it("fails a PR without the signature", () => {
-    const { passed } = runGate(
-      {
-        number: 119,
-        body: "## Summary\n\nA hand-written pull request.",
-        author: "kunchenguid",
-        headRef: "fix/something",
-        headRepo: repo,
-        baseRepo: repo,
-      },
-      emptyBase(),
+  it("checks out only the trusted base and publishes to the PR head", () => {
+    const doc = loadGateWorkflow();
+    const jobs = Object.values(doc.jobs ?? {}).filter(
+      (job) => job.name === requiredCheckContext,
     );
-    expect(passed).toBe(false);
-  });
+    expect(jobs).toHaveLength(1);
 
-  it("grants no exemption, not even to a structural release PR", () => {
-    const { passed } = runGate(
-      {
-        number: 120,
-        body: releaseBody,
-        author: "github-actions[bot]",
-        headRef: releaseBranch,
-        headRepo: repo,
-        baseRepo: repo,
-      },
-      emptyBase(),
+    const checkout = jobs[0]!.steps?.find(
+      (step) => step.uses === "actions/checkout@v4",
     );
-    expect(passed).toBe(false);
-  });
+    expect(checkout?.with).toMatchObject({
+      ref: "${{ github.event.pull_request.base.sha }}",
+      "persist-credentials": false,
+    });
 
-  it("grants no exemption to dependabot", () => {
-    const { passed } = runGate(
-      {
-        number: 121,
-        body: "Bumps a dependency.",
-        author: "dependabot[bot]",
-        headRef: "dependabot/npm_and_yarn/example-1.2.3",
-        headRepo: repo,
-        baseRepo: repo,
-      },
-      emptyBase(),
+    const statusSteps = (jobs[0]!.steps ?? []).filter(
+      (step) => step.env?.PR_HEAD_SHA !== undefined,
     );
-    expect(passed).toBe(false);
+    expect(statusSteps).toHaveLength(2);
+    for (const step of statusSteps) {
+      expect(step.env?.PR_HEAD_SHA).toBe(
+        "${{ github.event.pull_request.head.sha }}",
+      );
+      expect(step.env?.STATUS_CONTEXT).toBe(requiredCheckContext);
+    }
+    expect(statusSteps.at(-1)?.if).toBe("${{ always() }}");
   });
 });

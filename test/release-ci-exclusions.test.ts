@@ -162,11 +162,8 @@ function isCovered(filter: PathFilter, releasePath: string): boolean {
 }
 
 /**
- * A workflow "backs the required check" when one of its jobs publishes the
- * required context, i.e. its job `name` is exactly that context. Such a
- * workflow is the one place a `paths`/`paths-ignore` filter is forbidden
- * rather than mandatory: a filtered required check never reports, which would
- * block the pull request on a status that can never arrive.
+ * A workflow backs the required check when one of its jobs publishes the
+ * required context, i.e. its job `name` is exactly that context.
  */
 function publishesRequiredCheck(filePath: string): boolean {
   const doc = loadYaml(readFileSync(filePath, "utf8")) as
@@ -181,7 +178,6 @@ function publishesRequiredCheck(filePath: string): boolean {
 type PullRequestWorkflow = {
   name: string;
   filter: PathFilter;
-  backsRequiredCheck: boolean;
 };
 
 function pullRequestWorkflows(): PullRequestWorkflow[] {
@@ -195,7 +191,6 @@ function pullRequestWorkflows(): PullRequestWorkflow[] {
     out.push({
       name,
       filter: pullRequestFilterCoverage(on.pull_request),
-      backsRequiredCheck: publishesRequiredCheck(filePath),
     });
   }
   return out;
@@ -212,29 +207,31 @@ describe("release-please CI exclusions", () => {
     ]);
   });
 
-  it("splits pull_request workflows into the required gate and the rest", () => {
+  it("keeps the required gate outside pull_request workflows", () => {
     const prWorkflows = pullRequestWorkflows();
-
-    // The gate is the single intentional exception to the paths-ignore rule.
+    expect(prWorkflows.map((w) => w.name).sort()).toEqual([
+      "ci.yml",
+      "guard-generated-files.yml",
+    ]);
     expect(
-      prWorkflows.filter((w) => w.backsRequiredCheck).map((w) => w.name),
-    ).toEqual(["no-mistakes-required.yml"]);
+      prWorkflows.some((workflow) =>
+        publishesRequiredCheck(join(workflowsDir, workflow.name)),
+      ),
+    ).toBe(false);
 
-    // Everything else still owes the release-output exclusion.
-    expect(
-      prWorkflows
-        .filter((w) => !w.backsRequiredCheck)
-        .map((w) => w.name)
-        .sort(),
-    ).toEqual(["ci.yml", "guard-generated-files.yml"]);
+    const gatePath = join(workflowsDir, "no-mistakes-required.yml");
+    expect(publishesRequiredCheck(gatePath)).toBe(true);
+    const on = loadWorkflowOn(gatePath);
+    expect(on?.pull_request).toBeUndefined();
+    expect(on?.pull_request_target).toBeDefined();
   });
 
-  it("every non-gate pull_request workflow ignores the full release-output set", () => {
-    const others = pullRequestWorkflows().filter((w) => !w.backsRequiredCheck);
-    expect(others.length).toBeGreaterThan(0);
+  it("every pull_request workflow ignores the full release-output set", () => {
+    const workflows = pullRequestWorkflows();
+    expect(workflows.length).toBeGreaterThan(0);
 
     const failures: string[] = [];
-    for (const { name, filter } of others) {
+    for (const { name, filter } of workflows) {
       const missing = expected.filter((path) => !isCovered(filter, path));
       if (missing.length > 0) {
         failures.push(`${name} missing coverage for: ${missing.join(", ")}`);
@@ -242,15 +239,6 @@ describe("release-please CI exclusions", () => {
     }
 
     expect(failures).toEqual([]);
-  });
-
-  it("the workflow backing the required check carries no path filter", () => {
-    // A required check that is path-filtered never reports on the PRs it
-    // filters out, so the ruleset blocks them on a status that never arrives.
-    // That is exactly what would happen to a release-please PR.
-    const gates = pullRequestWorkflows().filter((w) => w.backsRequiredCheck);
-    expect(gates).toHaveLength(1);
-    expect(gates[0]!.filter).toEqual({ kind: "unfiltered" });
   });
 
   it("the gate decides exemptions in its script, not a job-level if:", () => {
