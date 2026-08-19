@@ -1,22 +1,27 @@
 name: Require no-mistakes
 run-name: "PR #${{ github.event.pull_request.number }} body compliance - ${{ github.event.action }} - event ${{ github.run_number }} (run ${{ github.run_id }})"
 
-# This gate runs from the base branch's trusted workflow definition and never
-# executes pull-request code. It publishes the required context directly on the
-# PR head commit because pull_request_target runs are attached to the base SHA.
+# No paths / paths-ignore filter here, deliberately. This workflow backs a
+# required status check, and a path-filtered required check never reports at
+# all, leaving the PR blocked on a status that can never arrive. That is the
+# one intentional exception to the repo rule that every pull_request workflow
+# excludes the release-please output set; test/release-ci-exclusions.test.ts
+# encodes both halves.
 on:
-  pull_request_target:
+  pull_request:
     types: [opened, edited, synchronize, reopened]
     branches:
       - main
 
 permissions:
   contents: read
-  pull-requests: read
-  statuses: write
 
+# GitHub concurrency groups retain at most one pending run, replacing older
+# pending runs even when cancel-in-progress is false. Give body-bearing events
+# an immutable per-event group so first-time-fork approvals can never collapse
+# opened/edited checks. Keep synchronize/reopened coalescing as before.
 concurrency:
-  group: no-mistakes-required-${{ github.event.pull_request.number }}
+  group: no-mistakes-required-${{ github.event.pull_request.number }}-${{ (github.event.action == 'opened' || github.event.action == 'edited') && github.run_id || 'head-change' }}
   cancel-in-progress: true
 
 jobs:
@@ -24,20 +29,9 @@ jobs:
     name: PR must be raised via no-mistakes
     runs-on: ubuntu-latest
     steps:
-      - name: Mark the required status as pending
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REPO: ${{ github.repository }}
-          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          STATUS_CONTEXT: PR must be raised via no-mistakes
-        run: |
-          gh api --method POST "repos/${REPO}/statuses/${PR_HEAD_SHA}" \
-            -f state=pending \
-            -f context="${STATUS_CONTEXT}" \
-            -f description='verifying no-mistakes signature' \
-            -f target_url="${RUN_URL}" >/dev/null
-
+      # Check out the BASE branch, never the PR head: the gate script must come
+      # from trusted, already-merged code so a pull request cannot weaken the
+      # check that judges it.
       - name: Check out the gate script from the base branch
         uses: actions/checkout@v4
         with:
@@ -47,8 +41,6 @@ jobs:
           persist-credentials: false
 
       - name: Verify no-mistakes signature in PR body
-        id: gate
-        continue-on-error: true
         env:
           PR_BODY: ${{ github.event.pull_request.body }}
           PR_AUTHOR: ${{ github.event.pull_request.user.login }}
@@ -56,30 +48,31 @@ jobs:
           PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
           PR_HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
           PR_BASE_REPO: ${{ github.event.pull_request.base.repo.full_name }}
-        run: bash ./.github/scripts/no-mistakes-gate.sh
-
-      - name: Publish the required status on the PR head
-        if: ${{ always() }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REPO: ${{ github.repository }}
-          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          STATUS_CONTEXT: PR must be raised via no-mistakes
-          GATE_OUTCOME: ${{ steps.gate.outcome }}
         run: |
-          if [ "${GATE_OUTCOME}" = success ]; then
-            state=success
-            description='no-mistakes gate passed'
-          else
-            state=failure
-            description='no-mistakes signature required'
+          set -eu
+          script=./.github/scripts/no-mistakes-gate.sh
+          if [ -f "$script" ]; then
+            bash "$script"
+            exit 0
           fi
-
-          gh api --method POST "repos/${REPO}/statuses/${PR_HEAD_SHA}" \
-            -f state="${state}" \
-            -f context="${STATUS_CONTEXT}" \
-            -f description="${description}" \
-            -f target_url="${RUN_URL}" >/dev/null
-
-          [ "${state}" = success ]
+          # Bootstrap only: a PR whose base predates the gate script (including
+          # the PR that introduces it) has nothing trusted to run. Fall back to
+          # the signature check alone, which grants NO exemptions and is
+          # therefore strictly stricter than the script. Once the script is on
+          # main this branch is unreachable for any PR based on it.
+          echo "::warning::Base branch predates ${script}; falling back to the signature check with no exemptions."
+          marker='Updates from [git push no-mistakes](https://github.com/kunchenguid/no-mistakes)'
+          if printf '%s' "${PR_BODY:-}" | grep -qF -- "$marker"; then
+            echo "Found no-mistakes signature in PR #${PR_NUMBER} body."
+            exit 0
+          fi
+          {
+            echo "::error::This PR was not raised through no-mistakes."
+            echo
+            echo "Its base branch predates ${script}, so only the signature check applies."
+            echo "Rebase onto a main that contains the gate script, or raise the PR"
+            echo "through 'git push no-mistakes'. See CONTRIBUTING.md."
+            echo
+            echo "PR author: ${PR_AUTHOR}"
+          } >&2
+          exit 1
