@@ -93,6 +93,12 @@ function semanticsFor(
         provider.state.untrustedWindowIds ?? [],
         generatedAt,
       );
+    case "zai":
+      return zaiSemantics(
+        provider.windows,
+        provider.state.untrustedWindowIds ?? [],
+        generatedAt,
+      );
     case "cursor":
       return cursorSemantics(provider.windows, generatedAt);
     case "copilot":
@@ -245,29 +251,11 @@ function kimiSemantics(
       effectiveAvailability:
         recognized.length > 0
           ? [
-              {
-                scope: "all_models",
-                status: "unknown",
-                boundedBy: recognized.map(({ id }) => id),
-                pace: summarizeEffectivePace(recognized),
-                runway: {
-                  status: "unknown",
-                  unmeasurableWindowIds: [
-                    ...recognized.map(({ id }) => id),
-                    ...unresolvedWindowIds,
-                  ],
-                },
-                // Unrecognized limits may add bounds this scope cannot see, so
-                // the selection scalar would be computed over an incomplete
-                // bound set. Report it unmeasurable rather than optimistic.
-                selection: {
-                  status: "unknown",
-                  unmeasurableWindowIds: [
-                    ...recognized.map(({ id }) => id),
-                    ...unresolvedWindowIds,
-                  ],
-                },
-              },
+              unresolvedAvailability(
+                "all_models",
+                recognized,
+                unresolvedWindowIds,
+              ),
             ]
           : [],
       unresolvedWindowIds,
@@ -324,6 +312,90 @@ function cursorSemantics(
     effectiveAvailability,
     "Cursor's included, auto, API usage, and spend-limit windows jointly bound every model, so effective remaining is the minimum across the named windows.",
   );
+}
+
+function zaiSemantics(
+  windows: QuotaWindow[],
+  untrustedWindowIds: string[],
+  generatedAt: string,
+): QuotaSemantics {
+  const token = windows.filter(
+    ({ id }) => id === "five_hour" || id === "weekly",
+  );
+  const tool = windows.filter(({ id }) => id === "mcp_month");
+  const recognized = new Set([...token, ...tool]);
+  const unresolved = windows.filter((window) => !recognized.has(window));
+  const unresolvedWindowIds = [
+    ...new Set([...unresolved.map(({ id }) => id), ...untrustedWindowIds]),
+  ];
+  if (unresolvedWindowIds.length > 0) {
+    const effectiveAvailability: EffectiveAvailability[] = [];
+    if (token.length > 0) {
+      effectiveAvailability.push(
+        unresolvedAvailability("all_models", token, unresolvedWindowIds),
+      );
+    }
+    if (tool.length > 0) {
+      effectiveAvailability.push(
+        unresolvedAvailability("tools", tool, unresolvedWindowIds),
+      );
+    }
+    return {
+      status: "partial",
+      description:
+        "Z.AI's five-hour and weekly token windows jointly bound model usage and the monthly tool window is a separate resource, but unfamiliar windows prevent a definitive effective percentage.",
+      effectiveAvailability,
+      unresolvedWindowIds,
+    };
+  }
+
+  const effectiveAvailability: EffectiveAvailability[] = [];
+  if (token.length > 0) {
+    effectiveAvailability.push(availability("all_models", token, generatedAt));
+  }
+  if (tool.length > 0) {
+    effectiveAvailability.push(availability("tools", tool, generatedAt));
+  }
+  return knownSemantics(
+    effectiveAvailability,
+    "Z.AI's five-hour and weekly token windows jointly bound model usage, so effective remaining is the minimum across the named windows. The monthly tool window is an independent resource.",
+  );
+}
+
+/**
+ * Report a scope whose recognized windows are real bounds while unfamiliar
+ * windows may add further bounds, so the effective percentage stays unknown and
+ * every window that could bind the scope is named as unmeasurable.
+ *
+ * @param scope effective-availability scope name
+ * @param windows recognized windows bounding this scope only
+ * @param unresolvedWindowIds windows quota-axi could not place
+ * @returns non-definitive availability entry for the scope
+ */
+function unresolvedAvailability(
+  scope: string,
+  windows: QuotaWindow[],
+  unresolvedWindowIds: string[],
+): EffectiveAvailability {
+  const boundedBy = windows.map(({ id }) => id);
+  const unmeasurableWindowIds = [...boundedBy, ...unresolvedWindowIds];
+  return {
+    scope,
+    status: "unknown",
+    boundedBy,
+    pace: summarizeEffectivePace(windows),
+    runway: {
+      status: "unknown",
+      unmeasurableWindowIds,
+    },
+    // Unrecognized limits may add bounds this scope cannot see, so the
+    // selection scalar would be computed over an incomplete bound set.
+    // Report it unmeasurable rather than optimistic.
+    selection: {
+      status: "unknown",
+      unmeasurableWindowIds,
+    },
+  };
 }
 
 function availability(
