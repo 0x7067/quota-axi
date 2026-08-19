@@ -69,7 +69,13 @@ Releases are cut by release-please from conventional commit messages on `main`; 
 `.release-please-manifest.json` is primed at `0.1.0`, the version already published to npm by hand before release-please was wired up; release-please owns every version after that.
 `release-please-config.json` intentionally sets `bootstrap-sha` to `9f5dc949c50ab8ac0a441be777e1c3693ee0b612`, the commit that produced the already-published npm `0.1.0`; do not retarget it to later scaffolding commits unless the published baseline itself is being corrected.
 Do not hand-edit `CHANGELOG.md` or `.release-please-manifest.json` (a guard workflow blocks PRs that touch them), and regenerate `skills/quota-axi/SKILL.md` with `pnpm run build:skill` instead of editing it directly (`pnpm run build:skill -- --check` in CI fails if it drifts from `src/skill.ts`).
-Every `pull_request` workflow must `paths-ignore` the release-please output set (`.release-please-manifest.json`, `CHANGELOG.md`, `package.json`) so release PRs create zero runs; `test/release-ci-exclusions.test.ts` derives that set from `release-please-config.json` and fails if a workflow drifts.
+Every `pull_request` workflow must `paths-ignore` the release-please output set (`.release-please-manifest.json`, `CHANGELOG.md`, `package.json`), with exactly one deliberate exception: the workflow backing the required check (see Contribution gate) must carry **no** path filter, because a filtered required check never reports and would block the PR on a status that can never arrive. `test/release-ci-exclusions.test.ts` derives the output set from `release-please-config.json`, identifies the gate structurally by its job name, and fails if either half drifts.
+
+## Contribution gate
+
+- [CONTRIBUTING.md](CONTRIBUTING.md) owns the contributor workflow, exemptions, and external ruleset enforcement requirement.
+- `.github/scripts/no-mistakes-gate.sh` is the single executable decision surface. The workflow reads it from the PR's base branch, and `test/no-mistakes-gate.test.ts` covers it through the real workflow step; a base predating the script falls back to the stricter signature-only check.
+- A release PR opened with `GITHUB_TOKEN` may create an `action_required` workflow run but emits no required check context. `release-please.yml` therefore runs the same gate script and publishes that context as a commit status. CI remains intentionally outside the required set because its path filter prevents it from reporting on release PRs.
 
 ## Lockfile formatting
 
