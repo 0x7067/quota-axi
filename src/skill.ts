@@ -3,7 +3,7 @@ import { DESCRIPTION, TOP_HELP } from "./cli.js";
 // Trigger string Claude Code (and other agents) match against to auto-load the skill.
 // Kept terse and outcome-focused so it fires on "check quota/rate limits" intents.
 export const SKILL_DESCRIPTION =
-  "Report local Claude, Codex, Cursor, GitHub Copilot, Grok, Kimi, and Z.AI quota windows via the quota-axi CLI - remaining " +
+  "Report local Claude, Codex, Cursor, GitHub Copilot, Grok, Kimi, Z.AI, and Antigravity quota windows via the quota-axi CLI - remaining " +
   "effective usable runway, percentages, reset times, cycle-average pace vs the reset clock, a per-scope selection signal, and provider status read from local auth sources, " +
   "with no routing, provider mutation, or default ordering preference. Use before deciding whether it is safe " +
   "to keep spending a provider's quota, when the user asks about usage, rate limits, pace, or " +
@@ -25,12 +25,18 @@ export const HERMES_TAGS = [
   "grok",
   "kimi",
   "zai",
+  "agy",
+  "antigravity",
   "cli",
 ];
 export const HERMES_CATEGORY = "observability";
 
 function yamlDoubleQuote(value: string): string {
   return JSON.stringify(value);
+}
+
+function yamlStringList(values: string[], indent: string): string {
+  return values.map((value) => `${indent}- ${value}`).join("\n");
 }
 
 /**
@@ -49,7 +55,8 @@ user-invocable: false
 author: ${SKILL_AUTHOR}
 metadata:
   hermes:
-    tags: [${HERMES_TAGS.join(", ")}]
+    tags:
+${yamlStringList(HERMES_TAGS, "      ")}
     category: ${HERMES_CATEGORY}
 ---
 
@@ -66,8 +73,8 @@ quota evidence, preserves ties, and is never a recommendation. quota-axi additio
 derived per-scope comparative selection signal, \`effectiveAvailability[].selection\`, as data
 computed from figures it already reports; it still ranks nothing and routes nowhere, and the
 consumer decides what to do with it. It reads local provider auth sources and calls
-first-party provider quota, usage, billing, entitlement, or read-only credential-liveness endpoints; it never launches the
-Claude, Cursor, Grok, Pi, Kimi, or opencode CLIs, so it cannot spend the quota it measures.
+first-party provider quota, usage, billing, entitlement, local loopback, or read-only credential-liveness endpoints; it never launches the
+Claude, Cursor, Grok, Pi, Kimi, opencode, or Antigravity/agy CLIs, so it cannot spend the quota it measures.
 
 ## When to use
 
@@ -91,7 +98,7 @@ or when comparing supported local provider headroom side by side.
    unknown or stale headroom gets no \`quota[]\` row at all - read its \`attention[]\` row instead
    of inferring a number. If that scope has finite runway, the attention detail preserves the
    runway verdict and limiting window without creating an orphan \`exhaustion[]\` row.
-2. Scope to one provider with \`--provider claude\` or to a subset with \`--provider cursor,copilot,grok,kimi,zai\`.
+2. Scope to one provider with \`--provider claude\` or to a subset with \`--provider cursor,copilot,grok,kimi,zai,agy\`.
 3. Pass \`--json\` for the normalized machine-readable model instead of TOON. Read
    \`quotaSemantics.effectiveAvailability\` rather than treating a model window in isolation:
    account windows can bound every model, and \`boundedBy\` names every window included in the
@@ -173,6 +180,11 @@ or when comparing supported local provider headroom side by side.
     scope; because the endpoint is undocumented, limits quota-axi cannot identify degrade to
     untrusted \`unknown\` windows and turn the provider's semantics \`partial\` instead of
     producing a confident wrong percentage.
+11. For Antigravity, quota-axi never launches \`agy\`. It discovers only the current user's
+    already-running Antigravity/\`agy\` processes and owned loopback ports, then reads vendor
+    \`remainingFraction\`/\`resetTime\` (or model config fallbacks). Window relationships are
+    unknown, so there is no combined remaining percentage. Pace stays unknown because the
+    snapshot has no honest burn-rate history.
 
 ## Usage
 

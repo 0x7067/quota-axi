@@ -1,3 +1,4 @@
+import { agyAdapter } from "./agy.js";
 import { claudeAdapter } from "./claude.js";
 import { codexAdapter } from "./codex.js";
 import { copilotAdapter } from "./copilot.js";
@@ -19,6 +20,7 @@ export const PROVIDERS: Record<ProviderId, ProviderAdapter> = {
   grok: grokAdapter,
   kimi: kimiAdapter,
   zai: zaiAdapter,
+  agy: agyAdapter,
 };
 
 export function parseProviders(value: string | undefined): ProviderId[] {

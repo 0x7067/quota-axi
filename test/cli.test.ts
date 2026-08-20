@@ -20,6 +20,7 @@ const originalCopilotProvider = PROVIDERS.copilot;
 const originalGrokProvider = PROVIDERS.grok;
 const originalKimiProvider = PROVIDERS.kimi;
 const originalZaiProvider = PROVIDERS.zai;
+const originalAgyProvider = PROVIDERS.agy;
 const originalXdgCacheHome = process.env.XDG_CACHE_HOME;
 let tempDir: string | undefined;
 
@@ -31,6 +32,7 @@ afterEach(() => {
   PROVIDERS.grok = originalGrokProvider;
   PROVIDERS.kimi = originalKimiProvider;
   PROVIDERS.zai = originalZaiProvider;
+  PROVIDERS.agy = originalAgyProvider;
   if (originalXdgCacheHome === undefined) delete process.env.XDG_CACHE_HOME;
   else process.env.XDG_CACHE_HOME = originalXdgCacheHome;
   if (tempDir) rmSync(tempDir, { recursive: true, force: true });
@@ -49,6 +51,7 @@ describe("CLI flag parsing", () => {
       "grok",
       "kimi",
       "zai",
+      "agy",
     ]);
   });
 
@@ -57,6 +60,12 @@ describe("CLI flag parsing", () => {
     expect(
       parseFlags(["--provider=cursor,copilot,grok,kimi"]).providers,
     ).toEqual(["cursor", "copilot", "grok", "kimi"]);
+    expect(parseFlags(["--provider=cursor,copilot,grok"]).providers).toEqual([
+      "cursor",
+      "copilot",
+      "grok",
+    ]);
+    expect(parseFlags(["--provider", "agy"]).providers).toEqual(["agy"]);
   });
 
   it("ignores a standalone argument separator", () => {
@@ -77,6 +86,7 @@ describe("CLI flag parsing", () => {
           "grok",
           "kimi",
           "zai",
+          "agy",
         ],
         json: true,
         full: true,
@@ -705,6 +715,7 @@ describe("default TOON decision blocks", () => {
     PROVIDERS.grok = providerWithQuota(grokModelAuthOnlyQuota());
     PROVIDERS.kimi = providerWithQuota(rateLimitedKimiQuota());
     PROVIDERS.zai = providerWithQuota(freshZaiQuota());
+    PROVIDERS.agy = providerWithQuota(unavailableAgyQuota());
 
     const output = await capture([]);
     const named = new Set([
@@ -713,6 +724,7 @@ describe("default TOON decision blocks", () => {
     ]);
 
     expect([...named].sort()).toEqual([
+      "agy",
       "claude",
       "codex",
       "copilot",
@@ -1037,6 +1049,8 @@ describe("CLI plumbing via the axi SDK", () => {
     PROVIDERS.copilot = providerWithAuth("copilot", "GitHub Copilot");
     PROVIDERS.grok = providerWithAuth("grok", "Grok");
     PROVIDERS.kimi = providerWithAuth("kimi", "Kimi");
+    PROVIDERS.zai = providerWithAuth("zai", "Z.AI");
+    PROVIDERS.agy = providerWithAuth("agy", "Antigravity");
 
     const output = await capture(["--allow-keychain-prompt", "auth"]);
     expect(output).toContain(
@@ -1450,5 +1464,20 @@ function freshZaiQuota(): ProviderQuota {
       sourcesTried: ["opencode:auth.json"],
     },
     attempts: [{ source: "opencode:auth.json", status: "success" }],
+  };
+}
+
+function unavailableAgyQuota(): ProviderQuota {
+  return {
+    provider: "agy",
+    label: "Antigravity",
+    source: "unavailable",
+    windows: [],
+    state: {
+      status: "unavailable",
+      stale: false,
+      error: "Antigravity/agy is not running",
+      sourcesTried: ["loopback"],
+    },
   };
 }

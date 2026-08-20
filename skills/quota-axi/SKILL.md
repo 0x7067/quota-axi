@@ -1,24 +1,24 @@
 ---
 name: quota-axi
-description: "Report local Claude, Codex, Cursor, GitHub Copilot, Grok, Kimi, and Z.AI quota windows via the quota-axi CLI - remaining effective usable runway, percentages, reset times, cycle-average pace vs the reset clock, a per-scope selection signal, and provider status read from local auth sources, with no routing, provider mutation, or default ordering preference. Use before deciding whether it is safe to keep spending a provider's quota, when the user asks about usage, rate limits, pace, or remaining quota, or when comparing local provider headroom."
+description: "Report local Claude, Codex, Cursor, GitHub Copilot, Grok, Kimi, Z.AI, and Antigravity quota windows via the quota-axi CLI - remaining effective usable runway, percentages, reset times, cycle-average pace vs the reset clock, a per-scope selection signal, and provider status read from local auth sources, with no routing, provider mutation, or default ordering preference. Use before deciding whether it is safe to keep spending a provider's quota, when the user asks about usage, rate limits, pace, or remaining quota, or when comparing local provider headroom."
 user-invocable: false
 author: Kun Chen (kunchenguid)
 metadata:
   hermes:
     tags:
-      [
-        quota,
-        rate-limits,
-        pace,
-        claude,
-        codex,
-        cursor,
-        copilot,
-        grok,
-        kimi,
-        zai,
-        cli,
-      ]
+      - quota
+      - rate-limits
+      - pace
+      - claude
+      - codex
+      - cursor
+      - copilot
+      - grok
+      - kimi
+      - zai
+      - agy
+      - antigravity
+      - cli
     category: observability
 ---
 
@@ -35,8 +35,8 @@ quota evidence, preserves ties, and is never a recommendation. quota-axi additio
 derived per-scope comparative selection signal, `effectiveAvailability[].selection`, as data
 computed from figures it already reports; it still ranks nothing and routes nowhere, and the
 consumer decides what to do with it. It reads local provider auth sources and calls
-first-party provider quota, usage, billing, entitlement, or read-only credential-liveness endpoints; it never launches the
-Claude, Cursor, Grok, Pi, Kimi, or opencode CLIs, so it cannot spend the quota it measures.
+first-party provider quota, usage, billing, entitlement, local loopback, or read-only credential-liveness endpoints; it never launches the
+Claude, Cursor, Grok, Pi, Kimi, opencode, or Antigravity/agy CLIs, so it cannot spend the quota it measures.
 
 ## When to use
 
@@ -60,7 +60,7 @@ or when comparing supported local provider headroom side by side.
    unknown or stale headroom gets no `quota[]` row at all - read its `attention[]` row instead
    of inferring a number. If that scope has finite runway, the attention detail preserves the
    runway verdict and limiting window without creating an orphan `exhaustion[]` row.
-2. Scope to one provider with `--provider claude` or to a subset with `--provider cursor,copilot,grok,kimi,zai`.
+2. Scope to one provider with `--provider claude` or to a subset with `--provider cursor,copilot,grok,kimi,zai,agy`.
 3. Pass `--json` for the normalized machine-readable model instead of TOON. Read
    `quotaSemantics.effectiveAvailability` rather than treating a model window in isolation:
    account windows can bound every model, and `boundedBy` names every window included in the
@@ -142,6 +142,11 @@ or when comparing supported local provider headroom side by side.
     scope; because the endpoint is undocumented, limits quota-axi cannot identify degrade to
     untrusted `unknown` windows and turn the provider's semantics `partial` instead of
     producing a confident wrong percentage.
+11. For Antigravity, quota-axi never launches `agy`. It discovers only the current user's
+    already-running Antigravity/`agy` processes and owned loopback ports, then reads vendor
+    `remainingFraction`/`resetTime` (or model config fallbacks). Window relationships are
+    unknown, so there is no combined remaining percentage. Pace stays unknown because the
+    snapshot has no honest burn-rate history.
 
 ## Usage
 
@@ -152,10 +157,11 @@ commands[3]:
 output:
   Default TOON reports local quota evidence. models is a deterministic data join; --sort runway is explicit opt-in ordering. --tui renders a live human terminal report instead (q quits).
 flags[11]:
-  --provider <claude,codex,cursor,copilot,grok,kimi,zai>, --json, --full, --tui, --refresh <30s-24h>, --once, --allow-keychain-prompt, --intelligence <high|medium|low>, --sort <runway>, --help, -v/--version
+  --provider <claude,codex,cursor,copilot,grok,kimi,zai,agy>, --json, --full, --tui, --refresh <30s-24h>, --once, --allow-keychain-prompt, --intelligence <high|medium|low>, --sort <runway>, --help, -v/--version
 examples:
   quota-axi
   quota-axi --provider claude
+  quota-axi --provider agy
   quota-axi --provider cursor,copilot,grok,kimi,zai
   quota-axi --json
   quota-axi --full
