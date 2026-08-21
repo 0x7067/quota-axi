@@ -35,6 +35,8 @@ type PullRequestEvent = {
   headRef: string;
   headRepo: string;
   baseRepo: string;
+  /** The PR's current head commit; defaults to the attested `headSha`. */
+  headSha?: string;
 };
 
 function lookup(event: PullRequestEvent, path: string): string {
@@ -51,6 +53,8 @@ function lookup(event: PullRequestEvent, path: string): string {
       return event.headRepo;
     case "github.event.pull_request.base.repo.full_name":
       return event.baseRepo;
+    case "github.event.pull_request.head.sha":
+      return event.headSha ?? headSha;
     default:
       throw new Error(`gate step references unsupported expression: ${path}`);
   }
@@ -471,6 +475,67 @@ describe.runIf(jqAvailable)("no-mistakes gate pipeline attestation", () => {
     expect(passed, output).toBe(true);
   });
 
+  // Head binding: the attestation describes the commit no-mistakes ran on, so
+  // an attestation naming any other commit says nothing about what is being
+  // merged. A synchronize whose body was not rewritten by no-mistakes going red
+  // is the contract, not a false positive.
+  function gateAtHead(
+    body: string,
+    prHeadSha: string,
+  ): { passed: boolean; output: string } {
+    return runGate({
+      number: 132,
+      body,
+      author: "kunchenguid",
+      headRef: "fm/some-work",
+      headRepo: repo,
+      baseRepo: repo,
+      headSha: prHeadSha,
+    });
+  }
+
+  it("accepts an attestation whose head_sha is the PR's current head", () => {
+    const { passed, output } = gateAtHead(
+      pipelineBody(attestationPayload(healthySteps)),
+      headSha,
+    );
+    expect(passed, output).toBe(true);
+    expect(output).toContain(`Attestation head_sha: ${headSha}`);
+  });
+
+  it("rejects an attestation whose head_sha is not the PR's current head", () => {
+    const currentHead = "0000000000000000000000000000000000000000";
+    const { passed, output } = gateAtHead(
+      pipelineBody(attestationPayload(healthySteps)),
+      currentHead,
+    );
+    expect(passed).toBe(false);
+    expect(output).toContain("attestation is STALE for the current head");
+    expect(output).toContain("Re-run 'git push no-mistakes' to refresh it");
+    expect(output).toContain(headSha);
+    expect(output).toContain(currentHead);
+  });
+
+  it("fails closed when the attestation carries no head_sha at all", () => {
+    const payload = JSON.stringify({
+      steps: healthySteps.map(([step, status]) => ({ step, status })),
+    });
+    const { passed, output } = gateAtHead(pipelineBody(payload), headSha);
+    expect(passed).toBe(false);
+    expect(output).toContain("attestation is STALE for the current head");
+    expect(output).toContain("Attestation head_sha: (absent)");
+  });
+
+  it("fails closed when the PR head sha is unavailable", () => {
+    const { passed, output } = gateAtHead(
+      pipelineBody(attestationPayload(healthySteps)),
+      "",
+    );
+    expect(passed).toBe(false);
+    expect(output).toContain("attestation is STALE for the current head");
+    expect(output).toContain("PR head sha:          (absent)");
+  });
+
   it("leaves the structural release-please exemption unaffected", () => {
     // A release PR carries no signature and no attestation; the structural
     // exemption must still pass it.
@@ -481,6 +546,9 @@ describe.runIf(jqAvailable)("no-mistakes gate pipeline attestation", () => {
       headRef: releaseBranch,
       headRepo: repo,
       baseRepo: repo,
+      // The exemption is decided before the attestation and head-sha checks, so
+      // a release PR passes even though its head matches no attestation.
+      headSha: "1111111111111111111111111111111111111111",
     });
     expect(passed, output).toBe(true);
     expect(output).toContain("release-please release PR");
