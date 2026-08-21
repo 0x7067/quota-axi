@@ -13,6 +13,8 @@ For ordinary PRs targeting `main`, the `Require no-mistakes` workflow publishes 
 
 The gate checks two things, not one: the human-readable signature, which proves the pipeline wrote the body, and the machine-readable `<!-- no-mistakes-pipeline-attestation:v1 {...} -->` comment written beside it, whose `steps[]` must record `review`, `test`, and `document` as `completed`. A step that was skipped (with `--skip`, at a gate, or because the agent was unavailable or out of quota), failed, or never finished is not accepted, and an unreadable attestation fails closed. Writing the attestation requires no-mistakes **v1.46.0** or newer; on an older version, run `no-mistakes update` and push again.
 
+The attestation is also bound to the commit it describes: its `head_sha` must equal the pull request's current head. Pushing a commit after the no-mistakes run leaves the body's attestation describing older code, so the gate goes red until you re-run `git push no-mistakes` to refresh it. That is the contract, not a false positive.
+
 The repository's `main` ruleset must require this context for enforcement; the workflow alone is advisory. Once required, a human-authored PR without the signature cannot be merged without an authorized ruleset bypass.
 
 Two exemptions exist, and both are decided by one script, [`.github/scripts/no-mistakes-gate.sh`](.github/scripts/no-mistakes-gate.sh):

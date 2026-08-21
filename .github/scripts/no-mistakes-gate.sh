@@ -10,8 +10,10 @@
 #   * it is structurally a release-please release PR (see below).
 #
 # The signature alone only proves the pipeline wrote the body; the attestation
-# (no-mistakes >= 1.46.0) proves which steps actually ran. Both are required of
-# a pipeline-raised PR. The exemptions below need neither.
+# (no-mistakes >= 1.46.0) proves which steps actually ran, and its head_sha must
+# name the PR's current head so a commit pushed after the run cannot ride on a
+# stale attestation. All of that is required of a pipeline-raised PR. The
+# exemptions below need none of it.
 #
 # The release-please exemption is deliberately STRUCTURAL, never author identity.
 # release-please opens quota-axi's release PRs as github-actions[bot] today, but
@@ -24,7 +26,8 @@
 # workflow's status-stamping job can reuse the very same decision.
 #
 # Inputs (environment):
-#   PR_BODY, PR_AUTHOR, PR_NUMBER, PR_HEAD_REF, PR_HEAD_REPO, PR_BASE_REPO
+#   PR_BODY, PR_AUTHOR, PR_NUMBER, PR_HEAD_REF, PR_HEAD_REPO, PR_BASE_REPO,
+#   PR_HEAD_SHA
 # External tools: jq (attestation parsing only; the exemption paths never use it).
 # Exit status: 0 = pass, 1 = fail.
 set -eu
@@ -42,6 +45,7 @@ pr_number="${PR_NUMBER:-unknown}"
 pr_head_ref="${PR_HEAD_REF:-}"
 pr_head_repo="${PR_HEAD_REPO:-}"
 pr_base_repo="${PR_BASE_REPO:-}"
+pr_head_sha="${PR_HEAD_SHA:-}"
 
 body_contains() {
     printf '%s' "$pr_body" | grep -qF -- "$1"
@@ -178,7 +182,30 @@ verify_attestation() {
         return 1
     fi
 
-    echo "Attestation head_sha: $(printf '%s' "$payload" | jq -r '.head_sha // "(absent)"')"
+    attested_head="$(printf '%s' "$payload" | jq -r '.head_sha // ""')"
+    echo "Attestation head_sha: ${attested_head:-(absent)}"
+
+    # Head binding. The attestation describes the commit no-mistakes ran its
+    # steps on; a later push moves the PR head without rewriting the body, so an
+    # attestation that does not name the current head proves nothing about the
+    # code being merged. A `synchronize` whose body was NOT rewritten by
+    # no-mistakes going red is the intended contract, not a false positive.
+    if [ -z "$attested_head" ] || [ -z "$pr_head_sha" ] || [ "$attested_head" != "$pr_head_sha" ]; then
+        echo "::error::The no-mistakes pipeline attestation is STALE for the current head of PR #${pr_number}."
+        {
+            echo
+            echo "Attestation head_sha: ${attested_head:-(absent)}"
+            echo "PR head sha:          ${pr_head_sha:-(absent)}"
+            echo
+            echo "A commit was pushed after the no-mistakes run, so the attestation does not"
+            echo "describe the code this PR now proposes to merge."
+            echo
+            echo "Re-run 'git push no-mistakes' to refresh it."
+            echo
+            echo "PR author: ${pr_author}"
+        } >&2
+        return 1
+    fi
 
     tab="$(printf '\t')"
     gate_status=0

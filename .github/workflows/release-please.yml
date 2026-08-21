@@ -88,7 +88,7 @@ jobs:
               " PR_BASE_REPO=" + (.base.repo.full_name|@sh) +
               " PR_HEAD_SHA=" + (.head.sha|@sh) +
               " PR_BODY=" + ((.body // "")|@sh)')"
-            export PR_NUMBER PR_AUTHOR PR_HEAD_REF PR_HEAD_REPO PR_BASE_REPO PR_BODY
+            export PR_NUMBER PR_AUTHOR PR_HEAD_REF PR_HEAD_REPO PR_BASE_REPO PR_HEAD_SHA PR_BODY
 
             # Overriding PR_AUTHOR defeats the script's bot exemption on
             # purpose, so a status is stamped only when the STRUCTURAL

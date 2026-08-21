@@ -48,6 +48,10 @@ jobs:
           PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
           PR_HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
           PR_BASE_REPO: ${{ github.event.pull_request.base.repo.full_name }}
+          # Head binding: the gate script requires the attestation's head_sha to
+          # equal this, so a commit pushed after the no-mistakes run cannot pass
+          # on the stale attestation left in the body.
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -eu
           script=./.github/scripts/no-mistakes-gate.sh
