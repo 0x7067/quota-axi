@@ -1,18 +1,17 @@
 name: Require no-mistakes
 run-name: "PR #${{ github.event.pull_request.number }} body compliance - ${{ github.event.action }} - event ${{ github.run_number }} (run ${{ github.run_id }})"
 
+# No paths / paths-ignore filter here, deliberately. This workflow backs a
+# required status check, and a path-filtered required check never reports at
+# all, leaving the PR blocked on a status that can never arrive. That is the
+# one intentional exception to the repo rule that every pull_request workflow
+# excludes the release-please output set; test/release-ci-exclusions.test.ts
+# encodes both halves.
 on:
   pull_request:
     types: [opened, edited, synchronize, reopened]
     branches:
       - main
-    # Never create a run for a release-please PR. The job-level author exemption
-    # below cannot do this: it is evaluated inside a run, and a GITHUB_TOKEN PR's
-    # run is created in action_required and never starts.
-    paths-ignore:
-      - .release-please-manifest.json
-      - CHANGELOG.md
-      - package.json
 
 permissions:
   contents: read
@@ -29,22 +28,39 @@ jobs:
   check:
     name: PR must be raised via no-mistakes
     runs-on: ubuntu-latest
-    # Known automation accounts are exempt so the release pipeline keeps working:
-    # - github-actions[bot] opens the release-please PR via GITHUB_TOKEN
-    # - dependabot[bot] opens dependency update PRs
-    # Other authors (human or bot) must raise PRs through `git push no-mistakes`.
-    if: >-
-      github.event.pull_request.user.login != 'github-actions[bot]' &&
-      github.event.pull_request.user.login != 'dependabot[bot]' &&
-      github.event.pull_request.user.login != 'release-please[bot]'
     steps:
+      # Check out the BASE branch, never the PR head: the gate script must come
+      # from trusted, already-merged code so a pull request cannot weaken the
+      # check that judges it.
+      - name: Check out the gate script from the base branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          sparse-checkout: .github/scripts
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
       - name: Verify no-mistakes signature in PR body
         env:
           PR_BODY: ${{ github.event.pull_request.body }}
           PR_AUTHOR: ${{ github.event.pull_request.user.login }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          PR_HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          PR_BASE_REPO: ${{ github.event.pull_request.base.repo.full_name }}
         run: |
           set -eu
+          script=./.github/scripts/no-mistakes-gate.sh
+          if [ -f "$script" ]; then
+            bash "$script"
+            exit 0
+          fi
+          # Bootstrap only: a PR whose base predates the gate script (including
+          # the PR that introduces it) has nothing trusted to run. Fall back to
+          # the signature check alone, which grants NO exemptions and is
+          # therefore strictly stricter than the script. Once the script is on
+          # main this branch is unreachable for any PR based on it.
+          echo "::warning::Base branch predates ${script}; falling back to the signature check with no exemptions."
           marker='Updates from [git push no-mistakes](https://github.com/kunchenguid/no-mistakes)'
           if printf '%s' "${PR_BODY:-}" | grep -qF -- "$marker"; then
             echo "Found no-mistakes signature in PR #${PR_NUMBER} body."
@@ -53,13 +69,9 @@ jobs:
           {
             echo "::error::This PR was not raised through no-mistakes."
             echo
-            echo "Contributions to this repository must be submitted via 'git push no-mistakes'."
-            echo "That pipeline runs the required review/test/lint/CI steps and writes a"
-            echo "deterministic '## Pipeline' section into the PR body containing:"
-            echo
-            echo "    $marker"
-            echo
-            echo "See CONTRIBUTING.md for setup and the full workflow."
+            echo "Its base branch predates ${script}, so only the signature check applies."
+            echo "Rebase onto a main that contains the gate script, or raise the PR"
+            echo "through 'git push no-mistakes'. See CONTRIBUTING.md."
             echo
             echo "PR author: ${PR_AUTHOR}"
           } >&2

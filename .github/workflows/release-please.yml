@@ -39,3 +39,68 @@ jobs:
 
       - run: npm publish --access public --provenance
         if: ${{ steps.release.outputs.release_created }}
+
+  # release-please opens its release PR with GITHUB_TOKEN. A pull_request
+  # workflow may be recorded as action_required, but it does not execute or
+  # emit the "PR must be raised via no-mistakes" check context. The required
+  # check can therefore never report on a release PR by itself, which would
+  # leave every release blocked on a status that can never arrive.
+  #
+  # Publish that status here instead, reusing the very same gate script the
+  # required check runs, so the exemption decision has exactly one
+  # implementation. The status is only ever written for a PR the script itself
+  # accepts as structurally release-please's own.
+  release-pr-gate-status:
+    needs: release-please
+    # Runs even when the publish steps above fail: a failed publish must not
+    # strand the open release PR on a required check that nothing else reports.
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+      statuses: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Publish the no-mistakes gate status on the release PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+
+          pr_numbers=$(gh api "repos/${REPO}/pulls?state=open&per_page=100" \
+            --jq '.[] | select(.head.ref | startswith("release-please--") or startswith("release-please/")) | .number')
+
+          if [ -z "$pr_numbers" ]; then
+            echo "No open release-please PR; nothing to stamp."
+            exit 0
+          fi
+
+          for pr in $pr_numbers; do
+            eval "$(gh api "repos/${REPO}/pulls/${pr}" --jq '
+              "PR_NUMBER=" + (.number|tostring|@sh) +
+              " PR_AUTHOR=" + (.user.login|@sh) +
+              " PR_HEAD_REF=" + (.head.ref|@sh) +
+              " PR_HEAD_REPO=" + (.head.repo.full_name|@sh) +
+              " PR_BASE_REPO=" + (.base.repo.full_name|@sh) +
+              " PR_HEAD_SHA=" + (.head.sha|@sh) +
+              " PR_BODY=" + ((.body // "")|@sh)')"
+            export PR_NUMBER PR_AUTHOR PR_HEAD_REF PR_HEAD_REPO PR_BASE_REPO PR_BODY
+
+            # Overriding PR_AUTHOR defeats the script's bot exemption on
+            # purpose, so a status is stamped only when the STRUCTURAL
+            # release-please conditions hold, never because a bot opened the PR.
+            if PR_AUTHOR="structural-release-please-check" ./.github/scripts/no-mistakes-gate.sh; then
+              echo "Stamping the gate status on PR #${PR_NUMBER} (${PR_HEAD_SHA})."
+              gh api --method POST "repos/${REPO}/statuses/${PR_HEAD_SHA}" \
+                -f state=success \
+                -f context='PR must be raised via no-mistakes' \
+                -f description='release-please release PR: structurally exempt' \
+                -f target_url="${RUN_URL}" >/dev/null
+            else
+              echo "PR #${PR_NUMBER} is not a structural release-please PR; leaving it to the required check."
+            fi
+          done
