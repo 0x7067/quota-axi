@@ -11,6 +11,8 @@ Pushing through it runs an AI-driven review/test/lint pipeline in an isolated wo
 
 For ordinary PRs targeting `main`, the `Require no-mistakes` workflow publishes the `PR must be raised via no-mistakes` status and fails if the body is missing the deterministic signature that no-mistakes writes. Release PRs opened with `GITHUB_TOKEN` cannot produce that pull-request check, so the push-triggered release workflow publishes the same context after applying the structural exemption below.
 
+The gate checks two things, not one: the human-readable signature, which proves the pipeline wrote the body, and the machine-readable `<!-- no-mistakes-pipeline-attestation:v1 {...} -->` comment written beside it, whose `steps[]` must record `review`, `test`, and `document` as `completed`. A step that was skipped (with `--skip`, at a gate, or because the agent was unavailable or out of quota), failed, or never finished is not accepted, and an unreadable attestation fails closed. Writing the attestation requires no-mistakes **v1.46.0** or newer; on an older version, run `no-mistakes update` and push again.
+
 The repository's `main` ruleset must require this context for enforcement; the workflow alone is advisory. Once required, a human-authored PR without the signature cannot be merged without an authorized ruleset bypass.
 
 Two exemptions exist, and both are decided by one script, [`.github/scripts/no-mistakes-gate.sh`](.github/scripts/no-mistakes-gate.sh):
