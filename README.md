@@ -222,7 +222,7 @@ Install the skill in the [Agent Skills](https://agentskills.io) format with [`np
 npx skills add kunchenguid/quota-axi --skill quota-axi -g
 ```
 
-The skill teaches your agent to run quota-axi through `npx -y quota-axi` on demand, so nothing needs to be installed ahead of time.
+The minimal skill points your agent to quota-axi's live CLI guidance through `npx -y quota-axi`, so nothing needs to be installed ahead of time and installed skill copies do not duplicate changing CLI instructions.
 `-g` installs the skill for all projects (e.g. `~/.claude/skills/`); drop it to install for the current project only (`.claude/skills/`).
 
 **Direct use**
