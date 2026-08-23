@@ -241,7 +241,10 @@ function tokenizeExpression(expression: string): ExpressionToken[] {
     }
 
     const start = index;
-    while (index < expression.length && /[A-Za-z0-9_.-]/.test(expression[index]!)) {
+    while (
+      index < expression.length &&
+      /[A-Za-z0-9_.-]/.test(expression[index]!)
+    ) {
       index += 1;
     }
     if (start === index) {
@@ -264,7 +267,8 @@ function parseExpression(expression: string): ExpressionNode {
   function parsePrimary(): ExpressionNode {
     const token = tokens[index++];
     if (!token) throw new Error("unexpected end of expression");
-    if (token.kind === "literal") return { kind: "literal", value: token.value };
+    if (token.kind === "literal")
+      return { kind: "literal", value: token.value };
     if (token.kind === "reference") {
       return { kind: "reference", path: token.value.split(".") };
     }
@@ -298,7 +302,12 @@ function parseExpression(expression: string): ExpressionNode {
     let node = parseEquality();
     while (tokens[index]?.kind === "operator" && tokens[index].value === "&&") {
       index += 1;
-      node = { kind: "binary", operator: "&&", left: node, right: parseEquality() };
+      node = {
+        kind: "binary",
+        operator: "&&",
+        left: node,
+        right: parseEquality(),
+      };
     }
     return node;
   }
@@ -313,7 +322,8 @@ function parseExpression(expression: string): ExpressionNode {
   }
 
   const node = parseOr();
-  if (index !== tokens.length) throw new Error("unexpected trailing expression token");
+  if (index !== tokens.length)
+    throw new Error("unexpected trailing expression token");
   return node;
 }
 

@@ -74,10 +74,8 @@ Every `pull_request` workflow must `paths-ignore` the release-please output set 
 
 ## Contribution gate
 
-- [CONTRIBUTING.md](CONTRIBUTING.md) owns the contributor workflow, exemptions, and external ruleset enforcement requirement.
+- [CONTRIBUTING.md](CONTRIBUTING.md) owns the contributor workflow, gate contract, exemptions, and current ruleset enforcement status.
 - `.github/workflows/no-mistakes-required.yml` is a thin caller of the shared `kunchenguid/no-mistakes/.github/actions/require-no-mistakes` composite action, pinned to an immutable commit SHA and never `@main`. Enforcement logic and its tests live upstream in the no-mistakes repository; change enforcement there rather than copying it back here, and bump the pin in a deliberate separate PR. This repository still owns its `on:`, `concurrency`, `permissions`, job name, and author-exemption `if:`.
-- A pipeline-raised PR must satisfy both halves of the gate: the `Updates from [git push no-mistakes]` signature and the `<!-- no-mistakes-pipeline-attestation:v1 {...} -->` comment no-mistakes >= 1.46.0 writes beside it, whose `steps[]` must record `review`, `test`, and `document` as `completed`. The attestation is head-bound: its `head_sha` must equal the PR's current head, so a commit pushed after the run fails the gate until `git push no-mistakes` refreshes the body. The shared action owns the exact parsing rules.
-- Exemptions are job-level author exemptions only: `github-actions[bot]` and `dependabot[bot]`. release-please opens its release PR as `github-actions[bot]`, so that alone skips the gate job on release PRs; the old structural release-please exemption and the `release-pr-gate-status` stamping job in `release-please.yml` are gone. The `main` ruleset does not require this context, so a skipped gate job wedges nothing.
 
 ## Lockfile formatting
 
