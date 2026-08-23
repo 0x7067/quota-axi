@@ -184,6 +184,175 @@ type PullRequestWorkflow = {
   backsGateCheck: boolean;
 };
 
+type ExpressionNode =
+  | { kind: "literal"; value: string | boolean }
+  | { kind: "reference"; path: string[] }
+  | { kind: "not"; operand: ExpressionNode }
+  | {
+      kind: "binary";
+      operator: "&&" | "||" | "==" | "!=";
+      left: ExpressionNode;
+      right: ExpressionNode;
+    };
+
+type ExpressionToken =
+  | { kind: "literal"; value: string | boolean }
+  | { kind: "reference"; value: string }
+  | { kind: "operator"; value: "&&" | "||" | "==" | "!=" | "!" }
+  | { kind: "paren"; value: "(" | ")" };
+
+function tokenizeExpression(expression: string): ExpressionToken[] {
+  const tokens: ExpressionToken[] = [];
+  let index = 0;
+  while (index < expression.length) {
+    const character = expression[index]!;
+    if (/\s/.test(character)) {
+      index += 1;
+      continue;
+    }
+
+    const pair = expression.slice(index, index + 2);
+    if (pair === "&&" || pair === "||" || pair === "==" || pair === "!=") {
+      tokens.push({ kind: "operator", value: pair });
+      index += 2;
+      continue;
+    }
+    if (character === "!") {
+      tokens.push({ kind: "operator", value: "!" });
+      index += 1;
+      continue;
+    }
+    if (character === "(" || character === ")") {
+      tokens.push({ kind: "paren", value: character });
+      index += 1;
+      continue;
+    }
+    if (character === "'") {
+      let value = "";
+      index += 1;
+      while (index < expression.length && expression[index] !== "'") {
+        value += expression[index];
+        index += 1;
+      }
+      if (expression[index] !== "'") throw new Error("unterminated string");
+      tokens.push({ kind: "literal", value });
+      index += 1;
+      continue;
+    }
+
+    const start = index;
+    while (index < expression.length && /[A-Za-z0-9_.-]/.test(expression[index]!)) {
+      index += 1;
+    }
+    if (start === index) {
+      throw new Error(`unsupported expression token at ${index}`);
+    }
+    const value = expression.slice(start, index);
+    if (value === "true" || value === "false") {
+      tokens.push({ kind: "literal", value: value === "true" });
+    } else {
+      tokens.push({ kind: "reference", value });
+    }
+  }
+  return tokens;
+}
+
+function parseExpression(expression: string): ExpressionNode {
+  const tokens = tokenizeExpression(expression);
+  let index = 0;
+
+  function parsePrimary(): ExpressionNode {
+    const token = tokens[index++];
+    if (!token) throw new Error("unexpected end of expression");
+    if (token.kind === "literal") return { kind: "literal", value: token.value };
+    if (token.kind === "reference") {
+      return { kind: "reference", path: token.value.split(".") };
+    }
+    if (token.kind === "operator" && token.value === "!") {
+      return { kind: "not", operand: parsePrimary() };
+    }
+    if (token.kind === "paren" && token.value === "(") {
+      const node = parseOr();
+      const close = tokens[index++];
+      if (close?.kind !== "paren" || close.value !== ")") {
+        throw new Error("missing closing parenthesis");
+      }
+      return node;
+    }
+    throw new Error("unexpected expression token");
+  }
+
+  function parseEquality(): ExpressionNode {
+    let node = parsePrimary();
+    while (
+      tokens[index]?.kind === "operator" &&
+      (tokens[index].value === "==" || tokens[index].value === "!=")
+    ) {
+      const operator = tokens[index++].value as "==" | "!=";
+      node = { kind: "binary", operator, left: node, right: parsePrimary() };
+    }
+    return node;
+  }
+
+  function parseAnd(): ExpressionNode {
+    let node = parseEquality();
+    while (tokens[index]?.kind === "operator" && tokens[index].value === "&&") {
+      index += 1;
+      node = { kind: "binary", operator: "&&", left: node, right: parseEquality() };
+    }
+    return node;
+  }
+
+  function parseOr(): ExpressionNode {
+    let node = parseAnd();
+    while (tokens[index]?.kind === "operator" && tokens[index].value === "||") {
+      index += 1;
+      node = { kind: "binary", operator: "||", left: node, right: parseAnd() };
+    }
+    return node;
+  }
+
+  const node = parseOr();
+  if (index !== tokens.length) throw new Error("unexpected trailing expression token");
+  return node;
+}
+
+function evaluateExpression(
+  node: ExpressionNode,
+  context: Record<string, unknown>,
+): string | boolean | undefined {
+  if (node.kind === "literal") return node.value;
+  if (node.kind === "reference") {
+    let value: unknown = context;
+    for (const segment of node.path) {
+      if (value == null || typeof value !== "object") return undefined;
+      value = (value as Record<string, unknown>)[segment];
+    }
+    return typeof value === "string" || typeof value === "boolean"
+      ? value
+      : undefined;
+  }
+  if (node.kind === "not") return !evaluateExpression(node.operand, context);
+
+  const left = evaluateExpression(node.left, context);
+  if (node.operator === "&&") {
+    return Boolean(left) && Boolean(evaluateExpression(node.right, context));
+  }
+  if (node.operator === "||") {
+    return Boolean(left) || Boolean(evaluateExpression(node.right, context));
+  }
+  const right = evaluateExpression(node.right, context);
+  return node.operator === "==" ? left === right : left !== right;
+}
+
+function gateRunsForAuthor(expression: ExpressionNode, login: string): boolean {
+  return Boolean(
+    evaluateExpression(expression, {
+      github: { event: { pull_request: { user: { login } } } },
+    }),
+  );
+}
+
 function pullRequestWorkflows(): PullRequestWorkflow[] {
   const out: PullRequestWorkflow[] = [];
   for (const name of readdirSync(workflowsDir).filter((n) =>
@@ -291,10 +460,12 @@ describe("release-please CI exclusions", () => {
     const gateJob = Object.values(doc.jobs ?? {}).find(
       (job) => job?.name === gateCheckContext,
     );
-    const condition = String(gateJob?.if ?? "");
-    expect(
-      [...condition.matchAll(/user\.login != '([^']+)'/g)].map((m) => m[1]),
-    ).toEqual(["github-actions[bot]", "dependabot[bot]"]);
+    expect(typeof gateJob?.if).toBe("string");
+    const condition = parseExpression(String(gateJob!.if));
+    expect(gateRunsForAuthor(condition, "github-actions[bot]")).toBe(false);
+    expect(gateRunsForAuthor(condition, "dependabot[bot]")).toBe(false);
+    expect(gateRunsForAuthor(condition, "human-contributor")).toBe(true);
+    expect(gateRunsForAuthor(condition, "renovate[bot]")).toBe(true);
 
     // The release workflow no longer stamps a gate status of its own.
     const releaseDoc = loadYaml(
