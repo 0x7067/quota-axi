@@ -8,11 +8,11 @@ const root = fileURLToPath(new URL("..", import.meta.url));
 const workflowsDir = join(root, ".github", "workflows");
 
 /**
- * The status check context this repository's `main` ruleset requires. The gate
- * workflow's job name must match it exactly, or the ruleset waits forever on a
- * check nothing ever reports.
+ * The status check context the no-mistakes gate publishes. The `main` ruleset
+ * treats it as advisory, but the job name still has to stay exactly this so the
+ * context contributors (and any future ruleset) look for keeps its identity.
  */
-const requiredCheckContext = "PR must be raised via no-mistakes";
+const gateCheckContext = "PR must be raised via no-mistakes";
 
 /**
  * Derive the exact release-please output set from config + workflow inputs.
@@ -162,26 +162,26 @@ function isCovered(filter: PathFilter, releasePath: string): boolean {
 }
 
 /**
- * A workflow "backs the required check" when one of its jobs publishes the
- * required context, i.e. its job `name` is exactly that context. Such a
- * workflow is the one place a `paths`/`paths-ignore` filter is forbidden
- * rather than mandatory: a filtered required check never reports, which would
- * block the pull request on a status that can never arrive.
+ * A workflow "backs the gate check" when one of its jobs publishes that
+ * context, i.e. its job `name` is exactly the context. Such a workflow is the
+ * one place a `paths`/`paths-ignore` filter is forbidden rather than mandatory:
+ * the gate judges the pull request body, not the files it touches, so a path
+ * filter would drop it on exactly the pull requests still needing judgement.
  */
-function publishesRequiredCheck(filePath: string): boolean {
+function publishesGateCheck(filePath: string): boolean {
   const doc = loadYaml(readFileSync(filePath, "utf8")) as
     | { jobs?: Record<string, { name?: unknown }> }
     | null
     | undefined;
   const jobs = doc?.jobs;
   if (!jobs || typeof jobs !== "object") return false;
-  return Object.values(jobs).some((job) => job?.name === requiredCheckContext);
+  return Object.values(jobs).some((job) => job?.name === gateCheckContext);
 }
 
 type PullRequestWorkflow = {
   name: string;
   filter: PathFilter;
-  backsRequiredCheck: boolean;
+  backsGateCheck: boolean;
 };
 
 function pullRequestWorkflows(): PullRequestWorkflow[] {
@@ -195,7 +195,7 @@ function pullRequestWorkflows(): PullRequestWorkflow[] {
     out.push({
       name,
       filter: pullRequestFilterCoverage(on.pull_request),
-      backsRequiredCheck: publishesRequiredCheck(filePath),
+      backsGateCheck: publishesGateCheck(filePath),
     });
   }
   return out;
@@ -212,25 +212,25 @@ describe("release-please CI exclusions", () => {
     ]);
   });
 
-  it("splits pull_request workflows into the required gate and the rest", () => {
+  it("splits pull_request workflows into the gate and the rest", () => {
     const prWorkflows = pullRequestWorkflows();
 
     // The gate is the single intentional exception to the paths-ignore rule.
     expect(
-      prWorkflows.filter((w) => w.backsRequiredCheck).map((w) => w.name),
+      prWorkflows.filter((w) => w.backsGateCheck).map((w) => w.name),
     ).toEqual(["no-mistakes-required.yml"]);
 
     // Everything else still owes the release-output exclusion.
     expect(
       prWorkflows
-        .filter((w) => !w.backsRequiredCheck)
+        .filter((w) => !w.backsGateCheck)
         .map((w) => w.name)
         .sort(),
     ).toEqual(["ci.yml", "guard-generated-files.yml"]);
   });
 
   it("every non-gate pull_request workflow ignores the full release-output set", () => {
-    const others = pullRequestWorkflows().filter((w) => !w.backsRequiredCheck);
+    const others = pullRequestWorkflows().filter((w) => !w.backsGateCheck);
     expect(others.length).toBeGreaterThan(0);
 
     const failures: string[] = [];
@@ -244,26 +244,63 @@ describe("release-please CI exclusions", () => {
     expect(failures).toEqual([]);
   });
 
-  it("the workflow backing the required check carries no path filter", () => {
-    // A required check that is path-filtered never reports on the PRs it
-    // filters out, so the ruleset blocks them on a status that never arrives.
-    // That is exactly what would happen to a release-please PR.
-    const gates = pullRequestWorkflows().filter((w) => w.backsRequiredCheck);
+  it("the workflow backing the gate check carries no path filter", () => {
+    // The gate's verdict is a function of the pull request body, not of the
+    // files it touches, so a path filter would silently drop the gate on
+    // exactly the pull requests whose bodies still need judging.
+    const gates = pullRequestWorkflows().filter((w) => w.backsGateCheck);
     expect(gates).toHaveLength(1);
     expect(gates[0]!.filter).toEqual({ kind: "unfiltered" });
   });
 
-  it("the gate decides exemptions in its script, not a job-level if:", () => {
-    // One executable decision surface, so test/no-mistakes-gate.test.ts and the
-    // release workflow's status-stamping job both exercise the same rules.
+  it("the gate is a thin caller of the shared composite action", () => {
+    // Enforcement lives upstream in kunchenguid/no-mistakes, pinned to an
+    // immutable commit so the pull request being judged cannot move it.
+    const doc = loadYaml(
+      readFileSync(join(workflowsDir, "no-mistakes-required.yml"), "utf8"),
+    ) as {
+      jobs?: Record<
+        string,
+        {
+          name?: unknown;
+          if?: unknown;
+          steps?: Array<{ uses?: unknown; run?: unknown }>;
+        }
+      >;
+    };
+    const gateJobs = Object.values(doc.jobs ?? {}).filter(
+      (job) => job?.name === gateCheckContext,
+    );
+    expect(gateJobs).toHaveLength(1);
+
+    const steps = gateJobs[0]!.steps ?? [];
+    expect(steps.map((step) => step.uses)).toEqual([
+      "kunchenguid/no-mistakes/.github/actions/require-no-mistakes@32d396ac0f29135daf7fcb9964aba9d5f4e796d6",
+    ]);
+    // No local enforcement copy, and nothing checked out to run it from.
+    expect(steps.some((step) => typeof step.run === "string")).toBe(false);
+  });
+
+  it("exempts the automation authors at the job level", () => {
+    // release-please opens its release PR as github-actions[bot], so the author
+    // exemption alone skips the gate job on release PRs; the old structural
+    // release-please exemption and its status-stamping job are gone.
     const doc = loadYaml(
       readFileSync(join(workflowsDir, "no-mistakes-required.yml"), "utf8"),
     ) as { jobs?: Record<string, { name?: unknown; if?: unknown }> };
-    const gateJobs = Object.values(doc.jobs ?? {}).filter(
-      (job) => job?.name === requiredCheckContext,
+    const gateJob = Object.values(doc.jobs ?? {}).find(
+      (job) => job?.name === gateCheckContext,
     );
-    expect(gateJobs).toHaveLength(1);
-    expect(gateJobs[0]!.if).toBeUndefined();
+    const condition = String(gateJob?.if ?? "");
+    expect(
+      [...condition.matchAll(/user\.login != '([^']+)'/g)].map((m) => m[1]),
+    ).toEqual(["github-actions[bot]", "dependabot[bot]"]);
+
+    // The release workflow no longer stamps a gate status of its own.
+    const releaseDoc = loadYaml(
+      readFileSync(join(workflowsDir, "release-please.yml"), "utf8"),
+    ) as { jobs?: Record<string, { name?: unknown }> };
+    expect(Object.keys(releaseDoc.jobs ?? {})).toEqual(["release-please"]);
   });
 
   it("does not attach path filters to non-pull_request triggers on ci.yml", () => {
