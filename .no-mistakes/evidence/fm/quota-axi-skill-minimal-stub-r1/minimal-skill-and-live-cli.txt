@@ -1,0 +1,89 @@
+quota-axi minimal skill end-to-end evidence
+
+GENERATION
+$ tsx scripts/build-skill.ts
+Wrote /Users/kunchen/.no-mistakes/worktrees/6eca570dbcdb/01M0RFWQHNS82RAD6T55CZ3VYG/skills/quota-axi/SKILL.md
+$ tsx scripts/build-skill.ts -- --check
+skills/quota-axi/SKILL.md is up to date.
+
+SIZE REDUCTION
+base generated skill lines: 198
+regenerated skill lines: 38
+
+REGENERATED PUBLIC SKILL
+---
+name: quota-axi
+description: "Report local Claude, Codex, Cursor, GitHub Copilot, Grok, Kimi, Z.AI, and Antigravity quota windows via the quota-axi CLI - remaining effective usable runway, percentages, reset times, cycle-average pace vs the reset clock, a per-scope selection signal, and provider status read from local auth sources, with no routing, provider mutation, or default ordering preference. Use before deciding whether it is safe to keep spending a provider's quota, when the user asks about usage, rate limits, pace, or remaining quota, or when comparing local provider headroom."
+user-invocable: false
+author: Kun Chen (kunchenguid)
+metadata:
+  hermes:
+    tags:
+      - quota
+      - rate-limits
+      - pace
+      - claude
+      - codex
+      - cursor
+      - copilot
+      - grok
+      - kimi
+      - zai
+      - agy
+      - antigravity
+      - cli
+    category: observability
+---
+
+# quota-axi
+
+Report local Claude, Codex, Cursor, GitHub Copilot, Grok, Kimi, Z.AI, and Antigravity quota windows.
+quota-axi is data only: it never routes, recommends, ranks, or mutates provider state.
+
+Use it when you need local quota headroom before deciding whether it is safe to keep spending a
+provider, when the user asks about usage, rate limits, pace, or remaining quota, or when comparing
+local provider headroom.
+
+For current instructions, output shape, and field semantics, run the CLI (no global install required):
+
+- `npx -y quota-axi` - default TOON report
+- `npx -y quota-axi --help` - commands and flags
+- `npx -y quota-axi --json` / `npx -y quota-axi --full` - current output shape and field semantics
+
+LIVE CLI HELP TARGETED BY THE STUB
+usage: quota-axi [quota|auth|models] [flags]
+commands[3]:
+  (none)=quota, auth, models
+output:
+  Default TOON reports local quota evidence. models is a deterministic data join; --sort runway is explicit opt-in ordering. --tui renders a live human terminal report instead (q quits).
+flags[11]:
+  --provider <claude,codex,cursor,copilot,grok,kimi,zai,agy>, --json, --full, --tui, --refresh <30s-24h>, --once, --allow-keychain-prompt, --intelligence <high|medium|low>, --sort <runway>, --help, -v/--version
+examples:
+  quota-axi
+  quota-axi --provider claude
+  quota-axi --provider agy
+  quota-axi --provider cursor,copilot,grok,kimi,zai
+  quota-axi --json
+  quota-axi --full
+  quota-axi --tui
+  quota-axi --tui --refresh 1m
+  quota-axi --tui --once
+  quota-axi auth
+  quota-axi models --intelligence high
+  quota-axi models --sort runway
+"built-in":
+  update: Upgrade `quota-axi.ts` to the latest published version
+  "update --check": Report current vs latest without installing
+
+LIVE DEFAULT TOON TARGETED BY THE STUB (isolated home, Claude only)
+! Corepack is about to download https://registry.npmjs.org/pnpm/-/pnpm-11.1.1.tgz
+bin: /Users/kunchen/.no-mistakes/worktrees/6eca570dbcdb/01M0RFWQHNS82RAD6T55CZ3VYG/bin/quota-axi.ts
+description: Report local agent-provider quota windows for routing-aware agents
+generatedAt: "2026-08-23T23:41:28.728Z"
+quota[0]:
+exhaustion[0]:
+attention[1]{provider,scope,kind,detail,remedy}:
+  claude,all,auth_required,credentials_missing,none
+help[1]:
+  Run `quota-axi --full` for windows, pace, reserve, and account evidence
+exit status: 1 (expected 1 when every isolated provider lacks credentials)
