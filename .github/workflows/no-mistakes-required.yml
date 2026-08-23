@@ -1,15 +1,22 @@
 name: Require no-mistakes
 run-name: "PR #${{ github.event.pull_request.number }} body compliance - ${{ github.event.action }} - event ${{ github.run_number }} (run ${{ github.run_id }})"
 
-# No paths / paths-ignore filter here, deliberately. This workflow backs a
-# required status check, and a path-filtered required check never reports at
-# all, leaving the PR blocked on a status that can never arrive. That is the
-# one intentional exception to the repo rule that every pull_request workflow
-# excludes the release-please output set; test/release-ci-exclusions.test.ts
-# encodes both halves.
+# No paths / paths-ignore filter here, deliberately. The verdict is a function
+# of the pull request body, not of the files it touches, so a path filter would
+# silently drop the gate on exactly the pull requests whose bodies still need
+# judging. That is the one intentional exception to the repo rule that every
+# pull_request workflow excludes the release-please output set;
+# test/release-ci-exclusions.test.ts encodes both halves.
 on:
   pull_request:
-    types: [opened, edited, synchronize, reopened]
+    # The verdict is a pure function of pull_request.body, so a push carries no
+    # new body to judge but does move the head SHA. The pipeline pushes before
+    # it writes the deterministic Pipeline section, so a synchronize trigger
+    # pinned a FAILURE check run to the new head for a body the same run was
+    # about to fix. GitHub keeps that failure next to the later edited SUCCESS,
+    # and gh pr checks collapses same-named check runs by startedAt alone, so
+    # the CI monitor could park the run red forever.
+    types: [opened, edited, reopened]
     branches:
       - main
 
@@ -19,7 +26,7 @@ permissions:
 # GitHub concurrency groups retain at most one pending run, replacing older
 # pending runs even when cancel-in-progress is false. Give body-bearing events
 # an immutable per-event group so first-time-fork approvals can never collapse
-# opened/edited checks. Keep synchronize/reopened coalescing as before.
+# opened/edited checks. Keep reopened coalescing as before.
 concurrency:
   group: no-mistakes-required-${{ github.event.pull_request.number }}-${{ (github.event.action == 'opened' || github.event.action == 'edited') && github.run_id || 'head-change' }}
   cancel-in-progress: true
@@ -28,55 +35,26 @@ jobs:
   check:
     name: PR must be raised via no-mistakes
     runs-on: ubuntu-latest
+    # Known automation accounts are exempt so automation keeps working:
+    # - github-actions[bot] opens PRs via GITHUB_TOKEN, including every
+    #   release-please release PR, so no structural release-please exemption is
+    #   needed here any more.
+    # - dependabot[bot] opens dependency update PRs.
+    # Other authors (human or bot) must raise PRs through `git push no-mistakes`.
+    #
+    # These stay job-level rather than moving to the action's `exempt-authors`
+    # input on purpose: an in-job exemption still requires the run to start, and
+    # a GITHUB_TOKEN PR's run is created in action_required and never starts.
+    if: >-
+      github.event.pull_request.user.login != 'github-actions[bot]' &&
+      github.event.pull_request.user.login != 'dependabot[bot]'
     steps:
-      # Check out the BASE branch, never the PR head: the gate script must come
-      # from trusted, already-merged code so a pull request cannot weaken the
-      # check that judges it.
-      - name: Check out the gate script from the base branch
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.pull_request.base.sha }}
-          sparse-checkout: .github/scripts
-          sparse-checkout-cone-mode: false
-          persist-credentials: false
-
-      - name: Verify no-mistakes signature in PR body
-        env:
-          PR_BODY: ${{ github.event.pull_request.body }}
-          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
-          PR_HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
-          PR_BASE_REPO: ${{ github.event.pull_request.base.repo.full_name }}
-          # Head binding: the gate script requires the attestation's head_sha to
-          # equal this, so a commit pushed after the no-mistakes run cannot pass
-          # on the stale attestation left in the body.
-          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: |
-          set -eu
-          script=./.github/scripts/no-mistakes-gate.sh
-          if [ -f "$script" ]; then
-            bash "$script"
-            exit 0
-          fi
-          # Bootstrap only: a PR whose base predates the gate script (including
-          # the PR that introduces it) has nothing trusted to run. Fall back to
-          # the signature check alone, which grants NO exemptions and is
-          # therefore strictly stricter than the script. Once the script is on
-          # main this branch is unreachable for any PR based on it.
-          echo "::warning::Base branch predates ${script}; falling back to the signature check with no exemptions."
-          marker='Updates from [git push no-mistakes](https://github.com/kunchenguid/no-mistakes)'
-          if printf '%s' "${PR_BODY:-}" | grep -qF -- "$marker"; then
-            echo "Found no-mistakes signature in PR #${PR_NUMBER} body."
-            exit 0
-          fi
-          {
-            echo "::error::This PR was not raised through no-mistakes."
-            echo
-            echo "Its base branch predates ${script}, so only the signature check applies."
-            echo "Rebase onto a main that contains the gate script, or raise the PR"
-            echo "through 'git push no-mistakes'. See CONTRIBUTING.md."
-            echo
-            echo "PR author: ${PR_AUTHOR}"
-          } >&2
-          exit 1
+      # The enforcement itself lives in the shared composite action in the
+      # no-mistakes repository, so this repository no longer carries its own
+      # copy of the script to drift.
+      #
+      # Pinned to an immutable commit, never @main: main is editable by the very
+      # pull request this gate is judging. Bumping the pin is a separate,
+      # deliberate pull request.
+      - name: Verify no-mistakes signature and pipeline attestation in PR body
+        uses: kunchenguid/no-mistakes/.github/actions/require-no-mistakes@32d396ac0f29135daf7fcb9964aba9d5f4e796d6 # post-v1.57.1, untagged (action added in #819)
