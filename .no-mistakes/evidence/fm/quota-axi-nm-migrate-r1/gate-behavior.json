@@ -1,0 +1,32 @@
+{
+  "contract": "Normalized GitHub Actions gate behavior from committed workflow YAML",
+  "scenarios": [
+    {
+      "scenario": "normal human PR opened against main",
+      "workflow_dispatches": true,
+      "gate_job": "runs",
+      "enforcement_step": "kunchenguid/no-mistakes/.github/actions/require-no-mistakes@32d396ac0f29135daf7fcb9964aba9d5f4e796d6"
+    },
+    {
+      "scenario": "synthetic release-please PR opened by github-actions[bot]",
+      "workflow_dispatches": true,
+      "gate_job": "skipped",
+      "release_workflow_jobs": [
+        "release-please"
+      ],
+      "legacy_status_stamp_present": false
+    },
+    {
+      "scenario": "Dependabot PR",
+      "workflow_dispatches": true,
+      "gate_job": "skipped"
+    },
+    {
+      "scenario": "human PR head synchronization",
+      "workflow_dispatches": false,
+      "expected_by_advisory_policy": false
+    }
+  ],
+  "gate_identity": "PR must be raised via no-mistakes",
+  "local_run_steps": 0
+}
