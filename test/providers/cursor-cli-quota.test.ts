@@ -198,7 +198,11 @@ describe("Cursor CLI-only quota refresh", () => {
       expect(result.windows).toMatchObject([
         { id: "included_usage", percentUsed: 12, percentRemaining: 88 },
       ]);
-      expect(bearers).toEqual([`Bearer ${CLI_TOKEN}`, `Bearer ${CLI_TOKEN}`]);
+      expect(bearers).toEqual([
+        `Bearer ${CLI_TOKEN}`,
+        `Bearer ${CLI_TOKEN}`,
+        `Bearer ${CLI_TOKEN}`,
+      ]);
       expect(JSON.stringify(result)).not.toContain(
         "refresh-token-must-not-be-used",
       );
@@ -264,8 +268,12 @@ describe("Cursor CLI-only quota refresh", () => {
       expect(result.windows).toMatchObject([
         { id: "included_usage", percentUsed: 12, percentRemaining: 88 },
       ]);
-      // The Keychain token is the bearer of Cursor's read-only usage request...
-      expect(bearers).toEqual([`Bearer ${CLI_TOKEN}`, `Bearer ${CLI_TOKEN}`]);
+      // The Keychain token is the bearer of Cursor's read-only dashboard RPCs...
+      expect(bearers).toEqual([
+        `Bearer ${CLI_TOKEN}`,
+        `Bearer ${CLI_TOKEN}`,
+        `Bearer ${CLI_TOKEN}`,
+      ]);
       // ...and nothing more: it never reaches the report.
       expect(JSON.stringify(result)).not.toContain(CLI_TOKEN);
     });
@@ -331,6 +339,7 @@ describe("Cursor CLI-only quota refresh", () => {
       expect(result.attempts).toEqual([{ source: "api", status: "success" }]);
       expect(result.account?.email).toBe("editor@example.invalid");
       expect(bearers).toEqual([
+        `Bearer ${EDITOR_TOKEN}`,
         `Bearer ${EDITOR_TOKEN}`,
         `Bearer ${EDITOR_TOKEN}`,
       ]);

@@ -735,6 +735,19 @@ describe("default TOON decision blocks", () => {
     ]);
   });
 
+  it("emits Cursor IDE and Grok Bot as separate quota[] rows", async () => {
+    useTempCache();
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-21T12:00:00.000Z"));
+    PROVIDERS.cursor = providerWithQuota(cursorWithGrokBotWindow());
+
+    const output = await capture(["--provider", "cursor"]);
+    expect(toonRows(output, "quota").map((row) => row.slice(0, 3))).toEqual([
+      ["cursor", "all_models", "58"],
+      ["cursor", "grok_bot", "62"],
+    ]);
+  });
+
   it("keeps quota[] rows in provider-declaration order, never metric order", async () => {
     useTempCache();
     vi.useFakeTimers();
@@ -1323,6 +1336,42 @@ function pacedProvider(
       sourcesTried: ["oauth"],
     },
     attempts: [{ source: "oauth", status: "success" }],
+  };
+}
+
+function cursorWithGrokBotWindow(): ProviderQuota {
+  return {
+    provider: "cursor",
+    label: "Cursor",
+    source: "api",
+    plan: "ultra",
+    windows: [
+      {
+        id: "included_usage",
+        label: "included usage",
+        kind: "monthly",
+        percentUsed: 42,
+        percentRemaining: 58,
+        startsAt: "2026-07-22T00:00:00.000Z",
+        resetsAt: "2026-08-22T00:00:00.000Z",
+      },
+      {
+        id: "grok_bot",
+        label: "Grok Bot",
+        kind: "weekly",
+        percentUsed: 38,
+        percentRemaining: 62,
+        startsAt: "2026-08-19T21:37:33.239Z",
+        resetsAt: "2026-08-26T21:37:33.239Z",
+      },
+    ],
+    state: {
+      status: "fresh",
+      stale: false,
+      refreshedAt: "2026-08-21T12:00:00.000Z",
+      sourcesTried: ["api"],
+    },
+    attempts: [{ source: "api", status: "success" }],
   };
 }
 

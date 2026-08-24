@@ -168,6 +168,160 @@ describe("Cursor credential-state reporting", () => {
     expect(result.plan).toBe("pro");
   });
 
+  it("requests GetSandUsageStatus and reports grok_bot beside IDE windows", async () => {
+    const requested = new Set<string>();
+    vi.doMock("../../src/lib/process.js", () => ({
+      commandExists: vi.fn(async () => true),
+      execFileText: vi.fn(async (_command: string, args: string[]) => {
+        const query = args.at(-1) ?? "";
+        if (query.includes("cursorAuth/accessToken")) return '"valid-token"';
+        return "";
+      }),
+    }));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: unknown) => {
+        const href = String(url);
+        requested.add(href.slice(href.lastIndexOf("/") + 1));
+        if (href.includes("GetPlanInfo")) {
+          return new Response(
+            JSON.stringify({ planInfo: { planName: "ultra" } }),
+            { status: 200 },
+          );
+        }
+        if (href.includes("GetSandUsageStatus")) {
+          return new Response(
+            JSON.stringify({
+              currentPeriodStart: "2026-08-19T21:37:33.239Z",
+              nextResetTimestampUtc: "2026-08-26T21:37:33.239Z",
+              usagePercent: 38.059383,
+              hasNonZeroIncludedLimit: true,
+            }),
+            { status: 200 },
+          );
+        }
+        return new Response(
+          JSON.stringify({
+            billingCycleEnd: "1783036800000",
+            planUsage: { totalPercentUsed: 10 },
+          }),
+          { status: 200 },
+        );
+      }),
+    );
+
+    const { fetchQuota } = await import("../../src/providers/cursor.js");
+    const result = await fetchQuota({ allowKeychainPrompt: false });
+
+    expect([...requested].sort()).toEqual([
+      "GetCurrentPeriodUsage",
+      "GetPlanInfo",
+      "GetSandUsageStatus",
+    ]);
+    expect(result.state.status).toBe("fresh");
+    expect(result.windows.map((window) => window.id)).toEqual([
+      "included_usage",
+      "grok_bot",
+    ]);
+  });
+
+  it("keeps IDE windows when GetSandUsageStatus fails", async () => {
+    vi.doMock("../../src/lib/process.js", () => ({
+      commandExists: vi.fn(async () => true),
+      execFileText: vi.fn(async (_command: string, args: string[]) => {
+        const query = args.at(-1) ?? "";
+        if (query.includes("cursorAuth/accessToken")) return '"valid-token"';
+        return "";
+      }),
+    }));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: unknown) => {
+        if (String(url).includes("GetSandUsageStatus")) {
+          return new Response("{}", { status: 500 });
+        }
+        if (String(url).includes("GetPlanInfo")) {
+          return new Response("{}", { status: 200 });
+        }
+        return new Response(
+          JSON.stringify({ planUsage: { totalPercentUsed: 10 } }),
+          { status: 200 },
+        );
+      }),
+    );
+
+    const { fetchQuota } = await import("../../src/providers/cursor.js");
+    const result = await fetchQuota({ allowKeychainPrompt: false });
+
+    expect(result.state.status).toBe("fresh");
+    expect(result.windows.map((window) => window.id)).toEqual([
+      "included_usage",
+    ]);
+  });
+
+  it("reports grok_bot when GetCurrentPeriodUsage has no IDE windows", async () => {
+    vi.doMock("../../src/lib/process.js", () => ({
+      commandExists: vi.fn(async () => true),
+      execFileText: vi.fn(async (_command: string, args: string[]) => {
+        const query = args.at(-1) ?? "";
+        if (query.includes("cursorAuth/accessToken")) return '"valid-token"';
+        return "";
+      }),
+    }));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: unknown) => {
+        if (String(url).includes("GetSandUsageStatus")) {
+          return new Response(JSON.stringify({ usagePercent: 7 }), {
+            status: 200,
+          });
+        }
+        return new Response(JSON.stringify({ planUsage: {} }), { status: 200 });
+      }),
+    );
+
+    const { fetchQuota } = await import("../../src/providers/cursor.js");
+    const result = await fetchQuota({ allowKeychainPrompt: false });
+
+    expect(result.state.status).toBe("fresh");
+    expect(result.windows).toMatchObject([
+      { id: "grok_bot", percentUsed: 7, percentRemaining: 93 },
+    ]);
+  });
+
+  it("fails the provider when GetCurrentPeriodUsage errors, even though GetSandUsageStatus succeeds", async () => {
+    vi.doMock("../../src/lib/process.js", () => ({
+      commandExists: vi.fn(async () => true),
+      execFileText: vi.fn(async (_command: string, args: string[]) => {
+        const query = args.at(-1) ?? "";
+        if (query.includes("cursorAuth/accessToken")) return '"valid-token"';
+        return "";
+      }),
+    }));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: unknown) => {
+        if (String(url).includes("GetCurrentPeriodUsage")) {
+          return new Response("{}", { status: 500 });
+        }
+        if (String(url).includes("GetSandUsageStatus")) {
+          return new Response(JSON.stringify({ usagePercent: 7 }), {
+            status: 200,
+          });
+        }
+        return new Response(JSON.stringify({ planInfo: {} }), {
+          status: 200,
+        });
+      }),
+    );
+
+    const { fetchQuota } = await import("../../src/providers/cursor.js");
+    const result = await fetchQuota({ allowKeychainPrompt: false });
+
+    expect(result.state.status).not.toBe("fresh");
+    expect(result.windows).toEqual([]);
+  });
+
   it("resolves the Linux state database under XDG config home", async () => {
     delete process.env.CURSOR_STATE_DB;
     const xdgConfigHome = join(tempDir!, "xdg-config");

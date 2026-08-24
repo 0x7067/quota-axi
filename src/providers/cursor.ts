@@ -265,6 +265,7 @@ export function normalizeCursorUsage(
   usage: unknown,
   planInfo?: unknown,
   credentials?: Pick<CursorCredentials, "email" | "membershipType">,
+  sandUsage?: unknown,
 ):
   | {
       plan?: string;
@@ -274,8 +275,7 @@ export function normalizeCursorUsage(
       refreshedAt: string;
     }
   | undefined {
-  const data = objectValue(usage);
-  if (!data) return undefined;
+  const data = objectValue(usage) ?? {};
   const planData = objectValue(planInfo);
   const plan = objectValue(planData?.planInfo);
   const planName =
@@ -355,6 +355,9 @@ export function normalizeCursorUsage(
     );
   }
 
+  const grokBot = grokBotWindow(sandUsage);
+  if (grokBot !== undefined) windows.push(grokBot);
+
   if (windows.length === 0) return undefined;
   return {
     plan: planName,
@@ -371,14 +374,23 @@ async function fetchCursorUsage(credentials: CursorCredentials): Promise<{
   credits?: ProviderQuota["credits"];
   refreshedAt: string;
 }> {
-  const [usage, planInfo] = await Promise.all([
+  const [usageResult, planResult, sandResult] = await Promise.allSettled([
     postDashboardRpc(credentials.accessToken, "GetCurrentPeriodUsage"),
-    postDashboardRpc(credentials.accessToken, "GetPlanInfo").catch(
-      () => undefined,
-    ),
+    postDashboardRpc(credentials.accessToken, "GetPlanInfo"),
+    postDashboardRpc(credentials.accessToken, "GetSandUsageStatus"),
   ]);
-  const quota = normalizeCursorUsage(usage, planInfo, credentials);
-  if (!quota) throw new Error("Cursor quota unavailable");
+  if (usageResult.status === "rejected") {
+    throw usageResult.reason;
+  }
+  const quota = normalizeCursorUsage(
+    usageResult.value,
+    planResult.status === "fulfilled" ? planResult.value : undefined,
+    credentials,
+    sandResult.status === "fulfilled" ? sandResult.value : undefined,
+  );
+  if (!quota) {
+    throw new Error("Cursor quota unavailable");
+  }
   return quota;
 }
 
@@ -524,6 +536,43 @@ function cursorStateDbPath(): string {
 }
 
 /**
+ * Grok Bot weekly usage is a separate Cursor-account meter from the IDE
+ * monthly pools. The first-party DashboardService GetSandUsageStatus RPC
+ * reports it; enterprise pooled allowances and missing percents stay absent.
+ */
+function grokBotWindow(sandUsage: unknown): QuotaWindow | undefined {
+  const data = objectValue(sandUsage);
+  if (!data) return undefined;
+  if (
+    booleanValue(
+      pick(
+        data,
+        "usesPooledEnterpriseAllowance",
+        "uses_pooled_enterprise_allowance",
+      ),
+    ) === true
+  ) {
+    return undefined;
+  }
+  const percent = numberValue(pick(data, "usagePercent", "usage_percent"));
+  if (percent === undefined) return undefined;
+  const startsAt = parseEpochMillisOrIso(
+    pick(data, "currentPeriodStart", "current_period_start"),
+  );
+  const resetsAt = parseEpochMillisOrIso(
+    pick(data, "nextResetTimestampUtc", "next_reset_timestamp_utc"),
+  );
+  return withRemaining({
+    id: "grok_bot",
+    label: "Grok Bot",
+    kind: "weekly",
+    percentUsed: clampPercent(percent),
+    ...(startsAt !== undefined ? { startsAt } : {}),
+    ...(resetsAt !== undefined ? { resetsAt } : {}),
+  });
+}
+
+/**
  * Cursor's included/auto/API pools reset once per monthly billing cycle on the
  * subscription renewal date, so the cycle start is the previous renewal, not a
  * fixed 30-day span before the reset. Prefer an explicit cycle-start field when
@@ -582,6 +631,18 @@ function objectValue(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === "object"
     ? (value as Record<string, unknown>)
     : undefined;
+}
+
+function pick(
+  data: Record<string, unknown>,
+  camel: string,
+  snake: string,
+): unknown {
+  return data[camel] !== undefined ? data[camel] : data[snake];
+}
+
+function booleanValue(value: unknown): boolean | undefined {
+  return typeof value === "boolean" ? value : undefined;
 }
 
 function stringValue(value: unknown): string | undefined {

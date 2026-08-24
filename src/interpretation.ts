@@ -273,45 +273,49 @@ function kimiSemantics(
 }
 
 /**
- * Cursor's recognized windows all draw on the same plan billing cycle, so
+ * Cursor IDE recognized windows all draw on the same plan billing cycle, so
  * quota-axi treats them as jointly bounding rather than independent. That is
  * the conservative reading: the effective remaining is the minimum across them,
  * which never overstates headroom even if a window later turns out to be
- * independent.
+ * independent. Grok Bot weekly usage is a separate Cursor-account resource.
  */
-const CURSOR_RECOGNIZED_WINDOW_IDS = [
+const CURSOR_IDE_WINDOW_IDS = [
   "included_usage",
   "auto_usage",
   "api_usage",
   "spend_limit",
 ];
+const CURSOR_GROK_BOT_WINDOW_ID = "grok_bot";
 
 function cursorSemantics(
   windows: QuotaWindow[],
   generatedAt: string,
 ): QuotaSemantics {
-  const recognized = windows.filter(({ id }) =>
-    CURSOR_RECOGNIZED_WINDOW_IDS.includes(id),
-  );
+  const ide = windows.filter(({ id }) => CURSOR_IDE_WINDOW_IDS.includes(id));
+  const grokBot = windows.filter(({ id }) => id === CURSOR_GROK_BOT_WINDOW_ID);
   const unresolved = windows.filter(
-    ({ id }) => !CURSOR_RECOGNIZED_WINDOW_IDS.includes(id),
+    ({ id }) =>
+      !CURSOR_IDE_WINDOW_IDS.includes(id) && id !== CURSOR_GROK_BOT_WINDOW_ID,
   );
-  const effectiveAvailability =
-    recognized.length > 0
-      ? [availability("all_models", recognized, generatedAt)]
-      : [];
+  const effectiveAvailability: EffectiveAvailability[] = [];
+  if (ide.length > 0) {
+    effectiveAvailability.push(availability("all_models", ide, generatedAt));
+  }
+  if (grokBot.length > 0) {
+    effectiveAvailability.push(availability("grok_bot", grokBot, generatedAt));
+  }
   if (unresolved.length > 0) {
     return {
       status: "partial",
       description:
-        "Cursor's included, auto, API usage, and spend-limit windows jointly bound every model, so effective remaining is the minimum across those named windows. Unfamiliar windows are not folded into that bound, so they stay unresolved.",
+        "Cursor's included, auto, API usage, and spend-limit windows jointly bound every model, so effective remaining is the minimum across those named windows. The Grok Bot weekly window is an independent resource. Unfamiliar windows are not folded into either bound, so they stay unresolved.",
       effectiveAvailability,
       unresolvedWindowIds: unresolved.map(({ id }) => id),
     };
   }
   return knownSemantics(
     effectiveAvailability,
-    "Cursor's included, auto, API usage, and spend-limit windows jointly bound every model, so effective remaining is the minimum across the named windows.",
+    "Cursor's included, auto, API usage, and spend-limit windows jointly bound every model, so effective remaining is the minimum across those named windows. The Grok Bot weekly window is an independent resource.",
   );
 }
 

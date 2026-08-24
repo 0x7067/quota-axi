@@ -605,6 +605,69 @@ describe("quota semantics", () => {
     ).toBe(21);
   });
 
+  it("keeps Cursor Grok Bot weekly usage as a separate scope", () => {
+    const result = withQuotaSemantics(
+      provider("cursor", [
+        window("included_usage", "monthly", 58),
+        window("auto_usage", "monthly", 88),
+        window("grok_bot", "weekly", 20, {
+          startsAt: "2026-08-19T21:37:33.239Z",
+          resetsAt: "2026-08-26T21:37:33.239Z",
+        }),
+      ]),
+      GENERATED_AT,
+    );
+
+    expect(result.quotaSemantics?.status).toBe("known");
+    expect(result.quotaSemantics?.unresolvedWindowIds).toBeUndefined();
+    expect(result.quotaSemantics?.effectiveAvailability).toEqual([
+      expect.objectContaining({
+        scope: "all_models",
+        status: "known",
+        effectivePercentRemaining: 58,
+        boundedBy: ["included_usage", "auto_usage"],
+        limitingWindowIds: ["included_usage"],
+      }),
+      expect.objectContaining({
+        scope: "grok_bot",
+        status: "known",
+        effectivePercentRemaining: 20,
+        boundedBy: ["grok_bot"],
+        limitingWindowIds: ["grok_bot"],
+      }),
+    ]);
+  });
+
+  it("does not fold Cursor Grok Bot usage into the IDE bound when a window is unfamiliar", () => {
+    const result = withQuotaSemantics(
+      provider("cursor", [
+        window("included_usage", "monthly", 58),
+        window("grok_bot", "weekly", 4),
+        window("mystery_limit", "unknown", 3),
+      ]),
+      GENERATED_AT,
+    );
+
+    expect(result.quotaSemantics?.status).toBe("partial");
+    expect(result.quotaSemantics?.unresolvedWindowIds).toEqual([
+      "mystery_limit",
+    ]);
+    expect(result.quotaSemantics?.effectiveAvailability).toEqual([
+      expect.objectContaining({
+        scope: "all_models",
+        status: "known",
+        effectivePercentRemaining: 58,
+        boundedBy: ["included_usage"],
+      }),
+      expect.objectContaining({
+        scope: "grok_bot",
+        status: "known",
+        effectivePercentRemaining: 4,
+        boundedBy: ["grok_bot"],
+      }),
+    ]);
+  });
+
   it("does not fabricate a Cursor bound from an unmeasured window", () => {
     const result = withQuotaSemantics(
       provider("cursor", [
