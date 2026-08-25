@@ -7,10 +7,11 @@ type UsageFetchFailureEvidence = ProviderQuota & {
 };
 
 export function withUsageFetchFailure(provider: ProviderQuota): ProviderQuota {
-  return {
+  const evidence: UsageFetchFailureEvidence = {
     ...provider,
     [USAGE_FETCH_FAILURE]: true,
   };
+  return evidence;
 }
 
 export function isUsageFetchFailure(provider: ProviderQuota): boolean {
