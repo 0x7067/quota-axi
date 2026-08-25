@@ -29,6 +29,7 @@ import {
   successProvider,
   withRemaining,
 } from "./common.js";
+import { withUsageFetchFailure } from "./usage-fetch-failure.js";
 
 const API_URL = "https://api.anthropic.com/api/oauth/usage";
 const PROFILE_API_URL = "https://api.anthropic.com/api/oauth/profile";
@@ -208,7 +209,7 @@ export async function fetchQuota(
           error: failure.code,
         };
         if (failure.definitiveAuth) definitiveFailure ??= failure;
-        else transientFailure = failure;
+        else transientFailure = failure.withUsageFetchFailure();
       }
     }
   } else {
@@ -305,7 +306,7 @@ function staleClaudeReport(
   });
   if (windows.length === 0) return undefined;
 
-  return {
+  const report: ProviderQuota = {
     provider: "claude",
     label: "Claude",
     source: "cache",
@@ -321,6 +322,7 @@ function staleClaudeReport(
     },
     attempts,
   };
+  return failure.usageFetchFailure ? withUsageFetchFailure(report) : report;
 }
 
 function resetlessWindowMaxAge(window: QuotaWindow): number | undefined {
@@ -967,6 +969,7 @@ class ClaudeFailure extends Error {
   readonly definitiveAuth: boolean;
   readonly staleEligible: boolean;
   readonly retryAfter: string | undefined;
+  usageFetchFailure = false;
 
   constructor(
     readonly code: string,
@@ -978,5 +981,10 @@ class ClaudeFailure extends Error {
     this.definitiveAuth = options.definitiveAuth ?? false;
     this.staleEligible = options.staleEligible ?? false;
     this.retryAfter = options.retryAfter;
+  }
+
+  withUsageFetchFailure(): this {
+    this.usageFetchFailure = true;
+    return this;
   }
 }

@@ -1213,7 +1213,7 @@ describe("Grok expired access-token classification", () => {
     // positive auth fact because the scope produces no `quota[]` row.
     const toon = await captureCli(["--provider", "grok"]);
     expect(toon).toContain(
-      'grok,all,stale,"last refreshed 2026-07-20T00:00:00.000Z · fetch failed Grok access token expired · reason credentials_expired (auth expired_refreshable)",grok',
+      'grok,all,stale,"last refreshed 2026-07-20T00:00:00.000Z · Grok access token expired · reason credentials_expired (auth expired_refreshable)",grok',
     );
     expect(toon).toContain("grok,all_products,headroom_unknown,credits,none");
   });
@@ -1255,6 +1255,63 @@ describe("Grok dual-source CLI and Pi xAI usability", () => {
     expect(JSON.stringify(result)).not.toContain(
       "pi-xai-refresh-token-fixture",
     );
+  });
+
+  it("tries Pi oauth after a transient CLI quota failure", async () => {
+    writeValidAuth("cli-transient-token");
+    writeValidPiXaiOauth();
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      const authorization = (
+        init?.headers as Record<string, string> | undefined
+      )?.Authorization;
+      if (authorization === "Bearer cli-transient-token") {
+        throw new TypeError("network unavailable");
+      }
+      return grpcResponse(consumerPayload());
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await fetchQuota({ allowKeychainPrompt: false });
+
+    expect(result.state.status).toBe("fresh");
+    expect(result.source).toBe("web");
+    expect(result.attempts).toEqual([
+      { source: "web", status: "failed", error: "Grok quota unavailable" },
+      { source: "pi:xai", status: "success", credentialPresent: true },
+    ]);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("tries a stored-expired CLI bearer independently of transient Pi oauth", async () => {
+    writeAuth({
+      "https://auth.x.ai::fixture-client": {
+        key: "accepted-expired-cli-token",
+        auth_mode: "oidc",
+        expires_at: "2020-01-01T00:00:00.000Z",
+        refresh_token: "fixture-refresh-token",
+      },
+    });
+    writeValidPiXaiOauth();
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      const authorization = (
+        init?.headers as Record<string, string> | undefined
+      )?.Authorization;
+      if (authorization === "Bearer pi-xai-access-token-fixture") {
+        throw new TypeError("network unavailable");
+      }
+      return grpcResponse(consumerPayload());
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await fetchQuota({ allowKeychainPrompt: false });
+
+    expect(result.state.status).toBe("fresh");
+    expect(result.source).toBe("web");
+    expect(result.attempts).toContainEqual({
+      source: "web",
+      status: "success",
+    });
+    expect(fetchMock).toHaveBeenCalledOnce();
   });
 
   it("treats valid Pi xAI api_key as usable when Grok CLI auth is expired refreshable", async () => {
@@ -1360,7 +1417,7 @@ describe("Grok dual-source CLI and Pi xAI usability", () => {
       expect(result.grok?.state.remedyCommand).toBe("grok");
       expect(result.help).toContain(grokRefreshHelp);
       expect(result.toon).toContain(
-        `grok,all,stale,"last refreshed 2026-07-20T00:00:00.000Z · fetch failed ${result.grok?.state.error} · reason credentials_expired (auth ${result.grok?.state.authStatus})",grok`,
+        `grok,all,stale,"last refreshed 2026-07-20T00:00:00.000Z · ${result.grok?.state.error} · reason credentials_expired (auth ${result.grok?.state.authStatus})",grok`,
       );
     }
   });
@@ -1833,7 +1890,12 @@ describe("Grok dual-source CLI and Pi xAI usability", () => {
   });
 
   it("exposes usable model auth without consumer windows in compact and JSON output", async () => {
-    writeValidPiXaiOauth();
+    writePiXaiAuth({
+      xai: {
+        type: "api_key",
+        key: "pi-xai-api-key-fixture-value",
+      },
+    });
     vi.stubGlobal("fetch", vi.fn());
 
     const jsonText = await captureCli(["--provider", "grok", "--json"]);

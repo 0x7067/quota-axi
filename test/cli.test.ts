@@ -278,7 +278,7 @@ describe("CLI quota rendering", () => {
       "attention[3]{provider,scope,kind,detail,remedy}:",
     );
     expect(output).toContain(
-      'claude,all,stale,"last refreshed 2026-07-06T18:10:00Z · fetch failed keychain_prompt_required · reason keychain_access_required",quota-axi --allow-keychain-prompt',
+      'claude,all,stale,"last refreshed 2026-07-06T18:10:00Z · keychain_prompt_required · reason keychain_access_required",quota-axi --allow-keychain-prompt',
     );
     expect(output).toContain(
       "claude,all_models,headroom_unknown,five_hour,none",
@@ -820,7 +820,7 @@ describe("default TOON decision blocks", () => {
         "claude",
         "all",
         "stale",
-        "last refreshed 2026-07-06T18:10:00Z · fetch failed keychain_prompt_required · reason keychain_access_required",
+        "last refreshed 2026-07-06T18:10:00Z · keychain_prompt_required · reason keychain_access_required",
         "quota-axi --allow-keychain-prompt",
       ],
       ["claude", "all_models", "headroom_unknown", "five_hour", "none"],

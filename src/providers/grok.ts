@@ -32,6 +32,7 @@ import {
   type PiXaiCredentialBroker,
   type PiXaiCredentialResolution,
 } from "./pi-xai-credential.js";
+import { withUsageFetchFailure } from "./usage-fetch-failure.js";
 
 const CONSUMER_QUOTA_URL =
   "https://grok.com/grok_api_v2.GrokBuildBilling/GetGrokCreditsConfig";
@@ -199,9 +200,25 @@ async function fetchQuotaWithDependencies(
     });
   }
 
-  const selection = await selectCredential(candidates, (candidate) =>
+  const cliCandidates = candidates.filter(
+    (candidate) => candidate.source === GROK_SOURCE,
+  );
+  const piCandidates = candidates.filter(
+    (candidate) => candidate.source === PI_XAI_CREDENTIAL_SOURCE,
+  );
+  const cliSelection = await selectCredential(cliCandidates, (candidate) =>
     attemptGrokCandidate(candidate.credential),
   );
+  const piSelection =
+    cliSelection.outcome === "quota"
+      ? await selectCredential<GrokAttemptCredential, NormalizedGrokQuota>(
+          [],
+          (candidate) => attemptGrokCandidate(candidate.credential),
+        )
+      : await selectCredential(piCandidates, (candidate) =>
+          attemptGrokCandidate(candidate.credential),
+        );
+  const selection = mergeIndependentSelections(cliSelection, piSelection);
 
   const attempts = grokAttempts(cliState, piResolution, selection);
   const cliResults = selection.results.filter(
@@ -212,8 +229,8 @@ async function fetchQuotaWithDependencies(
     cliResults.find((result) => result.outcome === "transient") ??
     [...cliResults].reverse().find((result) => result.outcome === "rejected") ??
     cliResults.find((result) => result.outcome !== "not_tried");
-  const cliTransient = cliResult?.outcome === "transient";
-  const consumerError = cliResult?.error;
+  const consumerTransient = selection.transientError !== undefined;
+  const consumerError = selection.transientError ?? cliResult?.error;
   const retryAfter = selection.retryAfter;
   const cliRefreshNeeded = selection.results.some(
     (result) =>
@@ -251,16 +268,17 @@ async function fetchQuotaWithDependencies(
     const cached = readCachedProvider("grok");
     if (
       cached?.source === GROK_SOURCE &&
-      (cliTransient || cliState.status !== "available")
+      (consumerTransient || cliState.status !== "available")
     ) {
+      const stale = staleFromCache(
+        cached,
+        (consumerTransient ? consumerError : undefined) ??
+          GROK_CONSUMER_QUOTA_UNAVAILABLE_ERROR,
+        sourceNames(attempts),
+        attempts,
+      );
       return withAuthStatus(
-        staleFromCache(
-          cached,
-          (cliTransient ? consumerError : undefined) ??
-            GROK_CONSUMER_QUOTA_UNAVAILABLE_ERROR,
-          sourceNames(attempts),
-          attempts,
-        ),
+        consumerTransient ? withUsageFetchFailure(stale) : stale,
         "usable",
         cliRefreshNeeded,
       );
@@ -271,13 +289,13 @@ async function fetchQuotaWithDependencies(
         label: "Grok",
         status: retryAfter
           ? "rate_limited"
-          : cliTransient
+          : consumerTransient
             ? statusFromError(
                 consumerError ?? GROK_CONSUMER_QUOTA_UNAVAILABLE_ERROR,
               )
             : "unavailable",
         error:
-          consumerError && cliTransient
+          consumerError && consumerTransient
             ? consumerError
             : GROK_CONSUMER_QUOTA_UNAVAILABLE_ERROR,
         retryAfter,
@@ -324,6 +342,55 @@ async function fetchQuotaWithDependencies(
     authStatus,
     cliRefreshNeeded,
   );
+}
+
+function mergeIndependentSelections<R>(
+  first: CredentialSelection<R>,
+  second: CredentialSelection<R>,
+): CredentialSelection<R> {
+  const results = [...first.results, ...second.results];
+  const refreshable = first.refreshable || second.refreshable;
+  if (first.outcome === "quota") return { ...first, results };
+  if (second.outcome === "quota") return { ...second, results };
+
+  const live =
+    first.outcome === "live_no_quota"
+      ? first
+      : second.outcome === "live_no_quota"
+        ? second
+        : undefined;
+  const transient =
+    first.outcome === "transient"
+      ? first
+      : second.outcome === "transient"
+        ? second
+        : undefined;
+  if (live) {
+    return {
+      outcome: "live_no_quota",
+      winner: live.winner,
+      transientError: transient?.transientError,
+      retryAfter: transient?.retryAfter,
+      refreshable,
+      results,
+    };
+  }
+  if (transient) {
+    return {
+      outcome: "transient",
+      transientError: transient.transientError,
+      retryAfter: transient.retryAfter,
+      refreshable,
+      results,
+    };
+  }
+  if (
+    results.length > 0 &&
+    results.every((result) => result.outcome === "rejected")
+  ) {
+    return { outcome: "all_rejected", refreshable, results };
+  }
+  return { outcome: "no_candidates", refreshable, results };
 }
 
 async function attemptGrokCandidate(
