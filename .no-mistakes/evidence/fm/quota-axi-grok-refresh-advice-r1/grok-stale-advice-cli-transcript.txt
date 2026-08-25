@@ -1,0 +1,76 @@
+$ quota-axi --provider grok --json
+{
+  "generatedAt": "2026-08-25T05:44:12.398Z",
+  "schemaVersion": 5,
+  "providers": [
+    {
+      "provider": "grok",
+      "windows": [
+        {
+          "id": "credits",
+          "label": "credits",
+          "kind": "credits",
+          "percentRemaining": 47,
+          "pace": {
+            "status": "unknown",
+            "reason": "stale"
+          }
+        }
+      ],
+      "state": {
+        "status": "stale",
+        "stale": true,
+        "error": "Grok consumer quota unavailable",
+        "authStatus": "usable",
+        "reason": "credentials_expired",
+        "remedyCommand": "grok"
+      },
+      "quotaSemantics": {
+        "status": "unknown",
+        "effectiveAvailability": [
+          {
+            "scope": "all_products",
+            "status": "unknown",
+            "boundedBy": [
+              "credits"
+            ],
+            "runway": {
+              "status": "unknown",
+              "unmeasurableWindowIds": [
+                "credits"
+              ]
+            },
+            "selection": {
+              "status": "unknown",
+              "unmeasurableWindowIds": [
+                "credits"
+              ]
+            },
+            "pace": {
+              "status": "unknown",
+              "unknownWindowIds": [
+                "credits"
+              ]
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "help": [
+    "Tell your user: open the Grok CLI (`grok`) once so it can refresh Grok's local session token. quota-axi does not refresh credentials."
+  ]
+}
+
+$ quota-axi --provider grok
+bin: quota-axi
+description: Report local agent-provider quota windows for routing-aware agents
+generatedAt: "2026-08-25T05:44:12.402Z"
+quota[0]:
+exhaustion[0]:
+attention[2]{provider,scope,kind,detail,remedy}:
+  grok,all,stale,"last refreshed 2026-07-20T00:00:00.000Z · reason credentials_expired (auth usable)",grok
+  grok,all_products,headroom_unknown,credits,none
+help[2]:
+  Tell your user: open the Grok CLI (`grok`) once so it can refresh Grok's local session token. quota-axi does not refresh credentials.
+  Run `quota-axi --full` for windows, pace, reserve, and account evidence
