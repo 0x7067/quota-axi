@@ -271,7 +271,7 @@ async function fetchQuotaWithDependencies(
 
   let finalError: string;
   if (authStatus === "expired_refreshable") {
-    finalError = hasRefreshableCliCandidate(cliState)
+    finalError = cliStateHasRefreshableCandidate(cliState)
       ? GROK_ACCESS_TOKEN_EXPIRED_ERROR
       : "Pi xAI access token expired";
   } else if (piResolution.status === "error") {
@@ -482,12 +482,12 @@ function classifyGrokAuthStatus(
   if (cliUsable || piUsable) return "usable";
   const piRefreshable =
     piResolution.status === "expired" && piResolution.refreshable;
-  if (hasRefreshableCliCandidate(cliState) || piRefreshable)
+  if (cliStateHasRefreshableCandidate(cliState) || piRefreshable)
     return "expired_refreshable";
   return "unusable";
 }
 
-function hasRefreshableCliCandidate(state: CredentialState): boolean {
+function cliStateHasRefreshableCandidate(state: CredentialState): boolean {
   return (
     (state.status === "available" || state.status === "expired") &&
     state.candidates.some(
@@ -495,6 +495,11 @@ function hasRefreshableCliCandidate(state: CredentialState): boolean {
         candidate.localState === "expired" && candidate.refreshable,
     )
   );
+}
+
+/** True when a Grok CLI session is stored-expired and still has a refresh token. */
+export function hasRefreshableCliCandidate(): boolean {
+  return cliStateHasRefreshableCandidate(readCredentialState());
 }
 
 function piSourceAttempt(resolution: PiXaiCredentialResolution): SourceAttempt {

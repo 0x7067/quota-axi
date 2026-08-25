@@ -1305,6 +1305,66 @@ describe("Grok dual-source CLI and Pi xAI usability", () => {
     expect(JSON.stringify(result)).not.toContain("fixture-refresh-token");
   });
 
+  it("emits grok CLI refresh advice for a refreshable CLI session whether Pi is present or hidden", async () => {
+    const grokRefreshHelp =
+      "Tell your user: open the Grok CLI (`grok`) once so it can refresh Grok's local session token. quota-axi does not refresh credentials.";
+
+    async function cliAdvice(pi: "present" | "hidden"): Promise<{
+      grok: QuotaAxiResponse["providers"][number] | undefined;
+      help: string[] | undefined;
+      toon: string;
+    }> {
+      writeAuth({
+        "https://auth.x.ai::fixture-client": {
+          key: "expired-access-token",
+          auth_mode: "oidc",
+          expires_at: "2020-01-01T00:00:00.000Z",
+          refresh_token: "fixture-refresh-token",
+        },
+      });
+      const piAuthPath = join(process.env.PI_CODING_AGENT_DIR!, "auth.json");
+      if (pi === "present") {
+        writePiXaiAuth({
+          xai: {
+            type: "api_key",
+            key: "pi-xai-api-key-fixture-value",
+          },
+        });
+      } else if (existsSync(piAuthPath)) {
+        rmSync(piAuthPath);
+      }
+      writeCachedProviders([cachedGrok("web")]);
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => grpcResponse(new Uint8Array(), { status: 403 })),
+      );
+
+      const json = JSON.parse(
+        await captureCli(["--provider", "grok", "--json"]),
+      ) as QuotaAxiResponse;
+      return {
+        grok: json.providers[0],
+        help: json.help,
+        toon: await captureCli(["--provider", "grok"]),
+      };
+    }
+
+    const hidden = await cliAdvice("hidden");
+    const present = await cliAdvice("present");
+
+    expect(hidden.grok?.state.authStatus).toBe("expired_refreshable");
+    expect(present.grok?.state.authStatus).toBe("usable");
+    for (const result of [hidden, present]) {
+      expect(result.grok?.state.status).toBe("stale");
+      expect(result.grok?.state.reason).toBe("credentials_expired");
+      expect(result.grok?.state.remedyCommand).toBe("grok");
+      expect(result.help).toContain(grokRefreshHelp);
+      expect(result.toon).toContain(
+        `grok,all,stale,"last refreshed 2026-07-20T00:00:00.000Z · reason credentials_expired (auth ${result.grok?.state.authStatus})",grok`,
+      );
+    }
+  });
+
   it("keeps Grok CLI consumer quota when Pi xAI auth is missing", async () => {
     writeValidAuth("cli-only-key");
     const fetchMock = stubSuccessfulFetch();
