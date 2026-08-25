@@ -1257,6 +1257,44 @@ describe("Grok dual-source CLI and Pi xAI usability", () => {
     );
   });
 
+  it("reports a definitively rejected Pi oauth token as signed out", async () => {
+    writeValidPiXaiOauth();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => grpcResponse(new Uint8Array(), { status: 403 })),
+    );
+
+    const result = await fetchQuota({ allowKeychainPrompt: false });
+
+    expect(result.state).toMatchObject({
+      status: "auth_required",
+      authStatus: "unusable",
+      error: "Grok sign-in required",
+    });
+    expect(result.attempts).toContainEqual({
+      source: "pi:xai",
+      status: "failed",
+      error: "Grok sign-in required",
+      credentialPresent: true,
+    });
+  });
+
+  it("preserves usable auth for a transient valid Pi oauth failure", async () => {
+    writeValidPiXaiOauth();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new TypeError("network unavailable");
+      }),
+    );
+
+    const result = await fetchQuota({ allowKeychainPrompt: false });
+
+    expect(result.state.authStatus).toBe("usable");
+    expect(result.state.status).toBe("error");
+    expect(result.state.error).toBe("Grok quota unavailable");
+  });
+
   it("tries Pi oauth after a transient CLI quota failure", async () => {
     writeValidAuth("cli-transient-token");
     writeValidPiXaiOauth();
@@ -1554,6 +1592,26 @@ describe("Grok dual-source CLI and Pi xAI usability", () => {
     expect(grok?.state.reason).toBeUndefined();
     expect(grok?.state.remedyCommand).toBeUndefined();
     expect(json.help?.join("\n") ?? "").not.toContain("open the Grok CLI");
+  });
+
+  it("reports Pi oauth as unneeded when the CLI bearer succeeds", async () => {
+    writeValidAuth("cli-only-key");
+    writeValidPiXaiOauth();
+    const fetchMock = stubSuccessfulFetch();
+
+    const result = await fetchQuota({ allowKeychainPrompt: false });
+
+    expect(result.state.status).toBe("fresh");
+    expect(result.attempts).toEqual([
+      { source: "web", status: "success" },
+      {
+        source: "pi:xai",
+        status: "skipped",
+        error: "quota_not_needed",
+        credentialPresent: true,
+      },
+    ]);
+    expect(fetchMock).toHaveBeenCalledOnce();
   });
 
   it("keeps Grok CLI consumer quota when Pi xAI auth is missing", async () => {

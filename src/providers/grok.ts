@@ -46,6 +46,7 @@ const GROK_CONSUMER_QUOTA_UNAVAILABLE_ERROR = "Grok consumer quota unavailable";
 const GROK_PI_CREDENTIAL_RESOLUTION_ERROR =
   "Grok Pi credential resolution failed";
 const PI_MODEL_AUTH_ONLY_ERROR = "model_auth_only";
+const PI_QUOTA_NOT_NEEDED_ERROR = "quota_not_needed";
 
 const PRODUCT_NAMES: Record<number, { id: string; label: string }> = {
   0: { id: "unspecified", label: "Other" },
@@ -516,7 +517,14 @@ function classifyGrokAuthStatus(
   piResolution: PiXaiCredentialResolution,
   selection: CredentialSelection<NormalizedGrokQuota>,
 ): ProviderAuthStatus {
-  const piUsable = piResolution.status === "available";
+  const piResult = selection.results.find(
+    (result) => result.source === PI_XAI_CREDENTIAL_SOURCE,
+  );
+  const piUsable =
+    piResolution.status === "available" &&
+    (piResult?.outcome === "quota" ||
+      piResult?.outcome === "live_no_quota" ||
+      piResult?.outcome === "transient");
   const cliUsable = selection.results.some(
     (result) =>
       result.source === GROK_SOURCE &&
@@ -550,7 +558,10 @@ function piSourceAttempt(resolution: PiXaiCredentialResolution): SourceAttempt {
     return {
       source: PI_XAI_CREDENTIAL_SOURCE,
       status: "skipped",
-      error: PI_MODEL_AUTH_ONLY_ERROR,
+      error:
+        resolution.kind === "oauth"
+          ? PI_QUOTA_NOT_NEEDED_ERROR
+          : PI_MODEL_AUTH_ONLY_ERROR,
       credentialPresent: true,
     };
   }
