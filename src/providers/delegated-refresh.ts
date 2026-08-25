@@ -13,10 +13,11 @@ import type { SourceAttempt } from "../types.js";
  * and force the user to sign in again. A quota reader must never be able to
  * sign a user out of the harness it is measuring.
  *
- * So when a stored access token is expired or empirically rejected, quota-axi
- * runs the vendor's own smallest non-interactive command - the one that already
- * owns rotation and already owns the credential store - and then re-reads the
- * refreshed access token from the store the vendor just rewrote. quota-axi
+ * So only when the same stored access token is expired, has a refresh token
+ * beside it, and is empirically rejected, quota-axi runs the vendor's own
+ * smallest non-interactive command - the one that already owns rotation and
+ * already owns the credential store - and then re-reads the refreshed access
+ * token from the store the vendor just rewrote. quota-axi
  * reads the result; the vendor performs the rotation.
  *
  * The delegate contract, enforced here:

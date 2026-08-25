@@ -16,7 +16,7 @@ Agents need quota state before they choose where work can safely run.
 Vendor dashboards are not shaped for shell automation, and local CLIs expose different windows, resets, and auth sources.
 
 quota-axi reports local Claude, Codex, Cursor, GitHub Copilot, Grok, Kimi, Z.AI, and Antigravity (`agy`) quota windows in one [AXI](https://axi.md)-shaped call.
-It is data only: it never routes, recommends a provider, model, harness, credential, or route, proxies, intercepts, logs in, imports browser cookies, or mints or rotates a credential. When a stored access token has expired, it delegates the renewal to that vendor's own non-interactive CLI command and re-reads the result ([Delegated credential refresh](#delegated-credential-refresh)). Default output has no ordering preference. The opt-in `models --sort runway` surface applies only its documented deterministic comparator to quota evidence, preserves all evidence and explicit ties, and is not a recommendation. It publishes one derived per-scope comparative selection signal, [`selection`](#per-scope-selection-signal), as data computed from figures it already reports; the consumer, not quota-axi, does any routing or ranking with it.
+It is data only: it never routes, recommends a provider, model, harness, credential, or route, proxies, intercepts, logs in, imports browser cookies, or mints or rotates a credential. When the same stored access token is expired, carries a refresh token, and is definitively rejected, quota-axi delegates renewal to that vendor's own non-interactive CLI command and re-reads the result ([Delegated credential refresh](#delegated-credential-refresh)). Default output has no ordering preference. The opt-in `models --sort runway` surface applies only its documented deterministic comparator to quota evidence, preserves all evidence and explicit ties, and is not a recommendation. It publishes one derived per-scope comparative selection signal, [`selection`](#per-scope-selection-signal), as data computed from figures it already reports; the consumer, not quota-axi, does any routing or ranking with it.
 
 - **Official sources** - quota-axi reads local provider auth sources and calls first-party quota, usage, billing, entitlement, local loopback, or read-only credential-liveness endpoints used by the local agents, with a read-only Codex app-server probe as fallback. The only other vendor commands it runs are the declared credential-refresh delegates.
 - **Local first** - quota and auth reports run on the machine that holds the credentials; their network calls go to first-party provider endpoints, never a third-party relay.
@@ -281,7 +281,7 @@ It is generated from `src/skill.ts`; update it with `pnpm run build:skill` and v
 
 - **Live first** - direct provider HTTP calls use 15 second request timeouts, Codex JSON-RPC and Antigravity loopback reads use shorter per-call timeouts, and stale cache fallback is per provider.
 - **No first-run Keychain prompt** - macOS Claude and Cursor CLI Keychain value reads are skipped on plain calls until `--allow-keychain-prompt` succeeds once for that source, then future plain calls reuse the corresponding grant.
-- **Delegated refresh, never minted** - when a stored access token is expired and the provider was definitively rejected, quota-axi runs that vendor CLI's own smallest non-interactive refresh command and re-reads the store the CLI rewrote. quota-axi never performs a refresh-token exchange itself. See [Delegated credential refresh](#delegated-credential-refresh).
+- **Delegated refresh, never minted** - when the same stored access token is expired, carries a refresh token, and is definitively rejected, quota-axi runs that vendor CLI's own smallest non-interactive refresh command and re-reads the store the CLI rewrote. quota-axi never performs a refresh-token exchange itself. See [Delegated credential refresh](#delegated-credential-refresh).
 - **Partial success is success** - one provider can fail while another returns fresh or stale data, and the process still exits 0. Exit code 1 means every provider failed, and 2 means a usage error.
 - **No token equivalence** - quota-axi does not claim that one provider percentage equals another provider percentage.
 
@@ -333,7 +333,7 @@ The `quota` command's `--json` emits `schemaVersion: 5`.
 
 ### Normalized schema contract
 
-The package publishes TypeScript declarations from its package root, so consumers can use `import type { QuotaAxiResponse, ModelsResponse } from "quota-axi"`. The adapter contract is `ProviderAdapter` in and normalized `ProviderQuota` out: adapters report observed quota data, never rank, mutate provider state, or retain raw responses.
+The package publishes TypeScript declarations from its package root, so consumers can use `import type { QuotaAxiResponse, ModelsResponse } from "quota-axi"`. The adapter contract is `ProviderAdapter` in and normalized `ProviderQuota` out: adapters report observed quota data, never rank, mint credentials, or retain raw responses. The narrowly bounded vendor-owned renewal path is documented under [Delegated credential refresh](#delegated-credential-refresh).
 
 `schemaVersion` is command-specific. Additive optional fields do not bump it. A semantic or incompatible shape change does. The `quota` report is version 5, `auth` is version 1, and `models` is version 1.
 
@@ -533,7 +533,7 @@ Any bounding window without usable pace makes the **whole scope** unmeasurable: 
 
 `selection` is derived per report from the same `generatedAt` clock as `pace` and `runway`, and is not cached.
 
-**This is data, not routing.** quota-axi still never routes, ranks a winner, orders providers preferentially, proxies, logs in, or mutates provider state. `selection` is a derived comparative _data_ signal computed entirely from figures quota-axi already reports; any routing, ranking, or preference is the consumer's decision. It is also advisory only: it never overrides `runway`, which remains the hard completion-risk evidence a consumer checks against its task horizon.
+**This is data, not routing.** quota-axi still never routes, ranks a winner, orders providers preferentially, proxies, logs in, or changes provider quota state. `selection` is a derived comparative _data_ signal computed entirely from figures quota-axi already reports; any routing, ranking, or preference is the consumer's decision. It is also advisory only: it never overrides `runway`, which remains the hard completion-risk evidence a consumer checks against its task horizon.
 
 ### Quota enums
 
@@ -686,16 +686,16 @@ Auth source entries can include `credentialPresent` when a non-secret probe conf
 
 quota-axi reports quota; it is not an auth app. It never mints a credential, never rotates one, and never performs a refresh-token exchange over HTTP. Those refresh tokens rotate on use, so a second holder performing the exchange would spend the vendor's own single-use token and sign the user out of the harness being measured.
 
-Instead, when a stored access token is expired **and** the provider definitively rejected it, quota-axi runs the vendor CLI's own smallest non-interactive command that already owns rotation, then re-reads the store that CLI rewrote and retries the same read-only quota request once. Rotation is always the vendor's; quota-axi only reads the result.
+Instead, when the same stored access token is expired, carries a refresh token, **and** is definitively rejected, quota-axi runs the vendor CLI's own smallest non-interactive command that already owns rotation, then re-reads the store that CLI rewrote and retries the same read-only quota request once. Rotation is always the vendor's; quota-axi only reads the result.
 
-| Provider                                        | Delegated command                            | Store the vendor rewrites                             |
-| ----------------------------------------------- | -------------------------------------------- | ----------------------------------------------------- |
-| Claude                                          | `claude doctor`                              | the Claude Code Keychain item, or `.credentials.json` |
-| Codex                                           | `codex -s read-only -a untrusted app-server` | `$CODEX_HOME/auth.json`                               |
-| Grok                                            | `grok models`                                | `$GROK_HOME/auth.json`                                |
-| Cursor, GitHub Copilot, Kimi, Z.AI, Antigravity | none                                         | read-only; see the per-provider notes below           |
+| Provider                                        | Vendor-owned recovery path        | Store the vendor rewrites                             |
+| ----------------------------------------------- | --------------------------------- | ----------------------------------------------------- |
+| Claude                                          | `claude doctor` delegate          | the Claude Code Keychain item, or `.credentials.json` |
+| Codex                                           | existing `app-server` quota probe | `$CODEX_HOME/auth.json`                               |
+| Grok                                            | `grok models` delegate            | `$GROK_HOME/auth.json`                                |
+| Cursor, GitHub Copilot, Kimi, Z.AI, Antigravity | none                              | read-only; see the per-provider notes below           |
 
-Every delegated run is bounded the same way:
+The Claude and Grok delegated runs are bounded the same way:
 
 - Fixed argv declared in this repository, resolved through `PATH` (or a provider's absolute binary override), never through a shell and never assembled from provider responses, configuration, or user input.
 - No interactive surface: the child gets no stdin, so a vendor command that would prompt exits instead of waiting; `TERM=dumb`, `NO_COLOR=1`, and the vendors' own `NO_BROWSER` / `NO_OPEN_BROWSER` opt-outs are forced. No delegate opens a browser, starts a session, or spends the quota being measured.
@@ -704,7 +704,7 @@ Every delegated run is bounded the same way:
 - It runs only for soft expiry: a stored-expired credential that carries a refresh token and was definitively rejected. Transient failures, missing or malformed stores, stored-valid credentials the server revoked, and relocated stores the vendor would not rewrite all stay read-only.
 - `--no-credential-refresh` disables it entirely, and the read-only `auth` command never delegates a refresh.
 
-The delegated run appears in `--full` output as its own attempt (`claude-cli-refresh`, `grok-cli-refresh`), with `status: "skipped"` and `error: "refresh_command_not_found"` when the vendor CLI is not installed. On Windows, delegated refresh may not run when the vendor CLI resolves to a `.cmd` or `.bat` command shim, because quota-axi deliberately never invokes a shell. In that case it records the failed refresh attempt and reports the provider read-only with its normal remedy. Quota accuracy and the no-shell safety guarantee are unchanged. Codex needs no extra spawn: its existing read-only `cli-rpc` app-server probe both refreshes `auth.json` and returns the rate limits, so an expired Codex token already reports live quota through the vendor CLI.
+A Claude or Grok delegated run appears in `--full` output as its own attempt (`claude-cli-refresh`, `grok-cli-refresh`), with `status: "skipped"` and `error: "refresh_command_not_found"` when the vendor CLI is not installed. On Windows, delegated refresh may not run when the vendor CLI resolves to a `.cmd` or `.bat` command shim, because quota-axi deliberately never invokes a shell. In that case it records the failed refresh attempt and continues with normal read-only failure reporting and any applicable advice. Quota accuracy and the no-shell safety guarantee are unchanged. Codex needs no extra spawn: its existing read-only `cli-rpc` app-server probe both refreshes `auth.json` and returns the rate limits, so an expired Codex token already reports live quota through the vendor CLI.
 
 Providers with no established non-interactive rotation command stay read-only on purpose. That is a documented limitation rather than a reason to force an unsafe path: Cursor's CLI token is long-lived and no non-interactive `cursor-agent` command was observed to rotate it, GitHub Copilot's stored OAuth token does not expire, Z.AI uses a non-expiring API key, Pi-owned OAuth entries (`xai`, `kimi-coding`) have no non-interactive Pi refresh command, and Antigravity exposes no credential store at all.
 

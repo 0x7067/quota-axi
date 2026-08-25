@@ -14,7 +14,7 @@ The primary flow is unattended, so anything that needs a human present is kept o
 ## It reports, the caller decides
 
 quota-axi publishes figures, and the consumer decides what to do with them.
-It never proxies a request, never intercepts traffic, and never mutates provider state to change an outcome.
+It never proxies a request, never intercepts traffic, and never mutates provider state to change the quota it reports.
 A derived comparative signal is welcome when it is computed only from figures already reported, is documented, and is deterministic; `spendPriority` and `models --sort runway` ship on exactly those terms.
 An opt-in surface that names a best scope is allowed on the same terms, because the alternative is every consumer reimplementing that comparison with worse handling of unknowns.
 The default report stays in declaration order and carries no preference, so no column reads as a ranking the caller did not ask for.

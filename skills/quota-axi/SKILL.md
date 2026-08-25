@@ -25,8 +25,9 @@ metadata:
 # quota-axi
 
 Report local Claude, Codex, Cursor, GitHub Copilot, Grok, Kimi, Z.AI, and Antigravity quota windows.
-quota-axi is data only: it never routes, recommends, ranks, or mints credentials. When a stored access
-token has expired it delegates the renewal to the vendor's own CLI and re-reads the result.
+quota-axi is data only: it never routes, recommends, ranks, or mints credentials. When the same stored
+access token is expired, refreshable, and definitively rejected, it delegates renewal to the vendor's
+own CLI and re-reads the result.
 
 Use it when you need local quota headroom before deciding whether it is safe to keep spending a
 provider, when the user asks about usage, rate limits, pace, or remaining quota, or when comparing

@@ -55,7 +55,7 @@ See the [no-mistakes quick start](https://kunchenguid.github.io/no-mistakes/star
   It points at commit `9f5dc949c50ab8ac0a441be777e1c3693ee0b612`, the published npm `0.1.0` baseline.
 - Do not hand-edit `skills/quota-axi/SKILL.md`.
   It is generated from `src/skill.ts`, including frontmatter metadata; run `pnpm run build:skill` and commit the result.
-- quota-axi is data only: it must never route, recommend, proxy, intercept, log in, import browser cookies, or mutate provider state. Keep changes within that boundary.
+- Keep changes within the product and credential boundaries defined in [VISION.md](VISION.md); the user-facing safety contract lives in [README.md](README.md#safety-guarantees).
 
 ## Questions
 
