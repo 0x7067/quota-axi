@@ -1,0 +1,120 @@
+$ quota-axi --provider claude --json --full
+{
+  "generatedAt": "2026-08-25T21:00:00.551Z",
+  "schemaVersion": 5,
+  "providers": [
+    {
+      "provider": "claude",
+      "label": "Claude",
+      "source": "oauth",
+      "plan": "max",
+      "account": {
+        "accountId": "fixture-account",
+        "email": "reviewer@example.test",
+        "identityStatus": "verified"
+      },
+      "windows": [
+        {
+          "id": "five_hour",
+          "label": "session",
+          "kind": "session",
+          "percentUsed": 40,
+          "resetsAt": "2035-01-01T00:00:00.000Z",
+          "windowSeconds": 18000,
+          "percentRemaining": 60,
+          "pace": {
+            "status": "unknown",
+            "reason": "future_cycle_start"
+          }
+        },
+        {
+          "id": "seven_day",
+          "label": "week",
+          "kind": "weekly",
+          "percentUsed": 10,
+          "resetsAt": "2035-01-05T00:00:00.000Z",
+          "windowSeconds": 604800,
+          "percentRemaining": 90,
+          "pace": {
+            "status": "unknown",
+            "reason": "future_cycle_start"
+          }
+        }
+      ],
+      "attempts": [
+        {
+          "source": "oauth-file",
+          "status": "failed",
+          "error": "Claude sign-in required"
+        },
+        {
+          "source": "claude-cli-refresh",
+          "status": "success"
+        },
+        {
+          "source": "oauth-file",
+          "status": "success"
+        },
+        {
+          "source": "oauth-profile",
+          "status": "success"
+        }
+      ],
+      "state": {
+        "status": "fresh",
+        "stale": false,
+        "refreshedAt": "2026-08-25T21:00:00.829Z",
+        "sourcesTried": [
+          "oauth-file",
+          "claude-cli-refresh",
+          "oauth-profile"
+        ]
+      },
+      "quotaSemantics": {
+        "status": "known",
+        "description": "Claude account windows bound every model. A model-specific window is an additional bound, so that model's effective remaining percentage is the minimum across the named windows.",
+        "effectiveAvailability": [
+          {
+            "scope": "all_models",
+            "status": "known",
+            "effectivePercentRemaining": 60,
+            "boundedBy": [
+              "five_hour",
+              "seven_day"
+            ],
+            "limitingWindowIds": [
+              "five_hour"
+            ],
+            "pace": {
+              "status": "unknown",
+              "unknownWindowIds": [
+                "five_hour",
+                "seven_day"
+              ]
+            },
+            "runway": {
+              "status": "unknown",
+              "unmeasurableWindowIds": [
+                "five_hour",
+                "seven_day"
+              ]
+            },
+            "selection": {
+              "status": "unknown",
+              "unmeasurableWindowIds": [
+                "five_hour",
+                "seven_day"
+              ]
+            }
+          }
+        ]
+      }
+    }
+  ]
+}
+
+E2E verification:
+- delegated command invocation: claude doctor
+- HTTP requests: GET https://api.anthropic.com/api/oauth/usage, GET https://api.anthropic.com/api/oauth/usage, GET https://api.anthropic.com/api/oauth/profile
+- token/refresh fixture values exposed in CLI output: NO
+- final provider state: fresh
