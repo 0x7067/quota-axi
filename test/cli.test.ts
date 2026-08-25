@@ -4,11 +4,12 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { parseFlags, parseModelsFlags } from "../src/args.js";
 import { main, normalizeArgv } from "../src/cli.js";
-import { authCommand } from "../src/commands.js";
+import { authCommand, quotaCommand } from "../src/commands.js";
 import { PROVIDERS } from "../src/providers/index.js";
 import { redactedResponse } from "../src/render.js";
 import type {
   ProviderAdapter,
+  ProviderOptions,
   ProviderQuota,
   QuotaAxiResponse,
 } from "../src/types.js";
@@ -93,6 +94,7 @@ describe("CLI flag parsing", () => {
         tui: false,
         once: false,
         allowKeychainPrompt: true,
+        noCredentialRefresh: false,
       },
     );
     expect(parseFlags(["--tui"]).tui).toBe(true);
@@ -155,6 +157,71 @@ describe("CLI flag parsing", () => {
 
   it("rejects unknown flags", () => {
     expect(() => parseFlags(["--bogus"])).toThrow("unknown argument: --bogus");
+  });
+
+  it("opts out of delegated credential refresh", () => {
+    expect(parseFlags([]).noCredentialRefresh).toBe(false);
+    expect(parseFlags(["--no-credential-refresh"]).noCredentialRefresh).toBe(
+      true,
+    );
+    expect(
+      parseModelsFlags(["--no-credential-refresh"]).noCredentialRefresh,
+    ).toBe(true);
+  });
+});
+
+describe("delegated credential refresh wiring", () => {
+  function recordingProvider(seen: ProviderOptions[]): ProviderAdapter {
+    return {
+      id: "claude",
+      label: "Claude",
+      async fetchQuota(options) {
+        seen.push(options);
+        return {
+          provider: "claude",
+          label: "Claude",
+          source: "unavailable",
+          windows: [],
+          state: {
+            status: "error",
+            stale: false,
+            error: "fixture",
+            sourcesTried: [],
+          },
+        };
+      },
+      async inspectAuth(options) {
+        seen.push(options);
+        return { provider: "claude", sources: [] };
+      },
+    };
+  }
+
+  it("lets the quota path delegate refresh by default and opts out on request", async () => {
+    const seen: ProviderOptions[] = [];
+    PROVIDERS.claude = recordingProvider(seen);
+
+    await quotaCommand(["--provider", "claude"], undefined);
+    await quotaCommand(
+      ["--provider", "claude", "--no-credential-refresh"],
+      undefined,
+    );
+
+    expect(seen.map((options) => options.refreshCredentials)).toEqual([
+      true,
+      false,
+    ]);
+  });
+
+  it("never delegates a refresh from the read-only auth report", async () => {
+    const seen: ProviderOptions[] = [];
+    PROVIDERS.claude = recordingProvider(seen);
+
+    await authCommand(["--provider", "claude"], undefined);
+
+    expect(seen).toEqual([
+      { allowKeychainPrompt: false, refreshCredentials: false },
+    ]);
   });
 });
 

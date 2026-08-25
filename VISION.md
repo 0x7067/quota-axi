@@ -14,7 +14,7 @@ The primary flow is unattended, so anything that needs a human present is kept o
 ## It reports, the caller decides
 
 quota-axi publishes figures, and the consumer decides what to do with them.
-It never proxies a request, never intercepts traffic, and never mutates provider state to change an outcome.
+It never proxies a request, never intercepts traffic, and never mutates provider state to change the quota it reports.
 A derived comparative signal is welcome when it is computed only from figures already reported, is documented, and is deterministic; `spendPriority` and `models --sort runway` ship on exactly those terms.
 An opt-in surface that names a best scope is allowed on the same terms, because the alternative is every consumer reimplementing that comparison with worse handling of unknowns.
 The default report stays in declaration order and carries no preference, so no column reads as a ranking the caller did not ask for.
@@ -24,9 +24,13 @@ The default report stays in declaration order and carries no preference, so no c
 quota-axi acts on credentials other tools own, and it takes the least action that yields a true reading.
 It never logs in, never creates an identity, and never runs anything that spends the quota being measured.
 It never drives a browser or imports browser state or cookies, because a surface built for a human page is flaky and yields numbers it cannot verify.
-Renewing a short-lived credential through its own first-party grant is allowed when that is what stands between quota-axi and an accurate report, and the renewed value is written back to the exact source it came from so later runs stay accurate too.
-Running a vendor's own read-only command to learn auth state is allowed for the same reason and under the same limit.
-A credential value leaves the process only as the bearer of the first-party request it authenticates or as a renewed value written back to its exact source, and is never printed, logged, cached, or written into a test fixture.
+Running a vendor's own non-interactive command is allowed when that is what stands between quota-axi and an accurate report, and only under the limits below.
+Renewing a short-lived credential is such a case, and it is always the vendor's own CLI that renews it: quota-axi runs the smallest non-interactive command that already owns rotation, then re-reads the store that CLI just rewrote.
+It never performs the refresh exchange itself, because these refresh tokens rotate on use and a second holder would spend the vendor's own credential and sign the user out of the tool being measured.
+A delegated command is declared in this tree, is fixed argv rather than anything assembled at runtime, gets no interactive surface and no unbounded runtime, and is chosen only when its own behavior is established from that vendor's CLI rather than assumed.
+A provider whose vendor CLI has no such command stays read-only and keeps honest advice instead; not renewing is always allowed, and forcing a renewal through an unsafe path never is.
+A credential value leaves the process only as the bearer of the first-party request it authenticates, and is never printed, logged, cached, written into a test fixture, or exchanged for another credential.
+A refresh token is not read at all: its presence is evidence that a vendor can recover, never a value quota-axi handles.
 A credential the user supplies explicitly is as legitimate a source as one discovered on disk, because people run this in more shapes than one machine with one seat.
 
 ## Absent data stays absent
@@ -60,11 +64,12 @@ The `--tui` surface is a convenience for a human at a terminal, not a second pro
 
 ## Scope
 
-quota-axi is not a router, not a proxy, not a gateway, not a login manager, not a hosted service, and not a desktop application.
+quota-axi is not a router, not a proxy, not a gateway, not a login manager, not an auth app, not a hosted service, and not a desktop application.
+Delegating one renewal to the CLI that owns a credential store does not make it any of those: it mints nothing, stores nothing, and adds no identity of its own.
 Coverage of popular agents is wanted and pursued on a best-effort basis, and it grows in this tree rather than through a third-party interface that would run unreviewed code against a user's credentials.
 Where a vendor reports money as reliably as it reports capacity, reporting money is open to it; a signal that can only be made accurate for a few providers does not ship.
 Adapter behavior is clean-room from a vendor's own observable behavior, and third-party data is attributed rather than republished.
 The repo holds itself to the standard it asks of contributors, with no exemption for the contributions it most wants: every human pull request goes through the no-mistakes pipeline, generated files are regenerated rather than hand-edited, and tests exercise the published interface rather than the source text.
 
 A change aligns when it makes a real quota fact readable that was previously unreadable or wrong, keeps every existing path working, and leaves the decision with the caller.
-A change should be resisted when it publishes a number no provider supports, holds a boundary at the cost of a false report, spends the quota it is measuring, or grows the surface into a product this is not.
+A change should be resisted when it publishes a number no provider supports, holds a boundary at the cost of a false report, spends the quota it is measuring, mints or rotates a credential quota-axi does not own, or grows the surface into a product this is not.

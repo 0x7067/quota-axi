@@ -59,7 +59,10 @@ describe("Cursor credential-state reporting", () => {
     }));
 
     const { fetchQuota } = await import("../../src/providers/cursor.js");
-    const result = await fetchQuota({ allowKeychainPrompt: false });
+    const result = await fetchQuota({
+      allowKeychainPrompt: false,
+      refreshCredentials: false,
+    });
 
     expect(result.state.status).toBe("auth_required");
     expect(result.state.error).toBe("Cursor sign-in required");
@@ -77,7 +80,10 @@ describe("Cursor credential-state reporting", () => {
     }));
 
     const { fetchQuota } = await import("../../src/providers/cursor.js");
-    const result = await fetchQuota({ allowKeychainPrompt: false });
+    const result = await fetchQuota({
+      allowKeychainPrompt: false,
+      refreshCredentials: false,
+    });
 
     expect(result.state.status).toBe("error");
     expect(result.state.error).toBe("sqlite3_unavailable");
@@ -97,7 +103,10 @@ describe("Cursor credential-state reporting", () => {
     }));
 
     const { fetchQuota } = await import("../../src/providers/cursor.js");
-    const result = await fetchQuota({ allowKeychainPrompt: false });
+    const result = await fetchQuota({
+      allowKeychainPrompt: false,
+      refreshCredentials: false,
+    });
 
     expect(result.state.status).toBe("error");
     expect(result.state.error).toBe("sqlite_read_error");
@@ -117,7 +126,10 @@ describe("Cursor credential-state reporting", () => {
     }));
 
     const { inspectAuth } = await import("../../src/providers/cursor.js");
-    const result = await inspectAuth({ allowKeychainPrompt: false });
+    const result = await inspectAuth({
+      allowKeychainPrompt: false,
+      refreshCredentials: false,
+    });
 
     expect(result.sources).toContainEqual({
       source: "state-vscdb",
@@ -161,7 +173,10 @@ describe("Cursor credential-state reporting", () => {
     );
 
     const { fetchQuota } = await import("../../src/providers/cursor.js");
-    const result = await fetchQuota({ allowKeychainPrompt: false });
+    const result = await fetchQuota({
+      allowKeychainPrompt: false,
+      refreshCredentials: false,
+    });
 
     expect(result.state.status).toBe("fresh");
     expect(result.account?.email).toBe("person@example.invalid");
@@ -211,7 +226,10 @@ describe("Cursor credential-state reporting", () => {
     );
 
     const { fetchQuota } = await import("../../src/providers/cursor.js");
-    const result = await fetchQuota({ allowKeychainPrompt: false });
+    const result = await fetchQuota({
+      allowKeychainPrompt: false,
+      refreshCredentials: false,
+    });
 
     expect([...requested].sort()).toEqual([
       "GetCurrentPeriodUsage",
@@ -251,7 +269,10 @@ describe("Cursor credential-state reporting", () => {
     );
 
     const { fetchQuota } = await import("../../src/providers/cursor.js");
-    const result = await fetchQuota({ allowKeychainPrompt: false });
+    const result = await fetchQuota({
+      allowKeychainPrompt: false,
+      refreshCredentials: false,
+    });
 
     expect(result.state.status).toBe("fresh");
     expect(result.windows.map((window) => window.id)).toEqual([
@@ -281,7 +302,10 @@ describe("Cursor credential-state reporting", () => {
     );
 
     const { fetchQuota } = await import("../../src/providers/cursor.js");
-    const result = await fetchQuota({ allowKeychainPrompt: false });
+    const result = await fetchQuota({
+      allowKeychainPrompt: false,
+      refreshCredentials: false,
+    });
 
     expect(result.state.status).toBe("fresh");
     expect(result.windows).toMatchObject([
@@ -316,7 +340,10 @@ describe("Cursor credential-state reporting", () => {
     );
 
     const { fetchQuota } = await import("../../src/providers/cursor.js");
-    const result = await fetchQuota({ allowKeychainPrompt: false });
+    const result = await fetchQuota({
+      allowKeychainPrompt: false,
+      refreshCredentials: false,
+    });
 
     expect(result.state.status).not.toBe("fresh");
     expect(result.windows).toEqual([]);
@@ -334,7 +361,10 @@ describe("Cursor credential-state reporting", () => {
 
     await withPlatform("linux", async () => {
       const { inspectAuth } = await import("../../src/providers/cursor.js");
-      const result = await inspectAuth({ allowKeychainPrompt: false });
+      const result = await inspectAuth({
+        allowKeychainPrompt: false,
+        refreshCredentials: false,
+      });
 
       expect(result.sources).toContainEqual({
         source: "state-vscdb",

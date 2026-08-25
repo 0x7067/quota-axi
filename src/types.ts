@@ -253,6 +253,15 @@ export type QuotaAxiResponse = {
 
 export type ProviderOptions = {
   allowKeychainPrompt: boolean;
+  /**
+   * Permit the quota path to run a vendor CLI's own non-interactive refresh
+   * command when the same stored access token is expired, refreshable, and
+   * definitively rejected, then re-read the refreshed token from the vendor's
+   * store. `--no-credential-refresh` turns it off. Consulted only by
+   * `fetchQuota`; `inspectAuth` always reports the credential state it finds on
+   * disk.
+   */
+  refreshCredentials: boolean;
 };
 
 export type ProviderAdapter = {

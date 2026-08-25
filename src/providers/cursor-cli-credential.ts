@@ -19,8 +19,8 @@ import type { AuthSourceReport, ProviderOptions } from "../types.js";
  *
  * Access-token refresh is intentionally not implemented: neither the Linux
  * `refreshToken` field nor the macOS `cursor-refresh-token` item is read,
- * because quota-axi does not mutate provider state and has no first-party
- * refresh contract to rely on. A rejected access token can therefore use an
+ * because no safe vendor-owned non-interactive refresh command has been
+ * established for Cursor. A rejected access token can therefore use an
  * eligible stale snapshot or report that authentication is required; recovery
  * is running `cursor-agent login` again.
  */

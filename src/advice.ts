@@ -136,5 +136,5 @@ function keychainAccessHelpLine(provider: ProviderQuota): string {
 }
 
 function grokTokenRefreshHelpLine(): string {
-  return `Tell your user: open the Grok CLI (\`${GROK_TOKEN_REFRESH_REMEDY_COMMAND}\`) once so it can refresh Grok's local session token. quota-axi does not refresh credentials.`;
+  return `Tell your user: run \`${GROK_TOKEN_REFRESH_REMEDY_COMMAND}\` once so the Grok CLI can refresh its own session token. quota-axi delegates that refresh to the Grok CLI and never rotates credentials itself.`;
 }

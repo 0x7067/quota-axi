@@ -179,7 +179,10 @@ describe("Cursor CLI-only quota refresh", () => {
     await onLinux(async () => {
       await seedCache();
       const { fetchQuota } = await import("../../src/providers/cursor.js");
-      const result = await fetchQuota({ allowKeychainPrompt: false });
+      const result = await fetchQuota({
+        allowKeychainPrompt: false,
+        refreshCredentials: false,
+      });
 
       expect(result.state.status).toBe("fresh");
       expect(result.state.stale).toBe(false);
@@ -220,7 +223,10 @@ describe("Cursor CLI-only quota refresh", () => {
     await onLinux(async () => {
       await seedCache();
       const { fetchQuota } = await import("../../src/providers/cursor.js");
-      const result = await fetchQuota({ allowKeychainPrompt: false });
+      const result = await fetchQuota({
+        allowKeychainPrompt: false,
+        refreshCredentials: false,
+      });
 
       expect(result.state.status).toBe("stale");
       expect(result.state.error).toBe("Cursor sign-in required");
@@ -252,7 +258,10 @@ describe("Cursor CLI-only quota refresh", () => {
     await onDarwin(async () => {
       await seedCache();
       const { fetchQuota } = await import("../../src/providers/cursor.js");
-      const result = await fetchQuota({ allowKeychainPrompt: true });
+      const result = await fetchQuota({
+        allowKeychainPrompt: true,
+        refreshCredentials: false,
+      });
 
       expect(result.state.status).toBe("fresh");
       expect(result.state.stale).toBe(false);
@@ -289,7 +298,10 @@ describe("Cursor CLI-only quota refresh", () => {
       await seedCache();
       const { fetchQuota } = await import("../../src/providers/cursor.js");
       const { annotateQuotaAdvice } = await import("../../src/advice.js");
-      const result = await fetchQuota({ allowKeychainPrompt: false });
+      const result = await fetchQuota({
+        allowKeychainPrompt: false,
+        refreshCredentials: false,
+      });
 
       expect(result.state.error).toBe("keychain_prompt_required");
       expect(result.state.error).not.toBe("Cursor sign-in required");
@@ -315,7 +327,10 @@ describe("Cursor CLI-only quota refresh", () => {
 
     await onDarwin(async () => {
       const { fetchQuota } = await import("../../src/providers/cursor.js");
-      const result = await fetchQuota({ allowKeychainPrompt: true });
+      const result = await fetchQuota({
+        allowKeychainPrompt: true,
+        refreshCredentials: false,
+      });
 
       expect(result.state.status).toBe("auth_required");
       expect(result.state.error).toBe("Cursor sign-in required");
@@ -332,7 +347,10 @@ describe("Cursor CLI-only quota refresh", () => {
 
     await onDarwin(async () => {
       const { fetchQuota } = await import("../../src/providers/cursor.js");
-      const result = await fetchQuota({ allowKeychainPrompt: true });
+      const result = await fetchQuota({
+        allowKeychainPrompt: true,
+        refreshCredentials: false,
+      });
 
       expect(result.state.status).toBe("fresh");
       expect(result.state.sourcesTried).toEqual(["api"]);

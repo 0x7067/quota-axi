@@ -28,6 +28,10 @@ import {
   type CredentialSelection,
 } from "./credential-selection.js";
 import {
+  delegateCredentialRefresh,
+  type RefreshDelegate,
+} from "./delegated-refresh.js";
+import {
   createPiXaiCredentialBroker,
   type PiXaiCredentialBroker,
   type PiXaiCredentialResolution,
@@ -91,6 +95,21 @@ type CredentialCandidate = GrokCredentials & {
   hasRefreshToken: boolean;
 };
 
+/**
+ * The Grok CLI owns OIDC rotation and owns `~/.grok/auth.json`. `grok models`
+ * is the smallest observed non-interactive command that makes it refresh that
+ * session and rewrite the file: it prints the account's model list and exits,
+ * starting no agent, opening no TUI, and spending no model quota. quota-axi
+ * runs it and then re-reads the file the CLI just rewrote; it never performs
+ * the OIDC refresh exchange itself.
+ */
+const GROK_CLI_REFRESH_DELEGATE: RefreshDelegate = {
+  source: "grok-cli-refresh",
+  command: "grok",
+  args: ["models"],
+  timeoutMs: 20_000,
+};
+
 const GROK_SIGN_IN_REQUIRED_ERROR = "Grok sign-in required";
 const GROK_ACCESS_TOKEN_EXPIRED_ERROR = "Grok access token expired";
 const GROK_CLI_REFRESH_NEEDED = Symbol("grokCliRefreshNeeded");
@@ -128,7 +147,7 @@ export function createGrokAdapter(
   return {
     id: "grok",
     label: "Grok",
-    fetchQuota: (_options) => fetchQuotaWithDependencies(dependencies),
+    fetchQuota: (options) => fetchQuotaWithDependencies(dependencies, options),
     inspectAuth: (_options) => inspectAuthWithDependencies(dependencies),
   };
 }
@@ -136,9 +155,9 @@ export function createGrokAdapter(
 export const grokAdapter = createGrokAdapter();
 
 export async function fetchQuota(
-  _options: ProviderOptions,
+  options: ProviderOptions,
 ): Promise<ProviderQuota> {
-  return fetchQuotaWithDependencies(defaultGrokDependencies);
+  return fetchQuotaWithDependencies(defaultGrokDependencies, options);
 }
 
 export async function inspectAuth(
@@ -149,26 +168,14 @@ export async function inspectAuth(
 
 async function fetchQuotaWithDependencies(
   dependencies: GrokDependencies,
+  options: ProviderOptions,
 ): Promise<ProviderQuota> {
-  const cliState = readCredentialState();
+  let cliState = readCredentialState();
   const piResolution = await dependencies.piXaiBroker.resolve();
 
-  const candidates: SelectionCandidate<GrokAttemptCredential>[] = [];
-  if (cliState.status === "available" || cliState.status === "expired") {
-    candidates.push(
-      ...cliState.candidates.map((candidate) => ({
-        source: GROK_SOURCE,
-        localState: candidate.localState,
-        credential: {
-          kind: "cli" as const,
-          credentials: candidate.credentials,
-        },
-        ...(candidate.localState === "expired"
-          ? { refreshable: candidate.refreshable }
-          : {}),
-      })),
-    );
-  }
+  const candidates: SelectionCandidate<GrokAttemptCredential>[] = [
+    ...cliCandidatesFor(cliState),
+  ];
   if (piResolution.status === "available") {
     candidates.push(
       piResolution.kind === "oauth"
@@ -207,9 +214,33 @@ async function fetchQuotaWithDependencies(
   const piCandidates = candidates.filter(
     (candidate) => candidate.source === PI_XAI_CREDENTIAL_SOURCE,
   );
-  const cliSelection = await selectCredential(cliCandidates, (candidate) =>
+  let cliSelection = await selectCredential(cliCandidates, (candidate) =>
     attemptGrokCandidate(candidate.credential),
   );
+  const cliPasses: Array<{
+    state: CredentialState;
+    selection: CredentialSelection<NormalizedGrokQuota>;
+  }> = [{ state: cliState, selection: cliSelection }];
+
+  // Soft expiry the Grok CLI can fix: hand the rotation back to the CLI that
+  // owns the store, then re-read the session it rewrote and try once more.
+  let refreshAttempt: SourceAttempt | undefined;
+  if (shouldDelegateGrokCliRefresh(options, cliState, cliSelection)) {
+    const refresh = await delegateCredentialRefresh({
+      delegate: GROK_CLI_REFRESH_DELEGATE,
+      reread: () => readCredentialState(),
+    });
+    refreshAttempt = refresh.attempt;
+    if (refresh.state !== undefined) {
+      cliState = refresh.state;
+      cliSelection = await selectCredential(
+        cliCandidatesFor(cliState),
+        (candidate) => attemptGrokCandidate(candidate.credential),
+      );
+      cliPasses.push({ state: cliState, selection: cliSelection });
+    }
+  }
+
   const piSelection =
     cliSelection.outcome === "quota"
       ? await selectCredential<GrokAttemptCredential, NormalizedGrokQuota>(
@@ -221,7 +252,12 @@ async function fetchQuotaWithDependencies(
         );
   const selection = mergeIndependentSelections(cliSelection, piSelection);
 
-  const attempts = grokAttempts(cliState, piResolution, selection);
+  const attempts = grokAttempts(
+    cliPasses,
+    piResolution,
+    selection,
+    refreshAttempt,
+  );
   const cliResults = selection.results.filter(
     (result) => result.source === GROK_SOURCE,
   );
@@ -345,6 +381,57 @@ async function fetchQuotaWithDependencies(
   );
 }
 
+function cliCandidatesFor(
+  state: CredentialState,
+): SelectionCandidate<GrokAttemptCredential>[] {
+  if (state.status !== "available" && state.status !== "expired") return [];
+  return state.candidates.map((candidate) => ({
+    source: GROK_SOURCE,
+    localState: candidate.localState,
+    credential: {
+      kind: "cli" as const,
+      credentials: candidate.credentials,
+    },
+    ...(candidate.localState === "expired"
+      ? { refreshable: candidate.refreshable }
+      : {}),
+  }));
+}
+
+/**
+ * Delegate only on soft expiry of the store the Grok CLI itself owns: a stored
+ * session that carries a refresh token was empirically rejected, and every
+ * try-able CLI candidate was rejected too.
+ *
+ * A transient failure, a live session, a missing or malformed store, and a
+ * stored-valid session the server revoked all stay read-only - none of them is
+ * something the CLI's own rotation would fix. An inline or relocated store
+ * (`GROK_AUTH`, `GROK_AUTH_JSON`, `GROK_AUTH_PATH`) is excluded too, because
+ * the Grok CLI would rotate its own default file rather than that one.
+ */
+function shouldDelegateGrokCliRefresh(
+  options: ProviderOptions,
+  state: CredentialState,
+  selection: CredentialSelection<NormalizedGrokQuota>,
+): boolean {
+  if (!options.refreshCredentials) return false;
+  if (!isGrokCliOwnedStore()) return false;
+  if (state.status !== "expired" && state.status !== "available") return false;
+  if (selection.outcome !== "all_rejected") return false;
+  return selection.results.some(
+    (result) => result.refreshable === true && result.outcome === "rejected",
+  );
+}
+
+/** True when the store quota-axi read is the one `grok` itself rewrites. */
+function isGrokCliOwnedStore(): boolean {
+  return (
+    stringValue(process.env.GROK_AUTH) === undefined &&
+    stringValue(process.env.GROK_AUTH_JSON) === undefined &&
+    stringValue(process.env.GROK_AUTH_PATH) === undefined
+  );
+}
+
 function mergeIndependentSelections<R>(
   first: CredentialSelection<R>,
   second: CredentialSelection<R>,
@@ -421,31 +508,20 @@ async function attemptGrokCandidate(
 }
 
 function grokAttempts(
-  cliState: CredentialState,
+  cliPasses: ReadonlyArray<{
+    state: CredentialState;
+    selection: CredentialSelection<NormalizedGrokQuota>;
+  }>,
   piResolution: PiXaiCredentialResolution,
   selection: CredentialSelection<NormalizedGrokQuota>,
+  refreshAttempt?: SourceAttempt,
 ): SourceAttempt[] {
   const attempts: SourceAttempt[] = [];
 
-  const cliResults = selection.results.filter(
-    (result) => result.source === GROK_SOURCE,
-  );
-  const cliResult =
-    cliResults.find((result) => result.outcome === "quota") ??
-    cliResults.find((result) => result.outcome === "transient") ??
-    [...cliResults].reverse().find((result) => result.outcome === "rejected");
-  if (cliResult) {
-    attempts.push(
-      cliResult.outcome === "quota"
-        ? { source: GROK_SOURCE, status: "success" }
-        : { source: GROK_SOURCE, status: "failed", error: cliResult.error },
-    );
-  } else {
-    attempts.push({
-      source: cliState.source.source,
-      status: "skipped",
-      error: `credentials_${cliState.status}`,
-    });
+  appendGrokCliAttempt(attempts, cliPasses[0]!);
+  if (refreshAttempt) attempts.push(refreshAttempt);
+  for (const pass of cliPasses.slice(1)) {
+    appendGrokCliAttempt(attempts, pass);
   }
 
   const piResult = selection.results.find(
@@ -479,6 +555,35 @@ function grokAttempts(
   }
 
   return attempts;
+}
+
+function appendGrokCliAttempt(
+  attempts: SourceAttempt[],
+  pass: {
+    state: CredentialState;
+    selection: CredentialSelection<NormalizedGrokQuota>;
+  },
+): void {
+  const cliResults = pass.selection.results.filter(
+    (result) => result.source === GROK_SOURCE,
+  );
+  const cliResult =
+    cliResults.find((result) => result.outcome === "quota") ??
+    cliResults.find((result) => result.outcome === "transient") ??
+    [...cliResults].reverse().find((result) => result.outcome === "rejected");
+  if (cliResult) {
+    attempts.push(
+      cliResult.outcome === "quota"
+        ? { source: GROK_SOURCE, status: "success" }
+        : { source: GROK_SOURCE, status: "failed", error: cliResult.error },
+    );
+    return;
+  }
+  attempts.push({
+    source: pass.state.source.source,
+    status: "skipped",
+    error: `credentials_${pass.state.status}`,
+  });
 }
 
 async function inspectAuthWithDependencies(
@@ -1192,23 +1297,16 @@ function credentialCandidate(
     email: stringValue(item.email),
     teamId: stringValue(item.team_id) ?? stringValue(item.teamId),
     expiresAt: stringValue(item.expires_at) ?? stringValue(item.expiresAt),
-    // Presence only - never retain the refresh token value.
-    hasRefreshToken: hasNonEmptyStringField(
-      item,
-      "refresh_token",
-      "refreshToken",
-    ),
+    // Presence only - never inspect or retain the refresh token value.
+    hasRefreshToken: hasAnyField(item, "refresh_token", "refreshToken"),
   };
 }
 
-function hasNonEmptyStringField(
+function hasAnyField(
   item: Record<string, unknown>,
   ...keys: string[]
 ): boolean {
-  return keys.some((key) => {
-    const value = item[key];
-    return typeof value === "string" && value.length > 0;
-  });
+  return keys.some((key) => Object.hasOwn(item, key));
 }
 
 function credentialScope(
