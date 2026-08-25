@@ -164,8 +164,8 @@ type ClaudeQuotaPass =
   | {
       kind: "failure";
       failure: ClaudeFailure;
-      /** A readable store held an expired access token beside a refresh token. */
-      refreshableExpired: boolean;
+      /** The same expired, refreshable credential was definitively rejected. */
+      refreshableExpiredRejected: boolean;
       /** A Keychain value read was withheld, so its store cannot be re-read. */
       keychainWithheld: boolean;
     };
@@ -207,8 +207,7 @@ function shouldDelegateClaudeRefresh(
 ): boolean {
   return (
     options.refreshCredentials &&
-    pass.failure.definitiveAuth === true &&
-    pass.refreshableExpired &&
+    pass.refreshableExpiredRejected &&
     !pass.keychainWithheld
   );
 }
@@ -218,20 +217,27 @@ async function attemptClaudeQuota(
   attempts: SourceAttempt[],
 ): Promise<ClaudeQuotaPass> {
   const credentialStates = await readCredentialStates(options);
-  const credentials = credentialStates
+  const credentialCandidates = credentialStates
     .filter(
       (
         state,
       ): state is AvailableCredentialState | AdvisoryExpiredCredentialState =>
         state.status === "available" || state.status === "expired",
     )
-    .map((state) => state.credentials)
     .sort((a, b) => {
       if (process.platform === "darwin") {
-        if (a.source === "keychain" && b.source !== "keychain") return -1;
-        if (b.source === "keychain" && a.source !== "keychain") return 1;
+        if (
+          a.credentials.source === "keychain" &&
+          b.credentials.source !== "keychain"
+        )
+          return -1;
+        if (
+          b.credentials.source === "keychain" &&
+          a.credentials.source !== "keychain"
+        )
+          return 1;
       }
-      return (b.expiresAt ?? 0) - (a.expiresAt ?? 0);
+      return (b.credentials.expiresAt ?? 0) - (a.credentials.expiresAt ?? 0);
     });
 
   for (const state of credentialStates) {
@@ -255,9 +261,11 @@ async function attemptClaudeQuota(
 
   let definitiveFailure: ClaudeFailure | undefined;
   let transientFailure: ClaudeFailure | undefined;
+  let refreshableExpiredRejected = false;
 
-  if (credentials.length > 0) {
-    for (const credential of credentials) {
+  if (credentialCandidates.length > 0) {
+    for (const state of credentialCandidates) {
+      const credential = state.credentials;
       attempts.push({ source: credential.source, status: "failed" });
       try {
         const quota = await fetchOauthUsage(credential);
@@ -295,8 +303,14 @@ async function attemptClaudeQuota(
           status: "failed",
           error: failure.code,
         };
-        if (failure.definitiveAuth) definitiveFailure ??= failure;
-        else transientFailure = failure.withUsageFetchFailure();
+        if (failure.definitiveAuth) {
+          definitiveFailure ??= failure;
+          if (state.status === "expired" && state.refreshable) {
+            refreshableExpiredRejected = true;
+          }
+        } else {
+          transientFailure = failure.withUsageFetchFailure();
+        }
       }
     }
   } else {
@@ -325,9 +339,7 @@ async function attemptClaudeQuota(
       definitiveFailure ??
       transientFailure ??
       new ClaudeFailure("Claude quota unavailable", { staleEligible: true }),
-    refreshableExpired: credentialStates.some(
-      (state) => state.status === "expired" && state.refreshable,
-    ),
+    refreshableExpiredRejected,
     keychainWithheld: credentialStates.some(
       (state) =>
         state.status === "skipped" && state.source.source === "keychain",

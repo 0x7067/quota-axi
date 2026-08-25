@@ -23,7 +23,11 @@ import type { SourceAttempt } from "../types.js";
  *
  * - fixed argv resolved through `PATH` (or an absolute provider override).
  *   Delegates are declared in code, never assembled from provider responses,
- *   configuration, or user input, and never run through a shell.
+ *   configuration, or user input, and never run through a shell. Deliberately
+ *   shell-free resolution means a PATH-resolved Windows `.cmd` or `.bat` shim
+ *   cannot run; that delegated attempt fails and the provider falls back to
+ *   its existing read-only report and advice. The no-shell guarantee is never
+ *   weakened to work around this accepted platform degradation.
  * - no interactive surface: the child gets no stdin (so a vendor TUI or prompt
  *   exits instead of waiting), `TERM=dumb`, and the vendor's own documented
  *   "do not open a browser" environment variables.

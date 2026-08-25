@@ -102,6 +102,8 @@ function delegateFor(name: string, timeoutMs = 5_000): RefreshDelegate {
   return { source: `${name}-refresh`, command: name, args: [], timeoutMs };
 }
 
+// These delegate behavior suites are POSIX-only by design: their executable
+// fixtures are `#!/bin/sh` stubs, so Windows skips them explicitly.
 describe.skipIf(process.platform === "win32")(
   "delegated refresh machinery",
   () => {
@@ -224,6 +226,21 @@ function writeExpiredClaudeCredential(
         ...(options.refreshToken === undefined
           ? {}
           : { refreshToken: options.refreshToken }),
+      },
+    }),
+  );
+}
+
+function writeValidClaudeCredential(): void {
+  mkdirSync(join(tempDir, ".claude"), { recursive: true });
+  writeFileSync(
+    join(tempDir, ".claude", ".credentials.json"),
+    JSON.stringify({
+      claudeAiOauth: {
+        accessToken: "stored-valid-access-token",
+        refreshToken: REFRESH_TOKEN_SENTINEL,
+        expiresAt: Date.parse("2035-01-01T00:00:00.000Z"),
+        subscriptionType: "max",
       },
     }),
   );
@@ -354,6 +371,65 @@ describe.skipIf(process.platform === "win32")(
       expect(cli.invocationCount()).toBe(0);
       expect(result.state.status).not.toBe("fresh");
       expect(result.state.sourcesTried).not.toContain("claude-cli-refresh");
+    });
+
+    it("does not delegate for a stored-valid credential rejected by the server", async () => {
+      writeValidClaudeCredential();
+      const cli = stubClaudeCli({ rotateTo: "rotated-access-token" });
+      const fetchMock = vi.fn(async () => new Response(null, { status: 401 }));
+      vi.stubGlobal("fetch", fetchMock);
+
+      const { fetchQuota } = await import("../../src/providers/claude.js");
+      const result = await fetchQuota({
+        allowKeychainPrompt: false,
+        refreshCredentials: true,
+      });
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(cli.invocationCount()).toBe(0);
+      expect(result.state.sourcesTried).not.toContain("claude-cli-refresh");
+    });
+
+    it("does not combine a rejected valid Keychain credential with a transient expired file credential", async () => {
+      usePlatform("darwin");
+      writeExpiredClaudeCredential({ refreshToken: REFRESH_TOKEN_SENTINEL });
+      const cli = stubClaudeCli({ rotateTo: "rotated-access-token" });
+      const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+        const headers = (init?.headers ?? {}) as Record<string, string>;
+        return new Response(null, {
+          status:
+            headers.authorization === "Bearer keychain-valid-token" ? 401 : 500,
+        });
+      });
+      vi.stubGlobal("fetch", fetchMock);
+      vi.doMock("../../src/lib/process.js", async (importOriginal) => {
+        const actual =
+          await importOriginal<typeof import("../../src/lib/process.js")>();
+        return {
+          ...actual,
+          execFileText: vi.fn(async () =>
+            JSON.stringify({
+              claudeAiOauth: {
+                accessToken: "keychain-valid-token",
+                refreshToken: "keychain-refresh-token-fixture",
+                expiresAt: Date.parse("2035-01-01T00:00:00.000Z"),
+                subscriptionType: "max",
+              },
+            }),
+          ),
+        };
+      });
+
+      const { fetchQuota } = await import("../../src/providers/claude.js");
+      const result = await fetchQuota({
+        allowKeychainPrompt: true,
+        refreshCredentials: true,
+      });
+
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(cli.invocationCount()).toBe(0);
+      expect(result.state.sourcesTried).not.toContain("claude-cli-refresh");
+      vi.doUnmock("../../src/lib/process.js");
     });
 
     it("does not delegate for a transient failure", async () => {
