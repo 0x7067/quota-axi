@@ -209,12 +209,12 @@ async function fetchQuotaWithDependencies(
   const cliTransient = cliResult?.outcome === "transient";
   const consumerError = cliResult?.error;
   const retryAfter = selection.retryAfter;
-  const cliRefreshNeeded =
-    hasRefreshableCliCandidate(cliState) &&
-    selection.results.some(
-      (result) =>
-        result.source === GROK_SOURCE && result.outcome === "rejected",
-    );
+  const cliRefreshNeeded = selection.results.some(
+    (result) =>
+      result.source === GROK_SOURCE &&
+      result.refreshable === true &&
+      result.outcome === "rejected",
+  );
 
   if (selection.outcome === "quota" && selection.result) {
     const quota = selection.result;

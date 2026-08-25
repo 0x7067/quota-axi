@@ -1401,6 +1401,49 @@ describe("Grok dual-source CLI and Pi xAI usability", () => {
     expect(json.help?.join("\n") ?? "").not.toContain("open the Grok CLI");
   });
 
+  it("does not combine rejection and refreshability across CLI candidates", async () => {
+    writeAuth({
+      "https://auth.x.ai::rejected-client": {
+        key: "rejected-access-token",
+        auth_mode: "oidc",
+        expires_at: "2099-01-01T00:00:00.000Z",
+      },
+      "https://auth.x.ai::transient-client": {
+        key: "transient-access-token",
+        auth_mode: "oidc",
+        expires_at: "2020-01-01T00:00:00.000Z",
+        refresh_token: "fixture-refresh-token",
+      },
+    });
+    writePiXaiAuth({
+      xai: {
+        type: "api_key",
+        key: "pi-xai-api-key-fixture-value",
+      },
+    });
+    writeCachedProviders([cachedGrok("web")]);
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(
+          grpcResponse(new Uint8Array(), { status: 403 }),
+        )
+        .mockRejectedValueOnce(new TypeError("fetch failed")),
+    );
+
+    const json = JSON.parse(
+      await captureCli(["--provider", "grok", "--json"]),
+    ) as QuotaAxiResponse;
+    const grok = json.providers[0];
+
+    expect(grok?.state.status).toBe("stale");
+    expect(grok?.state.authStatus).toBe("usable");
+    expect(grok?.state.reason).toBeUndefined();
+    expect(grok?.state.remedyCommand).toBeUndefined();
+    expect(json.help?.join("\n") ?? "").not.toContain("open the Grok CLI");
+  });
+
   it("keeps Grok CLI consumer quota when Pi xAI auth is missing", async () => {
     writeValidAuth("cli-only-key");
     const fetchMock = stubSuccessfulFetch();
