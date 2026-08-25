@@ -172,7 +172,10 @@ describe("Cursor CLI keychain credential source", () => {
 
     const result = await withPlatform("darwin", async () => {
       const { fetchQuota } = await import("../../src/providers/cursor.js");
-      return fetchQuota({ allowKeychainPrompt: true });
+      return fetchQuota({
+        allowKeychainPrompt: true,
+        refreshCredentials: false,
+      });
     });
 
     expect(result.state.status).toBe("fresh");
@@ -206,8 +209,14 @@ describe("Cursor CLI keychain credential source", () => {
       const { fetchQuota, inspectAuth } =
         await import("../../src/providers/cursor.js");
       return {
-        report: await fetchQuota({ allowKeychainPrompt: true }),
-        auth: await inspectAuth({ allowKeychainPrompt: true }),
+        report: await fetchQuota({
+          allowKeychainPrompt: true,
+          refreshCredentials: false,
+        }),
+        auth: await inspectAuth({
+          allowKeychainPrompt: true,
+          refreshCredentials: false,
+        }),
       };
     });
 
@@ -227,7 +236,10 @@ describe("Cursor CLI keychain credential source", () => {
 
     const result = await withPlatform("darwin", async () => {
       const { fetchQuota } = await import("../../src/providers/cursor.js");
-      return fetchQuota({ allowKeychainPrompt: false });
+      return fetchQuota({
+        allowKeychainPrompt: false,
+        refreshCredentials: false,
+      });
     });
 
     expect(securityCalls(calls)).toEqual([
@@ -262,7 +274,10 @@ describe("Cursor CLI keychain credential source", () => {
 
       const result = await withPlatform("darwin", async () => {
         const { fetchQuota } = await import("../../src/providers/cursor.js");
-        return fetchQuota({ allowKeychainPrompt: false });
+        return fetchQuota({
+          allowKeychainPrompt: false,
+          refreshCredentials: false,
+        });
       });
       const annotated = annotateQuotaAdvice({
         generatedAt: new Date().toISOString(),
@@ -287,7 +302,10 @@ describe("Cursor CLI keychain credential source", () => {
 
     const granted = await withPlatform("darwin", async () => {
       const { fetchQuota } = await import("../../src/providers/cursor.js");
-      return fetchQuota({ allowKeychainPrompt: true });
+      return fetchQuota({
+        allowKeychainPrompt: true,
+        refreshCredentials: false,
+      });
     });
     expect(granted.state.status).toBe("fresh");
 
@@ -296,7 +314,10 @@ describe("Cursor CLI keychain credential source", () => {
     stubCursorUsage();
     const plain = await withPlatform("darwin", async () => {
       const { fetchQuota } = await import("../../src/providers/cursor.js");
-      return fetchQuota({ allowKeychainPrompt: false });
+      return fetchQuota({
+        allowKeychainPrompt: false,
+        refreshCredentials: false,
+      });
     });
 
     expect(plain.state.status).toBe("fresh");
@@ -308,7 +329,10 @@ describe("Cursor CLI keychain credential source", () => {
 
     const result = await withPlatform("darwin", async () => {
       const { fetchQuota } = await import("../../src/providers/cursor.js");
-      return fetchQuota({ allowKeychainPrompt: true });
+      return fetchQuota({
+        allowKeychainPrompt: true,
+        refreshCredentials: false,
+      });
     });
 
     expect(securityCalls(calls)).toEqual([]);
@@ -328,7 +352,10 @@ describe("Cursor CLI keychain credential source", () => {
 
     const result = await withPlatform("darwin", async () => {
       const { inspectAuth } = await import("../../src/providers/cursor.js");
-      return inspectAuth({ allowKeychainPrompt: true });
+      return inspectAuth({
+        allowKeychainPrompt: true,
+        refreshCredentials: false,
+      });
     });
 
     expect(result.sources).toContainEqual({
@@ -351,7 +378,10 @@ describe("Cursor CLI keychain credential source", () => {
 
     const result = await withPlatform("darwin", async () => {
       const { inspectAuth } = await import("../../src/providers/cursor.js");
-      return inspectAuth({ allowKeychainPrompt: true });
+      return inspectAuth({
+        allowKeychainPrompt: true,
+        refreshCredentials: false,
+      });
     });
 
     expect(result.sources).toContainEqual({
@@ -368,7 +398,10 @@ describe("Cursor CLI keychain credential source", () => {
 
     const result = await withPlatform("darwin", async () => {
       const { inspectAuth } = await import("../../src/providers/cursor.js");
-      return inspectAuth({ allowKeychainPrompt: true });
+      return inspectAuth({
+        allowKeychainPrompt: true,
+        refreshCredentials: false,
+      });
     });
 
     expect(securityCalls(calls)).toEqual([]);
@@ -386,7 +419,10 @@ describe("Cursor CLI keychain credential source", () => {
     const result = await withPlatform("linux", async () => {
       const { readCursorCliCredentialState } =
         await import("../../src/providers/cursor-cli-credential.js");
-      return readCursorCliCredentialState({ allowKeychainPrompt: true });
+      return readCursorCliCredentialState({
+        allowKeychainPrompt: true,
+        refreshCredentials: false,
+      });
     });
 
     expect(result).toEqual({
@@ -415,7 +451,10 @@ describe("Cursor CLI keychain credential source", () => {
     const result = await withPlatform("linux", async () => {
       const { readCursorCliCredentialState } =
         await import("../../src/providers/cursor-cli-credential.js");
-      return readCursorCliCredentialState({ allowKeychainPrompt: false });
+      return readCursorCliCredentialState({
+        allowKeychainPrompt: false,
+        refreshCredentials: false,
+      });
     });
 
     expect(result.source).toEqual({
@@ -433,7 +472,10 @@ describe("Cursor CLI keychain credential source", () => {
     const result = await withPlatform("linux", async () => {
       const { readCursorCliCredentialState } =
         await import("../../src/providers/cursor-cli-credential.js");
-      return readCursorCliCredentialState({ allowKeychainPrompt: true });
+      return readCursorCliCredentialState({
+        allowKeychainPrompt: true,
+        refreshCredentials: false,
+      });
     });
 
     expect(result).toEqual({
@@ -453,7 +495,10 @@ describe("Cursor CLI keychain credential source", () => {
 
     const result = await withPlatform("linux", async () => {
       const { inspectAuth } = await import("../../src/providers/cursor.js");
-      return inspectAuth({ allowKeychainPrompt: true });
+      return inspectAuth({
+        allowKeychainPrompt: true,
+        refreshCredentials: false,
+      });
     });
 
     expect(result.sources.map((source) => source.source)).toEqual([
@@ -477,11 +522,17 @@ describe("Cursor editor state.vscdb source (regression)", () => {
     const result = await withPlatform("darwin", async () => {
       const { readCursorCliCredentialState } =
         await import("../../src/providers/cursor-cli-credential.js");
-      await readCursorCliCredentialState({ allowKeychainPrompt: true });
+      await readCursorCliCredentialState({
+        allowKeychainPrompt: true,
+        refreshCredentials: false,
+      });
       calls.length = 0;
 
       const { inspectAuth } = await import("../../src/providers/cursor.js");
-      return inspectAuth({ allowKeychainPrompt: true });
+      return inspectAuth({
+        allowKeychainPrompt: true,
+        refreshCredentials: false,
+      });
     });
 
     expect(result.sources).toEqual([
@@ -522,7 +573,10 @@ describe("Cursor editor state.vscdb source (regression)", () => {
 
       const result = await withPlatform("darwin", async () => {
         const { fetchQuota } = await import("../../src/providers/cursor.js");
-        return fetchQuota({ allowKeychainPrompt: true });
+        return fetchQuota({
+          allowKeychainPrompt: true,
+          refreshCredentials: false,
+        });
       });
 
       expect(result.state.status).toBe("fresh");
@@ -556,7 +610,10 @@ describe("Cursor editor state.vscdb source (regression)", () => {
 
       const result = await withPlatform("darwin", async () => {
         const { fetchQuota } = await import("../../src/providers/cursor.js");
-        return fetchQuota({ allowKeychainPrompt: false });
+        return fetchQuota({
+          allowKeychainPrompt: false,
+          refreshCredentials: false,
+        });
       });
       const annotated = annotateQuotaAdvice({
         generatedAt: new Date().toISOString(),
@@ -597,7 +654,10 @@ describe("Cursor editor state.vscdb source (regression)", () => {
 
       const result = await withPlatform("darwin", async () => {
         const { fetchQuota } = await import("../../src/providers/cursor.js");
-        return fetchQuota({ allowKeychainPrompt: true });
+        return fetchQuota({
+          allowKeychainPrompt: true,
+          refreshCredentials: false,
+        });
       });
 
       expect(result.state.status).toBe(
@@ -615,7 +675,10 @@ describe("Cursor editor state.vscdb source (regression)", () => {
 
     const result = await withPlatform("darwin", async () => {
       const { fetchQuota } = await import("../../src/providers/cursor.js");
-      return fetchQuota({ allowKeychainPrompt: true });
+      return fetchQuota({
+        allowKeychainPrompt: true,
+        refreshCredentials: false,
+      });
     });
 
     expect(result.state.status).toBe("fresh");
@@ -634,7 +697,10 @@ describe("Cursor editor state.vscdb source (regression)", () => {
 
     const result = await withPlatform("darwin", async () => {
       const { fetchQuota } = await import("../../src/providers/cursor.js");
-      return fetchQuota({ allowKeychainPrompt: false });
+      return fetchQuota({
+        allowKeychainPrompt: false,
+        refreshCredentials: false,
+      });
     });
 
     expect(result.state.status).toBe("auth_required");

@@ -29,6 +29,11 @@ import {
   successProvider,
   withRemaining,
 } from "./common.js";
+import {
+  refreshDelegateAttempt,
+  runRefreshDelegate,
+  type RefreshDelegate,
+} from "./delegated-refresh.js";
 import { withUsageFetchFailure } from "./usage-fetch-failure.js";
 
 const API_URL = "https://api.anthropic.com/api/oauth/usage";
@@ -64,6 +69,12 @@ type AdvisoryExpiredCredentialState = {
   status: "expired";
   credentials: ClaudeCredentials;
   source: AuthSourceReport;
+  /**
+   * Whether the same store holds a refresh token beside the expired access
+   * token. Presence only: quota-axi never reads that value, and the Claude CLI
+   * is the only thing that ever exchanges it.
+   */
+  refreshable: boolean;
 };
 type UnavailableCredentialState = {
   status: "missing" | "invalid";
@@ -127,12 +138,85 @@ export const claudeAdapter: ProviderAdapter = {
   inspectAuth,
 };
 
+/**
+ * `claude doctor` is the smallest observed non-interactive Claude Code command
+ * that makes the CLI renew its own expired OAuth session and rewrite whichever
+ * store it owns (the macOS Keychain item, or `.credentials.json`). It prints an
+ * installation health summary and exits: it starts no session, sends no model
+ * request, spends no quota, opens no browser, and - unlike `claude mcp list` -
+ * does not connect to configured MCP servers.
+ *
+ * Observed behavior that makes it safe to delegate to: with the access token
+ * expired it performs the refresh exchange, and a network failure during that
+ * exchange leaves the stored session untouched. Only Anthropic definitively
+ * rejecting the refresh token clears the session, which is Claude Code's own
+ * handling of a session that has genuinely ended.
+ */
+const CLAUDE_CLI_REFRESH_DELEGATE: RefreshDelegate = {
+  source: "claude-cli-refresh",
+  command: "claude",
+  args: ["doctor"],
+  timeoutMs: 20_000,
+};
+
+type ClaudeQuotaPass =
+  | { kind: "success"; report: ProviderQuota }
+  | {
+      kind: "failure";
+      failure: ClaudeFailure;
+      /** A readable store held an expired access token beside a refresh token. */
+      refreshableExpired: boolean;
+      /** A Keychain value read was withheld, so its store cannot be re-read. */
+      keychainWithheld: boolean;
+    };
+
 export async function fetchQuota(
   options: ProviderOptions,
 ): Promise<ProviderQuota> {
   const attempts: SourceAttempt[] = [];
   const credentialContextId = claudeCredentialContextId();
 
+  let pass = await attemptClaudeQuota(options, attempts);
+  if (pass.kind === "success") return pass.report;
+
+  // Soft expiry the Claude CLI can fix: hand the rotation to the CLI that owns
+  // the credential store, then read back the session it rewrote.
+  if (shouldDelegateClaudeRefresh(options, pass)) {
+    const run = await runRefreshDelegate(CLAUDE_CLI_REFRESH_DELEGATE);
+    attempts.push(refreshDelegateAttempt(CLAUDE_CLI_REFRESH_DELEGATE, run));
+    if (run.status === "ran") {
+      const retry = await attemptClaudeQuota(options, attempts);
+      if (retry.kind === "success") return retry.report;
+      pass = retry;
+    }
+  }
+
+  return failureReport(pass.failure, attempts, credentialContextId);
+}
+
+/**
+ * Delegate only on soft expiry of a store quota-axi can read back: a stored
+ * session that still carries a refresh token was definitively rejected. A
+ * transient failure, a missing or malformed store, and a withheld Keychain
+ * value all stay read-only - the last one keeps its existing Keychain advice,
+ * because the CLI would rewrite a store quota-axi still could not read.
+ */
+function shouldDelegateClaudeRefresh(
+  options: ProviderOptions,
+  pass: Extract<ClaudeQuotaPass, { kind: "failure" }>,
+): boolean {
+  return (
+    options.refreshCredentials &&
+    pass.failure.definitiveAuth === true &&
+    pass.refreshableExpired &&
+    !pass.keychainWithheld
+  );
+}
+
+async function attemptClaudeQuota(
+  options: ProviderOptions,
+  attempts: SourceAttempt[],
+): Promise<ClaudeQuotaPass> {
   const credentialStates = await readCredentialStates(options);
   const credentials = credentialStates
     .filter(
@@ -190,17 +274,20 @@ export async function fetchQuota(
               }
             : { source: "oauth-profile", status: "success" },
         );
-        return successProvider({
-          provider: "claude",
-          label: "Claude",
-          source: "oauth",
-          plan: quota.plan,
-          account: quota.account,
-          windows: quota.windows,
-          refreshedAt: quota.refreshedAt,
-          sourcesTried: sourceNames(attempts),
-          attempts,
-        });
+        return {
+          kind: "success",
+          report: successProvider({
+            provider: "claude",
+            label: "Claude",
+            source: "oauth",
+            plan: quota.plan,
+            account: quota.account,
+            windows: quota.windows,
+            refreshedAt: quota.refreshedAt,
+            sourcesTried: sourceNames(attempts),
+            attempts,
+          }),
+        };
       } catch (error) {
         const failure = claudeFailureFor(error);
         attempts[attempts.length - 1] = {
@@ -232,13 +319,20 @@ export async function fetchQuota(
     }
   }
 
-  return failureReport(
-    definitiveFailure ??
+  return {
+    kind: "failure",
+    failure:
+      definitiveFailure ??
       transientFailure ??
       new ClaudeFailure("Claude quota unavailable", { staleEligible: true }),
-    attempts,
-    credentialContextId,
-  );
+    refreshableExpired: credentialStates.some(
+      (state) => state.status === "expired" && state.refreshable,
+    ),
+    keychainWithheld: credentialStates.some(
+      (state) =>
+        state.status === "skipped" && state.source.source === "keychain",
+    ),
+  };
 }
 
 function failureReport(
@@ -755,12 +849,25 @@ function extractCredentialState(
       status: "expired",
       credentials,
       source: { source, path, status: "expired" },
+      refreshable: hasRefreshToken(oauth),
     };
   }
   return {
     status: "available",
     credentials,
   };
+}
+
+/**
+ * Presence check only. The value of a Claude refresh token never enters
+ * quota-axi: Anthropic rotates it on use, so exchanging it here would spend the
+ * Claude CLI's own single-use token and sign the user out of Claude Code.
+ */
+function hasRefreshToken(oauth: Record<string, unknown>): boolean {
+  return (
+    stringValue(oauth.refreshToken) !== undefined ||
+    stringValue(oauth.refresh_token) !== undefined
+  );
 }
 
 async function fetchOauthUsage(credentials: ClaudeCredentials): Promise<{

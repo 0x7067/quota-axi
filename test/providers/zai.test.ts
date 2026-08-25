@@ -19,7 +19,7 @@ import type {
 } from "../../src/types.js";
 
 const NOW = Date.parse("2026-08-13T12:00:00.000Z");
-const OPTIONS = { allowKeychainPrompt: false };
+const OPTIONS = { allowKeychainPrompt: false, refreshCredentials: false };
 const SYNTHETIC_KEY = "synthetic-zai-key-481";
 
 const RESET_FIVE_HOUR = 1_786_643_056_425;

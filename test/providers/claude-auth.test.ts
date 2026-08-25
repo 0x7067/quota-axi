@@ -154,8 +154,14 @@ describe("Claude credential-state reporting", () => {
 
     const { fetchQuota, inspectAuth } =
       await import("../../src/providers/claude.js");
-    const auth = await inspectAuth({ allowKeychainPrompt: false });
-    const result = await fetchQuota({ allowKeychainPrompt: false });
+    const auth = await inspectAuth({
+      allowKeychainPrompt: false,
+      refreshCredentials: false,
+    });
+    const result = await fetchQuota({
+      allowKeychainPrompt: false,
+      refreshCredentials: false,
+    });
 
     expect(auth.sources[0]).toMatchObject({
       source: "oauth-file",
@@ -178,7 +184,10 @@ describe("Claude credential-state reporting", () => {
     vi.doMock("../../src/lib/process.js", () => ({ execFileText }));
 
     const { inspectAuth } = await import("../../src/providers/claude.js");
-    await inspectAuth({ allowKeychainPrompt: false });
+    await inspectAuth({
+      allowKeychainPrompt: false,
+      refreshCredentials: false,
+    });
 
     expect(execFileText).toHaveBeenCalledWith(
       "security",
@@ -214,7 +223,10 @@ describe("Claude credential-state reporting", () => {
 
     const { claudeCredentialFile, inspectAuth } =
       await import("../../src/providers/claude.js");
-    const auth = await inspectAuth({ allowKeychainPrompt: false });
+    const auth = await inspectAuth({
+      allowKeychainPrompt: false,
+      refreshCredentials: false,
+    });
 
     expect(claudeCredentialFile()).toBe(".credentials.json");
     expect(marker).toMatch(
@@ -279,7 +291,10 @@ describe("Claude credential-state reporting", () => {
     vi.doMock("../../src/lib/process.js", () => ({ execFileText }));
 
     const { inspectAuth } = await import("../../src/providers/claude.js");
-    const auth = await inspectAuth({ allowKeychainPrompt: false });
+    const auth = await inspectAuth({
+      allowKeychainPrompt: false,
+      refreshCredentials: false,
+    });
 
     expect(auth.sources[0]).toMatchObject({
       source: "oauth-file",
@@ -318,8 +333,14 @@ describe("Claude credential-state reporting", () => {
 
     const { fetchQuota, inspectAuth } =
       await import("../../src/providers/claude.js");
-    const auth = await inspectAuth({ allowKeychainPrompt: false });
-    const result = await fetchQuota({ allowKeychainPrompt: false });
+    const auth = await inspectAuth({
+      allowKeychainPrompt: false,
+      refreshCredentials: false,
+    });
+    const result = await fetchQuota({
+      allowKeychainPrompt: false,
+      refreshCredentials: false,
+    });
 
     expect(auth.sources[0]).toMatchObject({ status: "expired" });
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -354,8 +375,14 @@ describe("Claude credential-state reporting", () => {
 
     const { fetchQuota, inspectAuth } =
       await import("../../src/providers/claude.js");
-    const auth = await inspectAuth({ allowKeychainPrompt: false });
-    const result = await fetchQuota({ allowKeychainPrompt: false });
+    const auth = await inspectAuth({
+      allowKeychainPrompt: false,
+      refreshCredentials: false,
+    });
+    const result = await fetchQuota({
+      allowKeychainPrompt: false,
+      refreshCredentials: false,
+    });
 
     expect(auth.sources[0]).toMatchObject({
       source: "oauth-file",
@@ -457,7 +484,10 @@ describe("Claude credential-state reporting", () => {
       writeCachedProviders([cachedClaudeQuota(34)]);
 
       const { fetchQuota } = await import("../../src/providers/claude.js");
-      const result = await fetchQuota({ allowKeychainPrompt: false });
+      const result = await fetchQuota({
+        allowKeychainPrompt: false,
+        refreshCredentials: false,
+      });
 
       expect(fetchMock).not.toHaveBeenCalled();
       expect(result).toMatchObject({
@@ -495,7 +525,10 @@ describe("Claude credential-state reporting", () => {
       writeCachedProviders([cachedClaudeQuota(34)]);
 
       const { fetchQuota } = await import("../../src/providers/claude.js");
-      const result = await fetchQuota({ allowKeychainPrompt: false });
+      const result = await fetchQuota({
+        allowKeychainPrompt: false,
+        refreshCredentials: false,
+      });
 
       expect(fetchMock).toHaveBeenCalledTimes(1);
       expect(result).toMatchObject({
@@ -550,7 +583,10 @@ describe("Claude credential-state reporting", () => {
 
     for (const [label, failure] of failures) {
       vi.stubGlobal("fetch", vi.fn(failure));
-      const result = await fetchQuota({ allowKeychainPrompt: false });
+      const result = await fetchQuota({
+        allowKeychainPrompt: false,
+        refreshCredentials: false,
+      });
 
       expect(result.source, label).toBe("cache");
       expect(result.state.status, label).toBe("stale");
@@ -585,7 +621,10 @@ describe("Claude credential-state reporting", () => {
       );
 
       const { fetchQuota } = await import("../../src/providers/claude.js");
-      const result = await fetchQuota({ allowKeychainPrompt: false });
+      const result = await fetchQuota({
+        allowKeychainPrompt: false,
+        refreshCredentials: false,
+      });
       const annotated = annotateQuotaAdvice({
         generatedAt: new Date().toISOString(),
         providers: [result],
@@ -629,7 +668,10 @@ describe("Claude credential-state reporting", () => {
     );
 
     const { fetchQuota } = await import("../../src/providers/claude.js");
-    const result = await fetchQuota({ allowKeychainPrompt: false });
+    const result = await fetchQuota({
+      allowKeychainPrompt: false,
+      refreshCredentials: false,
+    });
 
     expect(result).toMatchObject({
       source: "cache",
@@ -660,7 +702,10 @@ describe("Claude credential-state reporting", () => {
     );
 
     const { fetchQuota } = await import("../../src/providers/claude.js");
-    const result = await fetchQuota({ allowKeychainPrompt: false });
+    const result = await fetchQuota({
+      allowKeychainPrompt: false,
+      refreshCredentials: false,
+    });
 
     expect(result).toMatchObject({
       source: "unavailable",
@@ -693,7 +738,10 @@ describe("Claude credential-state reporting", () => {
     );
 
     const { fetchQuota } = await import("../../src/providers/claude.js");
-    const result = await fetchQuota({ allowKeychainPrompt: false });
+    const result = await fetchQuota({
+      allowKeychainPrompt: false,
+      refreshCredentials: false,
+    });
 
     expect(result).toMatchObject({
       source: "unavailable",
@@ -740,7 +788,10 @@ describe("Claude credential-state reporting", () => {
     writeCachedProviders([cached]);
 
     const { fetchQuota } = await import("../../src/providers/claude.js");
-    const result = await fetchQuota({ allowKeychainPrompt: false });
+    const result = await fetchQuota({
+      allowKeychainPrompt: false,
+      refreshCredentials: false,
+    });
 
     expect(result.source).toBe("cache");
     expect(result.windows.map(({ id }) => id)).toEqual(["seven_day"]);
@@ -764,7 +815,10 @@ describe("Claude credential-state reporting", () => {
     writeCachedProviders([cachedClaudeQuota(34)]);
 
     const { fetchQuota } = await import("../../src/providers/claude.js");
-    const result = await fetchQuota({ allowKeychainPrompt: false });
+    const result = await fetchQuota({
+      allowKeychainPrompt: false,
+      refreshCredentials: false,
+    });
 
     expect(result).toMatchObject({
       source: "unavailable",
@@ -794,7 +848,10 @@ describe("Claude credential-state reporting", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const { fetchQuota } = await import("../../src/providers/claude.js");
-    const result = await fetchQuota({ allowKeychainPrompt: false });
+    const result = await fetchQuota({
+      allowKeychainPrompt: false,
+      refreshCredentials: false,
+    });
 
     expect(result.state.status).toBe("fresh");
     expect(fetchMock).toHaveBeenCalledWith(
@@ -840,7 +897,10 @@ describe("Claude credential-state reporting", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const { fetchQuota } = await import("../../src/providers/claude.js");
-    const result = await fetchQuota({ allowKeychainPrompt: false });
+    const result = await fetchQuota({
+      allowKeychainPrompt: false,
+      refreshCredentials: false,
+    });
 
     expect(result.account).toEqual({
       accountId: "11111111-2222-4333-8444-555555555555",
@@ -890,7 +950,10 @@ describe("Claude credential-state reporting", () => {
     );
 
     const { fetchQuota } = await import("../../src/providers/claude.js");
-    const result = await fetchQuota({ allowKeychainPrompt: false });
+    const result = await fetchQuota({
+      allowKeychainPrompt: false,
+      refreshCredentials: false,
+    });
 
     expect(result.state.status).toBe("fresh");
     expect(result.account).toEqual({ identityStatus: "unverified" });
@@ -905,7 +968,10 @@ describe("Claude credential-state reporting", () => {
     useTempHome();
 
     const { fetchQuota } = await import("../../src/providers/claude.js");
-    const result = await fetchQuota({ allowKeychainPrompt: false });
+    const result = await fetchQuota({
+      allowKeychainPrompt: false,
+      refreshCredentials: false,
+    });
 
     expect(result.state.status).toBe("auth_required");
     expect(result.state.error).toBe("credentials_missing");
@@ -932,8 +998,14 @@ describe("Claude credential-state reporting", () => {
 
     const { fetchQuota, inspectAuth } =
       await import("../../src/providers/claude.js");
-    const auth = await inspectAuth({ allowKeychainPrompt: false });
-    const result = await fetchQuota({ allowKeychainPrompt: false });
+    const auth = await inspectAuth({
+      allowKeychainPrompt: false,
+      refreshCredentials: false,
+    });
+    const result = await fetchQuota({
+      allowKeychainPrompt: false,
+      refreshCredentials: false,
+    });
 
     expect(execFileText).toHaveBeenCalledWith(
       "security",
@@ -980,7 +1052,10 @@ describe("Claude credential-state reporting", () => {
     vi.doMock("../../src/lib/process.js", () => ({ execFileText }));
 
     const { inspectAuth } = await import("../../src/providers/claude.js");
-    const auth = await inspectAuth({ allowKeychainPrompt: true });
+    const auth = await inspectAuth({
+      allowKeychainPrompt: true,
+      refreshCredentials: false,
+    });
 
     expect(execFileText).toHaveBeenCalledTimes(1);
     expect(execFileText).toHaveBeenCalledWith(
@@ -1025,8 +1100,14 @@ describe("Claude credential-state reporting", () => {
 
     const { fetchQuota, inspectAuth } =
       await import("../../src/providers/claude.js");
-    const auth = await inspectAuth({ allowKeychainPrompt: false });
-    const result = await fetchQuota({ allowKeychainPrompt: false });
+    const auth = await inspectAuth({
+      allowKeychainPrompt: false,
+      refreshCredentials: false,
+    });
+    const result = await fetchQuota({
+      allowKeychainPrompt: false,
+      refreshCredentials: false,
+    });
 
     expect(marker).toContain("claude-keychain-access-granted");
     expect(execFileText).toHaveBeenCalledWith(
@@ -1083,8 +1164,14 @@ describe("Claude credential-state reporting", () => {
 
     const { fetchQuota, inspectAuth } =
       await import("../../src/providers/claude.js");
-    const auth = await inspectAuth({ allowKeychainPrompt: false });
-    const result = await fetchQuota({ allowKeychainPrompt: false });
+    const auth = await inspectAuth({
+      allowKeychainPrompt: false,
+      refreshCredentials: false,
+    });
+    const result = await fetchQuota({
+      allowKeychainPrompt: false,
+      refreshCredentials: false,
+    });
 
     expect(auth.sources).toContainEqual({
       source: "keychain",
@@ -1123,7 +1210,10 @@ describe("Claude credential-state reporting", () => {
     );
 
     const { fetchQuota } = await import("../../src/providers/claude.js");
-    const result = await fetchQuota({ allowKeychainPrompt: true });
+    const result = await fetchQuota({
+      allowKeychainPrompt: true,
+      refreshCredentials: false,
+    });
 
     expect(result.state.status).toBe("fresh");
     expect(execFileText).toHaveBeenCalledWith(
@@ -1334,8 +1424,14 @@ describe("Claude credential-state reporting", () => {
 
     const { fetchQuota, inspectAuth } =
       await import("../../src/providers/claude.js");
-    const auth = await inspectAuth({ allowKeychainPrompt: false });
-    const result = await fetchQuota({ allowKeychainPrompt: false });
+    const auth = await inspectAuth({
+      allowKeychainPrompt: false,
+      refreshCredentials: false,
+    });
+    const result = await fetchQuota({
+      allowKeychainPrompt: false,
+      refreshCredentials: false,
+    });
 
     expect(execFileText).toHaveBeenCalledWith(
       "security",
@@ -1420,7 +1516,10 @@ describe("Claude credential-state reporting", () => {
     });
     vi.doMock("../../src/lib/process.js", () => ({ execFileText }));
     const { fetchQuota } = await import("../../src/providers/claude.js");
-    const result = await fetchQuota({ allowKeychainPrompt: true });
+    const result = await fetchQuota({
+      allowKeychainPrompt: true,
+      refreshCredentials: false,
+    });
     expect(result.state.status).not.toBe("auth_required");
     expect(result.state.error).toBe("keychain_unreachable");
     expect(result.source).toBe("cache");
@@ -1439,7 +1538,10 @@ describe("Claude credential-state reporting", () => {
     vi.doMock("../../src/lib/process.js", () => ({ execFileText }));
     const { fetchQuota } = await import("../../src/providers/claude.js");
     const { annotateQuotaAdvice } = await import("../../src/advice.js");
-    const result = await fetchQuota({ allowKeychainPrompt: true });
+    const result = await fetchQuota({
+      allowKeychainPrompt: true,
+      refreshCredentials: false,
+    });
     const annotated = annotateQuotaAdvice({
       generatedAt: new Date().toISOString(),
       providers: [result],
@@ -1458,7 +1560,10 @@ describe("Claude credential-state reporting", () => {
     writeFileSync(join(home, ".claude", ".credentials.json"), "{not-json");
 
     const { inspectAuth } = await import("../../src/providers/claude.js");
-    const result = await inspectAuth({ allowKeychainPrompt: false });
+    const result = await inspectAuth({
+      allowKeychainPrompt: false,
+      refreshCredentials: false,
+    });
 
     expect(result.sources[0]).toMatchObject({
       source: "oauth-file",

@@ -14,6 +14,12 @@ export type QuotaFlags = {
   full: boolean;
   tui: boolean;
   allowKeychainPrompt: boolean;
+  /**
+   * Opt out of delegated credential refresh: never run a vendor CLI's own
+   * non-interactive refresh command, even when a stored access token is
+   * expired. Defaults to false, so the quota path recovers on its own.
+   */
+  noCredentialRefresh: boolean;
   /** Live `--tui` refresh interval; the caller applies the default. */
   refreshSeconds?: number;
   /** Render one `--tui` frame and exit instead of staying live. */
@@ -80,6 +86,7 @@ function parseCommonFlags(
   let once = false;
   let refreshSeconds: number | undefined;
   let allowKeychainPrompt = false;
+  let noCredentialRefresh = false;
   let intelligence: IntelligenceBucket | undefined;
   let sort: ModelSortKey | undefined;
 
@@ -115,6 +122,10 @@ function parseCommonFlags(
     }
     if (arg === "--allow-keychain-prompt") {
       allowKeychainPrompt = true;
+      continue;
+    }
+    if (arg === "--no-credential-refresh") {
+      noCredentialRefresh = true;
       continue;
     }
     if (arg === "--intelligence") {
@@ -189,6 +200,7 @@ function parseCommonFlags(
     tui,
     once,
     allowKeychainPrompt,
+    noCredentialRefresh,
     ...(refreshSeconds !== undefined ? { refreshSeconds } : {}),
     ...(intelligence ? { intelligence } : {}),
     ...(sort ? { sort } : {}),
