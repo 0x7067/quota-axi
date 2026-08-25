@@ -238,9 +238,13 @@ function primaryProviderRow(provider: ProviderQuota): AttentionRow | undefined {
   const state = provider.state;
   if (!state.stale && state.status === "fresh") return undefined;
   const kind = state.stale ? "stale" : state.status;
-  const baseDetail = state.stale
-    ? `last refreshed ${state.refreshedAt ?? UNKNOWN}`
-    : (state.error ?? kind);
+  const staleDetail = [
+    `last refreshed ${state.refreshedAt ?? UNKNOWN}`,
+    state.error ? `fetch failed ${state.error}` : undefined,
+  ]
+    .filter((part): part is string => Boolean(part))
+    .join(DETAIL_SEPARATOR);
+  const baseDetail = state.stale ? staleDetail : (state.error ?? kind);
   const detail = state.reason
     ? `${baseDetail}${DETAIL_SEPARATOR}reason ${state.reason}`
     : baseDetail;

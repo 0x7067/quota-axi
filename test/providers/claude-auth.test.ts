@@ -554,6 +554,7 @@ describe("Claude credential-state reporting", () => {
 
       expect(result.source, label).toBe("cache");
       expect(result.state.status, label).toBe("stale");
+      expect(result.state.error, label).toBeTruthy();
       expect(
         result.windows.map(({ id }) => id),
         label,
@@ -996,7 +997,8 @@ describe("Claude credential-state reporting", () => {
     );
     expect(auth.sources).toContainEqual({
       source: "keychain",
-      status: "missing",
+      status: "skipped",
+      error: "keychain_unreachable",
     });
   });
 
@@ -1357,18 +1359,96 @@ describe("Claude credential-state reporting", () => {
 
     expect(auth.sources).toContainEqual({
       source: "keychain",
-      status: "missing",
+      status: "skipped",
+      error: "keychain_presence_check_failed",
     });
     expect(result.attempts).toContainEqual({
       source: "keychain",
       status: "skipped",
-      error: "credentials_missing",
+      error: "keychain_presence_check_failed",
     });
     expect(result.attempts).not.toContainEqual(
       expect.objectContaining({
         source: "keychain",
         error: "keychain_prompt_required",
       }),
+    );
+  });
+
+  it("names the usage-fetch error on the stale Claude attention row", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-06T20:00:00.000Z"));
+    const home = useTempHome();
+    writeClaudeCredential(home, {
+      accessToken: "live-token",
+      expiresAt: "2035-01-01T00:00:00.000Z",
+    });
+    const { writeCachedProviders } = await import("../../src/cache.js");
+    writeCachedProviders([cachedClaudeQuota(34)]);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(null, { status: 503 })),
+    );
+    const chunks: string[] = [];
+    const { main } = await import("../../src/cli.js");
+    await main({
+      argv: ["--provider", "claude"],
+      binPath: "quota-axi",
+      stdout: {
+        write(chunk) {
+          chunks.push(String(chunk));
+          return true;
+        },
+      },
+    });
+    const output = chunks.join("");
+    expect(output).toContain(
+      'claude,all,stale,"last refreshed 2026-07-06T18:10:00Z · fetch failed Claude quota unavailable (503)"',
+    );
+  });
+
+  it("does not treat Keychain exit 44 as signed-out or retire the Claude cache", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-06T20:00:00.000Z"));
+    usePlatform("darwin");
+    useTempHome();
+    const { readCachedProvider, writeCachedProviders } =
+      await import("../../src/cache.js");
+    writeCachedProviders([cachedClaudeQuota(34)]);
+    const execFileText = vi.fn(async () => {
+      throw Object.assign(new Error("not found"), { code: 44 });
+    });
+    vi.doMock("../../src/lib/process.js", () => ({ execFileText }));
+    const { fetchQuota } = await import("../../src/providers/claude.js");
+    const result = await fetchQuota({ allowKeychainPrompt: true });
+    expect(result.state.status).not.toBe("auth_required");
+    expect(result.state.error).toBe("keychain_unreachable");
+    expect(result.source).toBe("cache");
+    expect(readCachedProvider("claude")).toMatchObject({
+      provider: "claude",
+      source: "oauth",
+    });
+  });
+
+  it("says so when Keychain is denied and does not offer a prompt that cannot help", async () => {
+    usePlatform("darwin");
+    useTempHome();
+    const execFileText = vi.fn(async () => {
+      throw Object.assign(new Error("auth failed"), { code: 51 });
+    });
+    vi.doMock("../../src/lib/process.js", () => ({ execFileText }));
+    const { fetchQuota } = await import("../../src/providers/claude.js");
+    const { annotateQuotaAdvice } = await import("../../src/advice.js");
+    const result = await fetchQuota({ allowKeychainPrompt: true });
+    const annotated = annotateQuotaAdvice({
+      generatedAt: new Date().toISOString(),
+      providers: [result],
+    });
+    expect(result.state.error).toBe("keychain_access_denied");
+    expect(result.state.status).not.toBe("auth_required");
+    expect(annotated.providers[0]?.state.remedyCommand).toBeUndefined();
+    expect(annotated.help?.join("\n") ?? "").not.toContain(
+      "--allow-keychain-prompt",
     );
   });
 
