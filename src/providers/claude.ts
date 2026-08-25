@@ -877,8 +877,8 @@ function extractCredentialState(
  */
 function hasRefreshToken(oauth: Record<string, unknown>): boolean {
   return (
-    stringValue(oauth.refreshToken) !== undefined ||
-    stringValue(oauth.refresh_token) !== undefined
+    Object.hasOwn(oauth, "refreshToken") ||
+    Object.hasOwn(oauth, "refresh_token")
   );
 }
 

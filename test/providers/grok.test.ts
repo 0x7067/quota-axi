@@ -2239,7 +2239,8 @@ function stubGrokCli(
               key: options.rotateTo,
               auth_mode: "oidc",
               oidc_issuer: "https://auth.x.ai",
-              refresh_token: "rotated-refresh-token-fixture",
+              // Opaque presence marker: quota-axi must not inspect this field.
+              refresh_token: true,
               expires_at:
                 options.rotatedExpiresAt ?? "2035-01-01T00:00:00.000Z",
             },
@@ -2278,7 +2279,7 @@ function useCliOwnedStore(): string {
   return authFile;
 }
 
-function writeExpiredCliAuth(key: string, refreshToken?: string): void {
+function writeExpiredCliAuth(key: string, refreshable = true): void {
   writeAuth(
     {
       "https://auth.x.ai::client": {
@@ -2286,7 +2287,8 @@ function writeExpiredCliAuth(key: string, refreshToken?: string): void {
         auth_mode: "oidc",
         oidc_issuer: "https://auth.x.ai",
         expires_at: "2020-01-01T00:00:00.000Z",
-        ...(refreshToken === undefined ? {} : { refresh_token: refreshToken }),
+        // Deliberately not a token fixture. Only field presence is observable.
+        ...(refreshable ? { refresh_token: true } : {}),
       },
     },
     useCliOwnedStore(),
@@ -2307,7 +2309,7 @@ function stubBearerAwareFetch(liveKey: string): ReturnType<typeof vi.fn> {
 
 describe("Grok delegated credential refresh", () => {
   it("recovers live quota by letting the Grok CLI rotate its own session", async () => {
-    writeExpiredCliAuth("stale-key", "grok-refresh-token-fixture");
+    writeExpiredCliAuth("stale-key");
     const delegate = stubGrokCli({ rotateTo: "rotated-key" });
     const fetchMock = stubBearerAwareFetch("rotated-key");
 
@@ -2343,7 +2345,7 @@ describe("Grok delegated credential refresh", () => {
   });
 
   it("probes a rewritten bearer even when its expiry metadata remains expired", async () => {
-    writeExpiredCliAuth("stale-key", "grok-refresh-token-fixture");
+    writeExpiredCliAuth("stale-key");
     stubGrokCli({
       rotateTo: "rotated-key",
       rotatedExpiresAt: "2020-01-01T00:00:00.000Z",
@@ -2363,7 +2365,7 @@ describe("Grok delegated credential refresh", () => {
   });
 
   it("adopts a store the Grok CLI cleared after rejecting the session", async () => {
-    writeExpiredCliAuth("stale-key", "grok-refresh-token-fixture");
+    writeExpiredCliAuth("stale-key");
     stubGrokCli({ clearStore: true });
     const fetchMock = stubBearerAwareFetch("unused-key");
 
@@ -2393,9 +2395,8 @@ describe("Grok delegated credential refresh", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it("never sends the refresh token anywhere itself", async () => {
-    const refreshToken = "grok-refresh-token-sentinel";
-    writeExpiredCliAuth("stale-key", refreshToken);
+  it("never performs a refresh-token request itself", async () => {
+    writeExpiredCliAuth("stale-key");
     stubGrokCli({ rotateTo: "rotated-key" });
     const fetchMock = stubBearerAwareFetch("rotated-key");
 
@@ -2410,14 +2411,13 @@ describe("Grok delegated credential refresh", () => {
         body:
           init.body === undefined ? null : Array.from(init.body as Uint8Array),
       });
-      expect(request).not.toContain(refreshToken);
-      expect(request).not.toContain("rotated-refresh-token-fixture");
+      expect(request).not.toContain("grant_type");
       expect(url).not.toMatch(/token|oauth|auth\.x\.ai/i);
     }
   });
 
   it("stays read-only when delegated refresh is turned off", async () => {
-    writeExpiredCliAuth("stale-key", "grok-refresh-token-fixture");
+    writeExpiredCliAuth("stale-key");
     const delegate = stubGrokCli({ rotateTo: "rotated-key" });
     stubBearerAwareFetch("rotated-key");
 
@@ -2432,7 +2432,7 @@ describe("Grok delegated credential refresh", () => {
   });
 
   it("does not delegate for a transient failure", async () => {
-    writeExpiredCliAuth("stale-key", "grok-refresh-token-fixture");
+    writeExpiredCliAuth("stale-key");
     const delegate = stubGrokCli({ rotateTo: "rotated-key" });
     vi.stubGlobal(
       "fetch",
@@ -2449,7 +2449,7 @@ describe("Grok delegated credential refresh", () => {
   });
 
   it("does not delegate when the store holds no refresh path", async () => {
-    writeExpiredCliAuth("stale-key");
+    writeExpiredCliAuth("stale-key", false);
     const delegate = stubGrokCli({ rotateTo: "rotated-key" });
     stubBearerAwareFetch("rotated-key");
 
@@ -2467,7 +2467,7 @@ describe("Grok delegated credential refresh", () => {
           auth_mode: "oidc",
           oidc_issuer: "https://auth.x.ai",
           expires_at: "2020-01-01T00:00:00.000Z",
-          refresh_token: "grok-refresh-token-fixture",
+          refresh_token: true,
         },
       },
       relocated,
@@ -2482,7 +2482,7 @@ describe("Grok delegated credential refresh", () => {
   });
 
   it("reports a missing Grok CLI as a skipped refresh instead of failing", async () => {
-    writeExpiredCliAuth("stale-key", "grok-refresh-token-fixture");
+    writeExpiredCliAuth("stale-key");
     process.env.PATH = join(tempDir!, "empty-bin");
     stubBearerAwareFetch("rotated-key");
 

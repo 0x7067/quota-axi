@@ -1297,23 +1297,16 @@ function credentialCandidate(
     email: stringValue(item.email),
     teamId: stringValue(item.team_id) ?? stringValue(item.teamId),
     expiresAt: stringValue(item.expires_at) ?? stringValue(item.expiresAt),
-    // Presence only - never retain the refresh token value.
-    hasRefreshToken: hasNonEmptyStringField(
-      item,
-      "refresh_token",
-      "refreshToken",
-    ),
+    // Presence only - never inspect or retain the refresh token value.
+    hasRefreshToken: hasAnyField(item, "refresh_token", "refreshToken"),
   };
 }
 
-function hasNonEmptyStringField(
+function hasAnyField(
   item: Record<string, unknown>,
   ...keys: string[]
 ): boolean {
-  return keys.some((key) => {
-    const value = item[key];
-    return typeof value === "string" && value.length > 0;
-  });
+  return keys.some((key) => Object.hasOwn(item, key));
 }
 
 function credentialScope(

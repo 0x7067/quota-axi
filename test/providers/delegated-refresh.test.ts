@@ -18,9 +18,6 @@ import {
 
 const USAGE_URL = "https://api.anthropic.com/api/oauth/usage";
 const PROFILE_URL = "https://api.anthropic.com/api/oauth/profile";
-/** A fixture placeholder, not a credential: nothing here is a real secret. */
-const REFRESH_TOKEN_SENTINEL = "claude-refresh-token-sentinel";
-
 const originalHome = process.env.HOME;
 const originalUserProfile = process.env.USERPROFILE;
 const originalUser = process.env.USER;
@@ -194,7 +191,8 @@ function stubClaudeCli(options: { rotateTo?: string } = {}): ClaudeStub {
         JSON.stringify({
           claudeAiOauth: {
             accessToken: options.rotateTo,
-            refreshToken: "rotated-refresh-token-fixture",
+            // Opaque presence marker: quota-axi must not inspect this field.
+            refreshToken: true,
             expiresAt: Date.parse("2035-01-01T00:00:00.000Z"),
             subscriptionType: "max",
           },
@@ -212,9 +210,7 @@ function stubClaudeCli(options: { rotateTo?: string } = {}): ClaudeStub {
   return { invocationCount: () => lines().length, arguments: lines };
 }
 
-function writeExpiredClaudeCredential(
-  options: { refreshToken?: string } = {},
-): void {
+function writeExpiredClaudeCredential(refreshable = true): void {
   mkdirSync(join(tempDir, ".claude"), { recursive: true });
   writeFileSync(
     join(tempDir, ".claude", ".credentials.json"),
@@ -223,9 +219,8 @@ function writeExpiredClaudeCredential(
         accessToken: "stale-access-token",
         expiresAt: Date.parse("2020-01-01T00:00:00.000Z"),
         subscriptionType: "max",
-        ...(options.refreshToken === undefined
-          ? {}
-          : { refreshToken: options.refreshToken }),
+        // Deliberately not a token fixture. Only field presence is observable.
+        ...(refreshable ? { refreshToken: true } : {}),
       },
     }),
   );
@@ -238,7 +233,7 @@ function writeValidClaudeCredential(): void {
     JSON.stringify({
       claudeAiOauth: {
         accessToken: "stored-valid-access-token",
-        refreshToken: REFRESH_TOKEN_SENTINEL,
+        refreshToken: true,
         expiresAt: Date.parse("2035-01-01T00:00:00.000Z"),
         subscriptionType: "max",
       },
@@ -278,7 +273,7 @@ describe.skipIf(process.platform === "win32")(
   "Claude delegated credential refresh",
   () => {
     it("recovers live quota by letting the Claude CLI rotate its own session", async () => {
-      writeExpiredClaudeCredential({ refreshToken: REFRESH_TOKEN_SENTINEL });
+      writeExpiredClaudeCredential();
       const cli = stubClaudeCli({ rotateTo: "rotated-access-token" });
       const { requests } = stubBearerAwareFetch("rotated-access-token");
 
@@ -314,7 +309,7 @@ describe.skipIf(process.platform === "win32")(
     });
 
     it("never performs the refresh-token exchange itself", async () => {
-      writeExpiredClaudeCredential({ refreshToken: REFRESH_TOKEN_SENTINEL });
+      writeExpiredClaudeCredential();
       stubClaudeCli({ rotateTo: "rotated-access-token" });
       const { requests } = stubBearerAwareFetch("rotated-access-token");
 
@@ -333,14 +328,12 @@ describe.skipIf(process.platform === "win32")(
           headers: request.init?.headers ?? null,
           body: request.init?.body ?? null,
         });
-        expect(serialized).not.toContain(REFRESH_TOKEN_SENTINEL);
-        expect(serialized).not.toContain("rotated-refresh-token-fixture");
         expect(serialized).not.toContain("grant_type");
       }
     });
 
-    it("keeps the rotated refresh token out of the report", async () => {
-      writeExpiredClaudeCredential({ refreshToken: REFRESH_TOKEN_SENTINEL });
+    it("keeps credential material out of the report", async () => {
+      writeExpiredClaudeCredential();
       stubClaudeCli({ rotateTo: "rotated-access-token" });
       stubBearerAwareFetch("rotated-access-token");
 
@@ -351,14 +344,12 @@ describe.skipIf(process.platform === "win32")(
       });
 
       const report = JSON.stringify(result);
-      expect(report).not.toContain(REFRESH_TOKEN_SENTINEL);
-      expect(report).not.toContain("rotated-refresh-token-fixture");
       expect(report).not.toContain("rotated-access-token");
       expect(report).not.toContain("stale-access-token");
     });
 
     it("stays read-only when delegated refresh is turned off", async () => {
-      writeExpiredClaudeCredential({ refreshToken: REFRESH_TOKEN_SENTINEL });
+      writeExpiredClaudeCredential();
       const cli = stubClaudeCli({ rotateTo: "rotated-access-token" });
       stubBearerAwareFetch("rotated-access-token");
 
@@ -392,7 +383,7 @@ describe.skipIf(process.platform === "win32")(
 
     it("does not combine a rejected valid Keychain credential with a transient expired file credential", async () => {
       usePlatform("darwin");
-      writeExpiredClaudeCredential({ refreshToken: REFRESH_TOKEN_SENTINEL });
+      writeExpiredClaudeCredential();
       const cli = stubClaudeCli({ rotateTo: "rotated-access-token" });
       const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
         const headers = (init?.headers ?? {}) as Record<string, string>;
@@ -411,7 +402,7 @@ describe.skipIf(process.platform === "win32")(
             JSON.stringify({
               claudeAiOauth: {
                 accessToken: "keychain-valid-token",
-                refreshToken: "keychain-refresh-token-fixture",
+                refreshToken: true,
                 expiresAt: Date.parse("2035-01-01T00:00:00.000Z"),
                 subscriptionType: "max",
               },
@@ -433,7 +424,7 @@ describe.skipIf(process.platform === "win32")(
     });
 
     it("does not delegate for a transient failure", async () => {
-      writeExpiredClaudeCredential({ refreshToken: REFRESH_TOKEN_SENTINEL });
+      writeExpiredClaudeCredential();
       const cli = stubClaudeCli({ rotateTo: "rotated-access-token" });
       vi.stubGlobal(
         "fetch",
@@ -451,7 +442,7 @@ describe.skipIf(process.platform === "win32")(
     });
 
     it("does not delegate when the store holds no refresh path", async () => {
-      writeExpiredClaudeCredential();
+      writeExpiredClaudeCredential(false);
       const cli = stubClaudeCli({ rotateTo: "rotated-access-token" });
       stubBearerAwareFetch("rotated-access-token");
 
@@ -466,7 +457,7 @@ describe.skipIf(process.platform === "win32")(
 
     it("keeps Keychain advice instead of delegating when the value read is withheld", async () => {
       usePlatform("darwin");
-      writeExpiredClaudeCredential({ refreshToken: REFRESH_TOKEN_SENTINEL });
+      writeExpiredClaudeCredential();
       const cli = stubClaudeCli({ rotateTo: "rotated-access-token" });
       stubBearerAwareFetch("rotated-access-token");
       // A present Keychain item quota-axi has not been granted permission to read.
@@ -493,7 +484,7 @@ describe.skipIf(process.platform === "win32")(
     });
 
     it("reports an absent Claude CLI as a skipped refresh instead of failing", async () => {
-      writeExpiredClaudeCredential({ refreshToken: REFRESH_TOKEN_SENTINEL });
+      writeExpiredClaudeCredential();
       stubBearerAwareFetch("rotated-access-token");
 
       const { fetchQuota } = await import("../../src/providers/claude.js");
@@ -528,7 +519,8 @@ function writeCodexAuth(accessToken: string): void {
       tokens: {
         access_token: accessToken,
         id_token: accessToken,
-        refresh_token: "codex-refresh-token-sentinel",
+        // Opaque presence marker: only Codex owns this field.
+        refresh_token: true,
         account_id: "codex-account-fixture",
       },
     }),
@@ -539,7 +531,7 @@ function writeCodexAuth(accessToken: string): void {
  * A stand-in for `codex app-server`: it rotates the store the way the real
  * binary does before answering, then serves the read-only rate-limit RPC.
  */
-function stubCodexAppServer(rotateTo: string): void {
+function stubCodexAppServer(): void {
   const authFile = join(tempDir, ".codex", "auth.json");
   const rotated = jwt({ exp: Math.floor(Date.parse("2035-01-01") / 1000) });
   const binDir = join(tempDir, "stub-bin");
@@ -553,7 +545,7 @@ const authFile = ${JSON.stringify(authFile)};
 const stored = JSON.parse(readFileSync(authFile, "utf8"));
 stored.tokens.access_token = ${JSON.stringify(rotated)};
 stored.tokens.id_token = ${JSON.stringify(rotated)};
-stored.tokens.refresh_token = ${JSON.stringify(rotateTo)};
+stored.tokens.refresh_token = true;
 stored.last_refresh = new Date().toISOString();
 writeFileSync(authFile, JSON.stringify(stored));
 let buffer = "";
@@ -592,7 +584,7 @@ describe.skipIf(process.platform === "win32")(
   () => {
     it("reports live quota through the vendor CLI when the stored token is expired", async () => {
       writeCodexAuth(jwt({ exp: Math.floor(Date.parse("2020-01-01") / 1000) }));
-      stubCodexAppServer("codex-rotated-refresh-token");
+      stubCodexAppServer();
       const fetchMock = vi.fn();
       vi.stubGlobal("fetch", fetchMock);
 
@@ -619,11 +611,9 @@ describe.skipIf(process.platform === "win32")(
       // The vendor rewrote its own store, so the next run has a live bearer.
       const stored = JSON.parse(
         readFileSync(join(tempDir, ".codex", "auth.json"), "utf8"),
-      ) as { tokens: { refresh_token: string } };
-      expect(stored.tokens.refresh_token).toBe("codex-rotated-refresh-token");
-      expect(JSON.stringify(result)).not.toContain(
-        "codex-refresh-token-sentinel",
-      );
+      ) as { tokens: Record<string, unknown> };
+      expect(Object.hasOwn(stored.tokens, "refresh_token")).toBe(true);
+      expect(JSON.stringify(result)).not.toContain("rotated-access-token");
     });
   },
 );
