@@ -1,0 +1,62 @@
+=== Pi xAI OAuth consumer-credit fetch ===
+{
+  "endpoint": "https://grok.com/grok_api_v2.GrokBuildBilling/GetGrokCreditsConfig",
+  "authorization": "Bearer <redacted>",
+  "status": "fresh",
+  "authStatus": "usable",
+  "source": "web",
+  "windows": [
+    {
+      "id": "credits",
+      "percentUsed": 22
+    }
+  ],
+  "attempts": [
+    {
+      "source": "auth-json",
+      "status": "skipped",
+      "error": "credentials_missing"
+    },
+    {
+      "source": "pi:xai",
+      "status": "success",
+      "credentialPresent": true
+    }
+  ]
+}
+
+=== Neither bearer works: CLI refresh fallback ===
+{
+  "status": "unavailable",
+  "authStatus": "expired_refreshable",
+  "error": "Grok access token expired",
+  "remedyCommand": "grok",
+  "help": [
+    "Tell your user: open the Grok CLI (`grok`) once so it can refresh Grok's local session token. quota-axi does not refresh credentials."
+  ],
+  "attempts": [
+    {
+      "source": "web",
+      "status": "failed",
+      "error": "Grok sign-in required"
+    },
+    {
+      "source": "pi:xai",
+      "status": "failed",
+      "error": "Grok sign-in required",
+      "credentialPresent": true
+    }
+  ]
+}
+
+=== End-user stale Claude CLI card ===
+bin: quota-axi
+description: Report local agent-provider quota windows for routing-aware agents
+generatedAt: "2026-08-25T06:20:17.485Z"
+quota[0]:
+exhaustion[0]:
+attention[2]{provider,scope,kind,detail,remedy}:
+  claude,all,stale,"last refreshed 2026-07-06T18:10:00Z · fetch failed Claude quota unavailable (503)",none
+  claude,all_models,headroom_unknown,five_hour,none
+help[1]:
+  Run `quota-axi --full` for windows, pace, reserve, and account evidence
