@@ -2219,24 +2219,33 @@ type StubDelegate = {
  * access token with a future expiry, beside a new refresh token. Nothing reads
  * its stdout, so it also prints noise the way the real CLI does.
  */
-function stubGrokCli(options: { rotateTo?: string } = {}): StubDelegate {
+function stubGrokCli(
+  options: {
+    rotateTo?: string;
+    rotatedExpiresAt?: string;
+    clearStore?: boolean;
+  } = {},
+): StubDelegate {
   const binDir = join(tempDir!, "stub-bin");
   mkdirSync(binDir, { recursive: true });
   const invocationLog = join(tempDir!, "grok-invocations.log");
   const authFile = join(process.env.GROK_HOME!, "auth.json");
-  const rewrite = options.rotateTo
-    ? `echo ${shellSingleQuote(
-        JSON.stringify({
-          "https://auth.x.ai::client": {
-            key: options.rotateTo,
-            auth_mode: "oidc",
-            oidc_issuer: "https://auth.x.ai",
-            refresh_token: "rotated-refresh-token-fixture",
-            expires_at: "2035-01-01T00:00:00.000Z",
-          },
-        }),
-      )} > ${JSON.stringify(authFile)}`
-    : "";
+  const rewrite = options.clearStore
+    ? `echo '{}' > ${JSON.stringify(authFile)}`
+    : options.rotateTo
+      ? `echo ${shellSingleQuote(
+          JSON.stringify({
+            "https://auth.x.ai::client": {
+              key: options.rotateTo,
+              auth_mode: "oidc",
+              oidc_issuer: "https://auth.x.ai",
+              refresh_token: "rotated-refresh-token-fixture",
+              expires_at:
+                options.rotatedExpiresAt ?? "2035-01-01T00:00:00.000Z",
+            },
+          }),
+        )} > ${JSON.stringify(authFile)}`
+      : "";
   // Only shell builtins: the delegate runs with the PATH quota-axi hands it,
   // which in these tests holds nothing but the stub itself.
   writeFileSync(
@@ -2313,10 +2322,15 @@ describe("Grok delegated credential refresh", () => {
     });
     expect(result.windows.length).toBeGreaterThan(0);
     expect(result.state.sourcesTried).toContain("grok-cli-refresh");
-    expect(result.attempts).toContainEqual({
-      source: "grok-cli-refresh",
-      status: "success",
-    });
+    expect(result.attempts?.slice(0, 3)).toEqual([
+      {
+        source: "web",
+        status: "failed",
+        error: "Grok sign-in required",
+      },
+      { source: "grok-cli-refresh", status: "success" },
+      { source: "web", status: "success" },
+    ]);
     // The vendor CLI ran exactly once, with its own smallest read-only command.
     expect(delegate.invocationCount()).toBe(1);
     expect(readFileSync(delegate.invocationLog, "utf8").trim()).toBe("models");
@@ -2326,6 +2340,57 @@ describe("Grok delegated credential refresh", () => {
     for (const [url] of fetchMock.mock.calls as Array<[string, RequestInit]>) {
       expect(url).toBe(CONSUMER_QUOTA_URL);
     }
+  });
+
+  it("probes a rewritten bearer even when its expiry metadata remains expired", async () => {
+    writeExpiredCliAuth("stale-key", "grok-refresh-token-fixture");
+    stubGrokCli({
+      rotateTo: "rotated-key",
+      rotatedExpiresAt: "2020-01-01T00:00:00.000Z",
+    });
+    const fetchMock = stubBearerAwareFetch("rotated-key");
+
+    const result = await fetchQuota({
+      allowKeychainPrompt: false,
+      refreshCredentials: true,
+    });
+
+    expect(result).toMatchObject({
+      source: "web",
+      state: { status: "fresh", authStatus: "usable" },
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("adopts a store the Grok CLI cleared after rejecting the session", async () => {
+    writeExpiredCliAuth("stale-key", "grok-refresh-token-fixture");
+    stubGrokCli({ clearStore: true });
+    const fetchMock = stubBearerAwareFetch("unused-key");
+
+    const result = await fetchQuota({
+      allowKeychainPrompt: false,
+      refreshCredentials: true,
+    });
+
+    expect(result.state).toMatchObject({
+      status: "auth_required",
+      authStatus: "unusable",
+      error: "Grok sign-in required",
+    });
+    expect(result.attempts?.slice(0, 3)).toEqual([
+      {
+        source: "web",
+        status: "failed",
+        error: "Grok sign-in required",
+      },
+      { source: "grok-cli-refresh", status: "success" },
+      {
+        source: "auth-json",
+        status: "skipped",
+        error: "credentials_invalid",
+      },
+    ]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("never sends the refresh token anywhere itself", async () => {

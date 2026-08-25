@@ -217,6 +217,10 @@ async function fetchQuotaWithDependencies(
   let cliSelection = await selectCredential(cliCandidates, (candidate) =>
     attemptGrokCandidate(candidate.credential),
   );
+  const cliPasses: Array<{
+    state: CredentialState;
+    selection: CredentialSelection<NormalizedGrokQuota>;
+  }> = [{ state: cliState, selection: cliSelection }];
 
   // Soft expiry the Grok CLI can fix: hand the rotation back to the CLI that
   // owns the store, then re-read the session it rewrote and try once more.
@@ -227,12 +231,13 @@ async function fetchQuotaWithDependencies(
       reread: () => readCredentialState(),
     });
     refreshAttempt = refresh.attempt;
-    if (refresh.state?.status === "available") {
+    if (refresh.state !== undefined) {
       cliState = refresh.state;
       cliSelection = await selectCredential(
         cliCandidatesFor(cliState),
         (candidate) => attemptGrokCandidate(candidate.credential),
       );
+      cliPasses.push({ state: cliState, selection: cliSelection });
     }
   }
 
@@ -248,7 +253,7 @@ async function fetchQuotaWithDependencies(
   const selection = mergeIndependentSelections(cliSelection, piSelection);
 
   const attempts = grokAttempts(
-    cliState,
+    cliPasses,
     piResolution,
     selection,
     refreshAttempt,
@@ -503,35 +508,21 @@ async function attemptGrokCandidate(
 }
 
 function grokAttempts(
-  cliState: CredentialState,
+  cliPasses: ReadonlyArray<{
+    state: CredentialState;
+    selection: CredentialSelection<NormalizedGrokQuota>;
+  }>,
   piResolution: PiXaiCredentialResolution,
   selection: CredentialSelection<NormalizedGrokQuota>,
   refreshAttempt?: SourceAttempt,
 ): SourceAttempt[] {
   const attempts: SourceAttempt[] = [];
 
-  const cliResults = selection.results.filter(
-    (result) => result.source === GROK_SOURCE,
-  );
-  const cliResult =
-    cliResults.find((result) => result.outcome === "quota") ??
-    cliResults.find((result) => result.outcome === "transient") ??
-    [...cliResults].reverse().find((result) => result.outcome === "rejected");
-  if (cliResult) {
-    attempts.push(
-      cliResult.outcome === "quota"
-        ? { source: GROK_SOURCE, status: "success" }
-        : { source: GROK_SOURCE, status: "failed", error: cliResult.error },
-    );
-  } else {
-    attempts.push({
-      source: cliState.source.source,
-      status: "skipped",
-      error: `credentials_${cliState.status}`,
-    });
-  }
-
+  appendGrokCliAttempt(attempts, cliPasses[0]!);
   if (refreshAttempt) attempts.push(refreshAttempt);
+  for (const pass of cliPasses.slice(1)) {
+    appendGrokCliAttempt(attempts, pass);
+  }
 
   const piResult = selection.results.find(
     (result) => result.source === PI_XAI_CREDENTIAL_SOURCE,
@@ -564,6 +555,35 @@ function grokAttempts(
   }
 
   return attempts;
+}
+
+function appendGrokCliAttempt(
+  attempts: SourceAttempt[],
+  pass: {
+    state: CredentialState;
+    selection: CredentialSelection<NormalizedGrokQuota>;
+  },
+): void {
+  const cliResults = pass.selection.results.filter(
+    (result) => result.source === GROK_SOURCE,
+  );
+  const cliResult =
+    cliResults.find((result) => result.outcome === "quota") ??
+    cliResults.find((result) => result.outcome === "transient") ??
+    [...cliResults].reverse().find((result) => result.outcome === "rejected");
+  if (cliResult) {
+    attempts.push(
+      cliResult.outcome === "quota"
+        ? { source: GROK_SOURCE, status: "success" }
+        : { source: GROK_SOURCE, status: "failed", error: cliResult.error },
+    );
+    return;
+  }
+  attempts.push({
+    source: pass.state.source.source,
+    status: "skipped",
+    error: `credentials_${pass.state.status}`,
+  });
 }
 
 async function inspectAuthWithDependencies(
