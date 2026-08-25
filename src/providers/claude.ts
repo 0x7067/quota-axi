@@ -29,6 +29,7 @@ import {
   successProvider,
   withRemaining,
 } from "./common.js";
+import { withUsageFetchFailure } from "./usage-fetch-failure.js";
 
 const API_URL = "https://api.anthropic.com/api/oauth/usage";
 const PROFILE_API_URL = "https://api.anthropic.com/api/oauth/profile";
@@ -37,7 +38,9 @@ const CLAUDE_CODE_USER_AGENT = "claude-code/2.1.202";
 const API_TIMEOUT_MS = 15_000;
 const KEYCHAIN_PROMPT_TIMEOUT_MS = 60_000;
 const KEYCHAIN_PRESENCE_TIMEOUT_MS = 5_000;
-const KEYCHAIN_ITEM_NOT_FOUND_EXIT_CODE = 44;
+/** `security` exit 44 is cannot-reach (locked, TCC, daemon), not item-absent. */
+const KEYCHAIN_ITEM_UNREACHABLE_EXIT_CODE = 44;
+const KEYCHAIN_UNREACHABLE_ERROR = "keychain_unreachable";
 const DEFAULT_KEYCHAIN_SERVICE = "Claude Code-credentials";
 const DEFAULT_KEYCHAIN_ACCOUNT = "claude-code-user";
 const SAFE_KEYCHAIN_ACCOUNT = /^[a-zA-Z0-9._-]+$/;
@@ -206,7 +209,7 @@ export async function fetchQuota(
           error: failure.code,
         };
         if (failure.definitiveAuth) definitiveFailure ??= failure;
-        else transientFailure = failure;
+        else transientFailure = failure.withUsageFetchFailure();
       }
     }
   } else {
@@ -303,7 +306,7 @@ function staleClaudeReport(
   });
   if (windows.length === 0) return undefined;
 
-  return {
+  const report: ProviderQuota = {
     provider: "claude",
     label: "Claude",
     source: "cache",
@@ -319,6 +322,7 @@ function staleClaudeReport(
     },
     attempts,
   };
+  return failure.usageFetchFailure ? withUsageFetchFailure(report) : report;
 }
 
 function resetlessWindowMaxAge(window: QuotaWindow): number | undefined {
@@ -564,8 +568,8 @@ async function readKeychainItemPresence(
       KEYCHAIN_PRESENCE_TIMEOUT_MS,
     );
     return "present";
-  } catch (error) {
-    return isKeychainItemNotFound(error) ? "missing" : "unknown";
+  } catch {
+    return "unknown";
   }
 }
 
@@ -676,10 +680,10 @@ function keychainServiceForConfigDir(configDir?: string): string {
   return `${DEFAULT_KEYCHAIN_SERVICE}-${suffix}`;
 }
 
-function isKeychainItemNotFound(error: unknown): boolean {
+function isKeychainItemUnreachable(error: unknown): boolean {
   return (
     (error as { code?: number | string | null }).code ===
-    KEYCHAIN_ITEM_NOT_FOUND_EXIT_CODE
+    KEYCHAIN_ITEM_UNREACHABLE_EXIT_CODE
   );
 }
 
@@ -699,10 +703,14 @@ function keychainFailureState(error: unknown): CredentialState {
       },
     };
   }
-  if (isKeychainItemNotFound(error)) {
+  if (isKeychainItemUnreachable(error)) {
     return {
-      status: "missing",
-      source: { source: "keychain", status: "missing" },
+      status: "skipped",
+      source: {
+        source: "keychain",
+        status: "skipped",
+        error: KEYCHAIN_UNREACHABLE_ERROR,
+      },
     };
   }
   return {
@@ -961,6 +969,7 @@ class ClaudeFailure extends Error {
   readonly definitiveAuth: boolean;
   readonly staleEligible: boolean;
   readonly retryAfter: string | undefined;
+  usageFetchFailure = false;
 
   constructor(
     readonly code: string,
@@ -972,5 +981,10 @@ class ClaudeFailure extends Error {
     this.definitiveAuth = options.definitiveAuth ?? false;
     this.staleEligible = options.staleEligible ?? false;
     this.retryAfter = options.retryAfter;
+  }
+
+  withUsageFetchFailure(): this {
+    this.usageFetchFailure = true;
+    return this;
   }
 }

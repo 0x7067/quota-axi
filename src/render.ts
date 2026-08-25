@@ -1,6 +1,7 @@
 import { encode } from "@toon-format/toon";
 import { quotaHelpLines } from "./advice.js";
 import { collapseHome } from "./lib/fs.js";
+import { isUsageFetchFailure } from "./providers/usage-fetch-failure.js";
 import { SELECTION_SCALAR_KEY } from "./types.js";
 import type {
   AuthProviderReport,
@@ -238,9 +239,15 @@ function primaryProviderRow(provider: ProviderQuota): AttentionRow | undefined {
   const state = provider.state;
   if (!state.stale && state.status === "fresh") return undefined;
   const kind = state.stale ? "stale" : state.status;
-  const baseDetail = state.stale
-    ? `last refreshed ${state.refreshedAt ?? UNKNOWN}`
-    : (state.error ?? kind);
+  const staleDetail = [
+    `last refreshed ${state.refreshedAt ?? UNKNOWN}`,
+    state.error
+      ? `${isUsageFetchFailure(provider) ? "fetch failed " : ""}${state.error}`
+      : undefined,
+  ]
+    .filter((part): part is string => Boolean(part))
+    .join(DETAIL_SEPARATOR);
+  const baseDetail = state.stale ? staleDetail : (state.error ?? kind);
   const detail = state.reason
     ? `${baseDetail}${DETAIL_SEPARATOR}reason ${state.reason}`
     : baseDetail;

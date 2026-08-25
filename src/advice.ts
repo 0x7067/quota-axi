@@ -1,3 +1,4 @@
+import { grokCliRefreshNeeded } from "./providers/grok.js";
 import type {
   ProviderQuota,
   QuotaAxiResponse,
@@ -9,7 +10,6 @@ export const KEYCHAIN_ACCESS_REMEDY_COMMAND =
   "quota-axi --allow-keychain-prompt";
 export const CREDENTIALS_EXPIRED_REASON = "credentials_expired";
 export const GROK_TOKEN_REFRESH_REMEDY_COMMAND = "grok";
-export const GROK_ACCESS_TOKEN_EXPIRED_ERROR = "Grok access token expired";
 
 export function annotateQuotaAdvice(
   response: Omit<QuotaAxiResponse, "schemaVersion">,
@@ -73,8 +73,7 @@ function needsGrokTokenRefreshAdvice(provider: ProviderQuota): boolean {
   return (
     provider.provider === "grok" &&
     provider.state.status !== "fresh" &&
-    provider.state.authStatus === "expired_refreshable" &&
-    provider.state.error === GROK_ACCESS_TOKEN_EXPIRED_ERROR
+    grokCliRefreshNeeded(provider)
   );
 }
 
