@@ -1426,9 +1426,7 @@ describe("Grok dual-source CLI and Pi xAI usability", () => {
       "fetch",
       vi
         .fn()
-        .mockResolvedValueOnce(
-          grpcResponse(new Uint8Array(), { status: 403 }),
-        )
+        .mockResolvedValueOnce(grpcResponse(new Uint8Array(), { status: 403 }))
         .mockRejectedValueOnce(new TypeError("fetch failed")),
     );
 
