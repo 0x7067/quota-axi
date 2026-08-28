@@ -41,7 +41,7 @@ export type LiveTuiOptions<T> = {
   load(): Promise<T>;
   /** Render the current snapshot at the current terminal width. */
   render(value: T): string;
-  /** Closing line pinned to the last row, given the live scroll state. */
+  /** Closing line pinned to the last row when height permits. */
   status?(status: ScrollStatus): string;
   intervalMillis: number;
   io: LiveTuiIo;

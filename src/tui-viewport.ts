@@ -46,8 +46,9 @@ export type ScrollFrameOptions = {
 /**
  * Window `body` onto `rows` terminal rows. When the whole report plus its
  * closing line already fits, the frame is the report exactly as it renders at
- * full height. When it does not, the first line stays pinned (it is the report
- * header), the last row carries the closing line, and the rest scrolls.
+ * full height. When it does not, the first line stays pinned at practical
+ * heights, the last row carries the closing line when space permits, and the
+ * rest scrolls. At tiny heights, report content takes priority over both.
  */
 export function scrollFrame(
   body: string,
