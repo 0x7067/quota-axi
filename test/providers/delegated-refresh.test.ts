@@ -708,6 +708,55 @@ describe.skipIf(process.platform === "win32")(
       expect(result.state.status).toBe("fresh");
     });
 
+    it("delegates when only quota-axi's own Claude argument is present", async () => {
+      withRunningProcessEntries({
+        pid: process.pid,
+        commandLine: "quota-axi --provider claude",
+      });
+      writeExpiredClaudeCredential();
+      const cli = stubClaudeCli({ rotateTo: "rotated-access-token" });
+      stubBearerAwareFetch("rotated-access-token");
+
+      const { fetchQuota } = await import("../../src/providers/claude.js");
+      const result = await fetchQuota({
+        allowKeychainPrompt: false,
+        refreshCredentials: true,
+      });
+
+      expect(cli.invocationCount()).toBe(1);
+      expect(cli.arguments()).toEqual(["doctor"]);
+      expect(result.state.status).toBe("fresh");
+    });
+
+    it("stands down when another Claude process accompanies quota-axi", async () => {
+      withRunningProcessEntries(
+        {
+          pid: process.pid,
+          commandLine: "quota-axi --provider claude",
+        },
+        {
+          pid: process.pid + 1,
+          commandLine: "/path/.local/bin/claude",
+        },
+      );
+      writeExpiredClaudeCredential();
+      const cli = stubClaudeCli({ rotateTo: "rotated-access-token" });
+      stubBearerAwareFetch("rotated-access-token");
+
+      const { fetchQuota } = await import("../../src/providers/claude.js");
+      const result = await fetchQuota({
+        allowKeychainPrompt: false,
+        refreshCredentials: true,
+      });
+
+      expect(cli.invocationCount()).toBe(0);
+      expect(result.attempts).toContainEqual({
+        source: "claude-cli-refresh",
+        status: "skipped",
+        error: "refresh_live_vendor_process",
+      });
+    });
+
     it("stays read-only when it cannot tell what is running", async () => {
       // Refresh is preserved only where it is demonstrably safe; an unlistable
       // process table is not proof of safety.
