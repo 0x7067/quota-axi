@@ -124,21 +124,11 @@ export async function runLiveTui<T>({
   };
 
   // Scroll state outlives each refresh, so a repaint keeps the operator where
-  // they were. Every paint reclamps it against the frame it actually produced.
+  // they were. Commands are applied only while painting, against that paint's
+  // current rows and frame bounds. In particular, input received while load()
+  // is pending must not be clamped against stale pre-resize bounds.
   let offset = 0;
-  let pageLines = 1;
-  let maxOffset = 0;
-  const applyScroll = (command: Exclude<ScrollCommand, "quit">): void => {
-    const step = {
-      up: -1,
-      down: 1,
-      "page-up": -pageLines,
-      "page-down": pageLines,
-      top: -Infinity,
-      bottom: Infinity,
-    }[command];
-    offset = Math.min(Math.max(offset + step, 0), maxOffset);
-  };
+  const pendingScrollCommands: Array<Exclude<ScrollCommand, "quit">> = [];
   let pendingKeyInput = "";
   const onData = (chunk: Buffer | string): void => {
     const text = pendingKeyInput + chunk.toString();
@@ -150,7 +140,7 @@ export async function runLiveTui<T>({
         requestQuit();
         return;
       }
-      applyScroll(command);
+      pendingScrollCommands.push(command);
       scrolled = true;
     }
     if (scrolled) notify("scroll");
@@ -173,14 +163,34 @@ export async function runLiveTui<T>({
       if (quit) break;
       const snapshot = value;
       const paint = (): void => {
-        const frame = scrollFrame(render(snapshot), {
+        const body = render(snapshot);
+        const options = {
           rows: io.rows?.(),
           offset,
           ...(status === undefined ? {} : { status }),
-        });
+        };
+        let frame = scrollFrame(body, options);
+        let nextOffset = frame.offset;
+        for (const command of pendingScrollCommands) {
+          const pageLines = Math.max(1, frame.pageLines);
+          const step = {
+            up: -1,
+            down: 1,
+            "page-up": -pageLines,
+            "page-down": pageLines,
+            top: -Infinity,
+            bottom: Infinity,
+          }[command];
+          nextOffset = Math.min(
+            Math.max(nextOffset + step, 0),
+            frame.maxOffset,
+          );
+        }
+        if (pendingScrollCommands.length > 0) {
+          frame = scrollFrame(body, { ...options, offset: nextOffset });
+          pendingScrollCommands.length = 0;
+        }
         offset = frame.offset;
-        maxOffset = frame.maxOffset;
-        pageLines = Math.max(1, frame.pageLines);
         // No trailing newline: a frame that exactly fills the terminal would
         // otherwise push its own first row off the alternate screen.
         io.stdout.write(`${CLEAR_SCREEN}${frame.text}`);

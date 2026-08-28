@@ -388,6 +388,45 @@ describe("live terminal report at short heights", () => {
     await stop(live);
   });
 
+  it("applies scroll input to fresh bounds after a resize during refresh", async () => {
+    const io = harness();
+    io.setRows(60);
+    let calls = 0;
+    let releaseRefresh: (() => void) | undefined;
+    const run = runLiveTui<number>({
+      load: async () => {
+        calls += 1;
+        if (calls === 2) {
+          await new Promise<void>((resolve) => {
+            releaseRefresh = resolve;
+          });
+        }
+        return calls;
+      },
+      render: () => BODY,
+      status: (scroll) => `  ${scrollHint(scroll, HINT)}`,
+      intervalMillis: 300_000,
+      io: io.io,
+    });
+    await flush();
+    expect(io.frame()).toBe(`${BODY}\n\n  ${HINT}`);
+
+    io.tick();
+    await flush();
+    io.resize(10);
+    io.press("G");
+    releaseRefresh?.();
+    await flush();
+
+    const frame = io.frame().split("\n");
+    expect(frame).toHaveLength(10);
+    expect(frame.at(-2)).toBe("line 39");
+    expect(frame.at(-1)).toContain("↑ 31 more");
+
+    io.press("q");
+    await run;
+  });
+
   it("paints the report unwindowed when the height is unknown", async () => {
     const live = await start(undefined);
     expect(live.io.frame()).toBe(`${BODY}\n\n  ${HINT}`);
