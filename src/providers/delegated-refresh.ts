@@ -47,10 +47,10 @@ import type { SourceAttempt } from "../types.js";
  *   Credentials are never parsed out of vendor output; the refreshed value only
  *   ever comes from re-reading the vendor's own store. Owning no pipe also
  *   means a detached vendor can never block on one quota-axi stopped draining.
- * - at most one delegated refresh per credential source per quota read, which
- *   each caller enforces by delegating only on its single recovery path. It is
- *   deliberately per read rather than per process, so a long-running `--tui`
- *   still recovers from a session that expires while it is up.
+ * - at most one live delegated command for the same executable and argv in
+ *   this quota-axi process. Each caller also delegates only on its single
+ *   recovery path per quota read. A later TUI read may start a new delegate
+ *   after the previous one exits, but never stacks one on an unfinished run.
  *
  * Only providers whose vendor CLI has an established non-interactive rotation
  * command get a delegate. Providers without one stay read-only and keep their
@@ -107,6 +107,15 @@ const NON_INTERACTIVE_ENV: Readonly<Record<string, string>> = {
   NO_OPEN_BROWSER: "1",
 };
 
+/**
+ * Timed-out delegates remain supervised while quota-axi is alive. Keeping the
+ * child here prevents a live TUI or concurrent reads in this process from
+ * stacking another vendor refresh on top of one that has not exited yet. The
+ * entry is removed by the child's terminal event; it is never removed by a
+ * signal from quota-axi.
+ */
+const runningDelegates = new Map<string, ChildProcess>();
+
 export async function runRefreshDelegate(
   delegate: RefreshDelegate,
 ): Promise<DelegatedRefreshRun> {
@@ -114,6 +123,13 @@ export async function runRefreshDelegate(
   if (!executable) {
     return { status: "unavailable", error: REFRESH_COMMAND_NOT_FOUND };
   }
+  const delegateKey = JSON.stringify([executable, ...delegate.args]);
+  const existing = runningDelegates.get(delegateKey);
+  if (existing && existing.exitCode === null && existing.signalCode === null) {
+    return { status: "unconfirmed", error: REFRESH_TIMED_OUT };
+  }
+  if (existing) runningDelegates.delete(delegateKey);
+
   return new Promise<DelegatedRefreshRun>((resolve) => {
     let child: ChildProcess;
     try {
@@ -133,6 +149,12 @@ export async function runRefreshDelegate(
       return;
     }
 
+    runningDelegates.set(delegateKey, child);
+    const forgetChild = () => {
+      if (runningDelegates.get(delegateKey) === child)
+        runningDelegates.delete(delegateKey);
+    };
+
     let settled = false;
     const settle = (run: DelegatedRefreshRun) => {
       if (settled) return;
@@ -148,10 +170,14 @@ export async function runRefreshDelegate(
       settle({ status: "unconfirmed", error: REFRESH_TIMED_OUT });
     }, delegate.timeoutMs);
 
-    child.on("error", () =>
-      settle({ status: "failed", error: REFRESH_SPAWN_FAILED }),
-    );
-    child.on("close", (exitCode) => settle({ status: "ran", exitCode }));
+    child.on("error", () => {
+      forgetChild();
+      settle({ status: "failed", error: REFRESH_SPAWN_FAILED });
+    });
+    child.on("close", (exitCode) => {
+      forgetChild();
+      settle({ status: "ran", exitCode });
+    });
   });
 }
 

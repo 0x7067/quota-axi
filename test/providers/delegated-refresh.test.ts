@@ -16,7 +16,10 @@ import {
   runRefreshDelegate,
   type RefreshDelegate,
 } from "../../src/providers/delegated-refresh.js";
-import type { RunningProcessList } from "../../src/lib/running-processes.js";
+import type {
+  RunningProcess,
+  RunningProcessList,
+} from "../../src/lib/running-processes.js";
 import { runLiveTui, type LiveTuiIo } from "../../src/tui-live.js";
 import type { ProviderQuota } from "../../src/types.js";
 
@@ -27,7 +30,7 @@ import type { ProviderQuota } from "../../src/types.js";
  * Claude Code running, so nothing else owns the credential store.
  */
 const processTable = vi.hoisted(() => ({
-  current: { status: "listed", commandLines: [] } as RunningProcessList,
+  current: { status: "listed", processes: [] } as RunningProcessList,
 }));
 
 vi.mock("../../src/lib/running-processes.js", () => ({
@@ -35,7 +38,17 @@ vi.mock("../../src/lib/running-processes.js", () => ({
 }));
 
 function withRunningProcesses(...commandLines: string[]): void {
-  processTable.current = { status: "listed", commandLines };
+  processTable.current = {
+    status: "listed",
+    processes: commandLines.map((commandLine, index) => ({
+      pid: 10_000 + index,
+      commandLine,
+    })),
+  };
+}
+
+function withRunningProcessEntries(...processes: RunningProcess[]): void {
+  processTable.current = { status: "listed", processes };
 }
 
 function withUnlistableProcesses(): void {
@@ -207,10 +220,12 @@ describe.skipIf(process.platform === "win32")(
       // exchange. Interrupting it is the sign-out this design exists to
       // prevent, so the budget may only bound quota-axi's wait.
       const signalled = join(tempDir, "signalled");
+      const startedRuns = join(tempDir, "started-runs");
       const finished = join(tempDir, "finished");
       installNodeStub(
         "vendorcli",
-        `const { writeFileSync } = require("node:fs");
+        `const { appendFileSync, writeFileSync } = require("node:fs");
+appendFileSync(${JSON.stringify(startedRuns)}, "run\\n");
 for (const signal of ["SIGTERM", "SIGINT", "SIGHUP"]) {
   process.on(signal, () => writeFileSync(${JSON.stringify(signalled)}, signal));
 }
@@ -236,6 +251,15 @@ setTimeout(() => {
         status: "failed",
         error: "refresh_timed_out",
       });
+
+      // A repeated live-TUI read must remain unconfirmed without stacking a
+      // second refresh on the unfinished vendor command.
+      await expect(runRefreshDelegate(delegate)).resolves.toEqual({
+        status: "unconfirmed",
+        error: "refresh_timed_out",
+      });
+      await waitForFile(startedRuns);
+      expect(readFileSync(startedRuns, "utf8")).toBe("run\n");
 
       // The vendor ran to completion on its own: no SIGTERM/SIGINT/SIGHUP
       // reached it, and it was never SIGKILLed (that would lose the marker).
@@ -670,10 +694,16 @@ describe.skipIf(process.platform === "win32")(
     it("still delegates when unrelated processes are running", async () => {
       // The condition is narrow on purpose: a name that merely contains
       // "claude" is not Claude Code holding the credential store.
-      withRunningProcesses(
-        "/opt/homebrew/bin/claude-code-router serve",
-        "/Users/fixture/bin/quota-axi --tui",
-        "/usr/bin/vim claude-notes.md",
+      withRunningProcessEntries(
+        {
+          pid: 10_001,
+          commandLine: "/opt/homebrew/bin/claude-code-router serve",
+        },
+        {
+          pid: process.pid,
+          commandLine: "/Users/fixture/bin/quota-axi --provider claude",
+        },
+        { pid: 10_002, commandLine: "/usr/bin/vim claude-notes.md" },
       );
       writeExpiredClaudeCredential();
       const cli = stubClaudeCli({ rotateTo: "rotated-access-token" });

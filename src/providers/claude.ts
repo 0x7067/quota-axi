@@ -259,13 +259,20 @@ function shouldDelegateClaudeRefresh(
 async function liveClaudeRefreshBlocker(): Promise<string | undefined> {
   const processes = await listRunningCommandLines();
   if (processes.status === "unavailable") return REFRESH_VENDOR_UNKNOWN;
-  return processes.commandLines.some(isLiveClaudeCodeProcess)
+  return processes.processes.some(
+    ({ pid, commandLine }) =>
+      pid !== process.pid && isLiveClaudeCodeProcess(commandLine),
+  )
     ? REFRESH_LIVE_VENDOR_PROCESS
     : undefined;
 }
 
 /**
- * Recognize a running Claude Code process from its command line: the installed
+ * Recognize a running Claude Code process other than quota-axi itself from its
+ * command line. The PID check in the caller is essential because quota-axi's
+ * own argv may contain a standalone `claude` provider argument.
+ *
+ * The installed
  * `claude` executable (native installer or a versioned shim) or the npm
  * package running under a Node runtime. Every whitespace-separated token is
  * checked rather than only the first, because a `ps` command line splits an

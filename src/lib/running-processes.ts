@@ -17,8 +17,13 @@ import { execFileText } from "./process.js";
 /** One `ps` call, well inside any provider budget. */
 const PROCESS_LIST_TIMEOUT_MS = 4_000;
 
+export type RunningProcess = {
+  pid: number;
+  commandLine: string;
+};
+
 export type RunningProcessList =
-  | { status: "listed"; commandLines: readonly string[] }
+  | { status: "listed"; processes: readonly RunningProcess[] }
   | { status: "unavailable" };
 
 export async function listRunningCommandLines(): Promise<RunningProcessList> {
@@ -28,17 +33,25 @@ export async function listRunningCommandLines(): Promise<RunningProcessList> {
   try {
     const output = await execFileText(
       "ps",
-      ["-x", "-u", String(effectiveUid), "-o", "command="],
+      ["-x", "-u", String(effectiveUid), "-o", "pid=,command="],
       PROCESS_LIST_TIMEOUT_MS,
     );
     return {
       status: "listed",
-      commandLines: output
+      processes: output
         .split("\n")
-        .map((line) => line.trim())
-        .filter((line) => line.length > 0),
+        .map(parseProcessLine)
+        .filter((entry): entry is RunningProcess => entry !== undefined),
     };
   } catch {
     return { status: "unavailable" };
   }
+}
+
+function parseProcessLine(line: string): RunningProcess | undefined {
+  const match = /^\s*(\d+)\s+(.+?)\s*$/.exec(line);
+  if (!match) return undefined;
+  const pid = Number(match[1]);
+  if (!Number.isSafeInteger(pid) || pid <= 0) return undefined;
+  return { pid, commandLine: match[2] };
 }
