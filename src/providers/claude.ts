@@ -149,7 +149,7 @@ export const claudeAdapter: ProviderAdapter = {
  * request, spends no quota, opens no browser, and - unlike `claude mcp list` -
  * does not connect to configured MCP servers.
  *
- * Observed behavior that makes it safe to delegate to: with the access token
+ * Observed behavior that supports delegating to it: with the access token
  * expired it performs the refresh exchange, and a network failure during that
  * exchange leaves the stored session untouched. Only Anthropic definitively
  * rejecting the refresh token clears the session, which is Claude Code's own
@@ -233,9 +233,9 @@ function shouldDelegateClaudeRefresh(
 }
 
 /**
- * The narrow safety condition on top of {@link shouldDelegateClaudeRefresh}:
- * quota-axi delegates only when it can see that no Claude Code process is
- * already running.
+ * A best-effort concurrency check on top of
+ * {@link shouldDelegateClaudeRefresh}: quota-axi delegates only when the
+ * process list shows no Claude Code process already running.
  *
  * Claude Code owns its own session and refreshes it on its own schedule, and
  * the refresh token behind that session is single-use. A second refresher
@@ -245,10 +245,14 @@ function shouldDelegateClaudeRefresh(
  * reader loses nothing by standing down: the process that owns the store is
  * already doing the work, and the next read picks up the session it wrote.
  *
- * Not knowing is treated the same as knowing a session is live. quota-axi
- * refreshes only where that is demonstrably safe, so an unlistable process
- * table (Windows, no effective uid, no `ps`) stays read-only rather than
- * guessing. Either way the reason is recorded as its own skipped attempt, so
+ * Not knowing is treated the same as knowing a session is live, so an
+ * unlistable process table (Windows, no effective uid, no `ps`) stays read-only
+ * rather than guessing. The check and spawn are not atomic: a Claude Code
+ * session starting after the check or another concurrent quota-axi read can
+ * still overlap the delegate. This narrows the common repeated five-minute
+ * `--tui` versus live-session collision and, together with never signaling the
+ * delegate, is strictly safer than force-killing without adding a failure mode
+ * beyond the pre-existing vendor-owned race. The skipped reason is recorded so
  * `--full` shows why no refresh happened.
  */
 async function liveClaudeRefreshBlocker(): Promise<string | undefined> {
