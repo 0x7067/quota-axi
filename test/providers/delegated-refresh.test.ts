@@ -167,8 +167,8 @@ function shellSingleQuote(value: string): string {
   return `'${value.replaceAll("'", `'\\''`)}'`;
 }
 
-function delegateFor(name: string, timeoutMs = 5_000): RefreshDelegate {
-  return { source: `${name}-refresh`, command: name, args: [], timeoutMs };
+function delegateFor(name: string, waitBudgetMs = 5_000): RefreshDelegate {
+  return { source: `${name}-refresh`, command: name, args: [], waitBudgetMs };
 }
 
 // These delegate behavior suites are POSIX-only by design: their executable
@@ -184,7 +184,7 @@ describe.skipIf(process.platform === "win32")(
         source: "vendor-refresh",
         command: "vendorcli",
         args: ["models"],
-        timeoutMs: 5_000,
+        waitBudgetMs: 5_000,
       });
 
       expect(run).toEqual({ status: "ran", exitCode: 0 });
@@ -866,6 +866,48 @@ describe.skipIf(process.platform === "win32")(
       // verdict, so nothing about the cached reading has been disproven.
       const { readCachedProvider } = await import("../../src/cache.js");
       expect(readCachedProvider("claude")).toBeDefined();
+    });
+
+    it("does not stack another refresh while an unconfirmed Claude delegate is still running", async () => {
+      writeExpiredClaudeCredential();
+      stubBearerAwareFetch("rotated-access-token");
+      vi.resetModules();
+      const runDelegate = vi.fn(async () => {
+        // The timed-out delegate remains a normal Claude Code process in the
+        // next read-only process snapshot. That snapshot, rather than a new
+        // OAuth lock or a signal, prevents another refresh from stacking.
+        withRunningProcesses("/fixture/bin/claude doctor");
+        return {
+          status: "unconfirmed" as const,
+          error: "refresh_timed_out",
+        };
+      });
+      vi.doMock(
+        "../../src/providers/delegated-refresh.js",
+        async (original) => {
+          const actual =
+            await original<
+              typeof import("../../src/providers/delegated-refresh.js")
+            >();
+          return { ...actual, runRefreshDelegate: runDelegate };
+        },
+      );
+
+      const { fetchQuota } = await import("../../src/providers/claude.js");
+      const options = {
+        allowKeychainPrompt: false,
+        refreshCredentials: true,
+      };
+      const first = await fetchQuota(options);
+      const second = await fetchQuota(options);
+
+      expect(first.state.error).toBe("claude_refresh_unconfirmed");
+      expect(runDelegate).toHaveBeenCalledTimes(1);
+      expect(second.attempts).toContainEqual({
+        source: "claude-cli-refresh",
+        status: "skipped",
+        error: "refresh_live_vendor_process",
+      });
     });
 
     it("reports an absent Claude CLI as a skipped refresh instead of failing", async () => {

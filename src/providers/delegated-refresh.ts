@@ -64,8 +64,8 @@ export type RefreshDelegate = {
   command: string;
   /** Fixed non-interactive argv. Never built from untrusted input. */
   args: readonly string[];
-  /** Wall-clock budget for the whole delegated run. */
-  timeoutMs: number;
+  /** Wall-clock budget for how long quota-axi waits for the delegated run. */
+  waitBudgetMs: number;
   /** Extra environment forced onto the child, merged last. */
   env?: Readonly<Record<string, string>>;
 };
@@ -146,7 +146,7 @@ export async function runRefreshDelegate(
       // waiting and lets the process that owns the store finish on its own.
       child.unref();
       settle({ status: "unconfirmed", error: REFRESH_TIMED_OUT });
-    }, delegate.timeoutMs);
+    }, delegate.waitBudgetMs);
 
     child.on("error", () =>
       settle({ status: "failed", error: REFRESH_SPAWN_FAILED }),

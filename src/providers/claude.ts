@@ -165,7 +165,7 @@ const CLAUDE_CLI_REFRESH_DELEGATE: RefreshDelegate = {
   source: "claude-cli-refresh",
   command: "claude",
   args: ["doctor"],
-  timeoutMs: 45_000,
+  waitBudgetMs: 45_000,
 };
 
 type ClaudeQuotaPass =
