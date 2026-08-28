@@ -234,16 +234,17 @@ function shouldDelegateClaudeRefresh(
 
 /**
  * A best-effort concurrency check on top of
- * {@link shouldDelegateClaudeRefresh}: quota-axi delegates only when the
- * process list shows no Claude Code process already running.
+ * {@link shouldDelegateClaudeRefresh}: quota-axi proceeds past this check only
+ * when its process snapshot shows no Claude Code process already running.
  *
  * Claude Code owns its own session and refreshes it on its own schedule, and
  * the refresh token behind that session is single-use. A second refresher
  * racing a live session is how one holder ends up presenting a spent token, so
- * whenever a live Claude Code process exists quota-axi's `claude doctor` is at
- * best redundant and at worst the thing that signs the user out. A quota
- * reader loses nothing by standing down: the process that owns the store is
- * already doing the work, and the next read picks up the session it wrote.
+ * when the snapshot contains a live Claude Code process, quota-axi's
+ * `claude doctor` is at best redundant and at worst the thing that signs the
+ * user out. A quota reader loses nothing by standing down: the process that
+ * owns the store is already doing the work, and the next read picks up the
+ * session it wrote.
  *
  * Not knowing is treated the same as knowing a session is live, so an
  * unlistable process table (Windows, no effective uid, no `ps`) stays read-only
