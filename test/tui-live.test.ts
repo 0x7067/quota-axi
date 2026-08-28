@@ -353,6 +353,14 @@ describe("live terminal report at short heights", () => {
     await stop(live);
   });
 
+  it("accepts escape keys split across input chunks", async () => {
+    const live = await start(10);
+
+    expect((await press(live, "\x1b", "[", "B"))[1]).toBe("line 2");
+    expect((await press(live, "\x1b[6", "~"))[1]).toBe("line 10");
+    await stop(live);
+  });
+
   it("windows on shrink and restores the whole report on growth", async () => {
     const live = await start(60);
     expect(live.io.frame()).toBe(`${BODY}\n\n  ${HINT}`);

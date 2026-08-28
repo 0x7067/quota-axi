@@ -139,10 +139,13 @@ export async function runLiveTui<T>({
     }[command];
     offset = Math.min(Math.max(offset + step, 0), maxOffset);
   };
+  let pendingKeyInput = "";
   const onData = (chunk: Buffer | string): void => {
-    const text = typeof chunk === "string" ? chunk : chunk.toString("utf8");
+    const text = pendingKeyInput + chunk.toString();
+    const parsed = parseKeys(text);
+    pendingKeyInput = parsed.remainder;
     let scrolled = false;
-    for (const command of parseKeys(text)) {
+    for (const command of parsed.commands) {
       if (command === "quit") {
         requestQuit();
         return;
@@ -213,8 +216,11 @@ export async function runLiveTui<T>({
   return value;
 }
 
-/** Decode a raw-mode chunk into the commands it carries, in order. */
-function parseKeys(text: string): ScrollCommand[] {
+/** Decode raw-mode input into commands while retaining a split escape suffix. */
+function parseKeys(text: string): {
+  commands: ScrollCommand[];
+  remainder: string;
+} {
   const commands: ScrollCommand[] = [];
   let index = 0;
   while (index < text.length) {
@@ -226,11 +232,18 @@ function parseKeys(text: string): ScrollCommand[] {
       index += escape[0].length;
       continue;
     }
+    const suffix = text.slice(index);
+    if (
+      suffix.startsWith("\x1b") &&
+      ESCAPE_KEYS.some(([sequence]) => sequence.startsWith(suffix))
+    ) {
+      return { commands, remainder: suffix };
+    }
     const command = CHARACTER_KEYS[text[index]];
     if (command) commands.push(command);
     index += 1;
   }
-  return commands;
+  return { commands, remainder: "" };
 }
 
 /** Render a whole-unit refresh interval as "45s", "5m", or "2h". */
