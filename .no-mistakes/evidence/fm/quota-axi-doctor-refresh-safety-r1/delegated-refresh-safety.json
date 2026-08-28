@@ -1,0 +1,10 @@
+{
+  "delegatedRunResult": {
+    "status": "unconfirmed",
+    "error": "refresh_timed_out"
+  },
+  "quotaAxiStoppedWaitingBeforeVendorFinished": true,
+  "vendorCompletedAfterWaitBudget": true,
+  "signalReceivedByVendor": null,
+  "vendorOwnsSeparateProcessGroup": true
+}
