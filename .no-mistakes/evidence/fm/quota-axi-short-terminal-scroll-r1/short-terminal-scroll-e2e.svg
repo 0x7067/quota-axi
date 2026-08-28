@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="1050" viewBox="0 0 1120 1050">
+<rect width="100%" height="100%" fill="#111827"/>
+<style>.title{font:700 18px ui-monospace,SFMono-Regular,Menlo,monospace;fill:#93c5fd}.term{font:13px ui-monospace,SFMono-Regular,Menlo,monospace;fill:#e5e7eb}.note{font:13px system-ui,sans-serif;fill:#9ca3af}</style>
+<text x="28" y="30" class="note">Stock quota-axi interactive TUI in a real forked PTY, 100 columns</text>
+<rect x="20" y="55" width="1080" height="230" rx="9" fill="#030712" stroke="#374151"/>
+<text x="36" y="80" class="title">Startup at 10 rows - top, sticky header and scroll affordance</text>
+<text x="36" y="104" class="term" xml:space="preserve">  quota-axi · 2026-08-28 11:27 PDT · 0 live · 4 signed out</text>
+<text x="36" y="120" class="term" xml:space="preserve"></text>
+<text x="36" y="136" class="term" xml:space="preserve">╭─ ○ cursor ─────────────────────── signed out ─╮  ╭─ ○ copilot ────────────────────── signed out ─╮</text>
+<text x="36" y="152" class="term" xml:space="preserve">│                                               │  │                                               │</text>
+<text x="36" y="168" class="term" xml:space="preserve">│   Cursor sign-in required                     │  │   GitHub Copilot sign-in required             │</text>
+<text x="36" y="184" class="term" xml:space="preserve">│   excluded from fleet totals                  │  │   excluded from fleet totals                  │</text>
+<text x="36" y="200" class="term" xml:space="preserve">│                                               │  │                                               │</text>
+<text x="36" y="216" class="term" xml:space="preserve">╰───────────────────────────────────────────────╯  ╰───────────────────────────────────────────────╯</text>
+<text x="36" y="232" class="term" xml:space="preserve"></text>
+<text x="36" y="248" class="term" xml:space="preserve">  ↓ 6 more · j/k PgUp/PgDn g/G scroll · q quit</text>
+<rect x="20" y="305" width="1080" height="230" rx="9" fill="#030712" stroke="#374151"/>
+<text x="36" y="330" class="title">Startup at 10 rows - G reaches the final provider cards</text>
+<text x="36" y="354" class="term" xml:space="preserve">  quota-axi · 2026-08-28 11:27 PDT · 0 live · 4 signed out</text>
+<text x="36" y="370" class="term" xml:space="preserve">╰───────────────────────────────────────────────╯  ╰───────────────────────────────────────────────╯</text>
+<text x="36" y="386" class="term" xml:space="preserve"></text>
+<text x="36" y="402" class="term" xml:space="preserve">╭─ ○ kimi ───────────────────────── signed out ─╮  ╭─ ○ zai ────────────────────────── signed out ─╮</text>
+<text x="36" y="418" class="term" xml:space="preserve">│                                               │  │                                               │</text>
+<text x="36" y="434" class="term" xml:space="preserve">│   kimi credential unavailable                 │  │   zai credential unavailable                  │</text>
+<text x="36" y="450" class="term" xml:space="preserve">│   excluded from fleet totals                  │  │   excluded from fleet totals                  │</text>
+<text x="36" y="466" class="term" xml:space="preserve">│                                               │  │                                               │</text>
+<text x="36" y="482" class="term" xml:space="preserve">╰───────────────────────────────────────────────╯  ╰───────────────────────────────────────────────╯</text>
+<text x="36" y="498" class="term" xml:space="preserve">  ↑ 6 more · j/k PgUp/PgDn g/G scroll · q quit</text>
+<rect x="20" y="555" width="1080" height="230" rx="9" fill="#030712" stroke="#374151"/>
+<text x="36" y="580" class="title">Live resize 45 → 12 rows - repainted at top</text>
+<text x="36" y="604" class="term" xml:space="preserve">  quota-axi · 2026-08-28 11:27 PDT · 0 live · 4 signed out</text>
+<text x="36" y="620" class="term" xml:space="preserve"></text>
+<text x="36" y="636" class="term" xml:space="preserve">╭─ ○ cursor ─────────────────────── signed out ─╮  ╭─ ○ copilot ────────────────────── signed out ─╮</text>
+<text x="36" y="652" class="term" xml:space="preserve">│                                               │  │                                               │</text>
+<text x="36" y="668" class="term" xml:space="preserve">│   Cursor sign-in required                     │  │   GitHub Copilot sign-in required             │</text>
+<text x="36" y="684" class="term" xml:space="preserve">│   excluded from fleet totals                  │  │   excluded from fleet totals                  │</text>
+<text x="36" y="700" class="term" xml:space="preserve">│                                               │  │                                               │</text>
+<text x="36" y="716" class="term" xml:space="preserve">╰───────────────────────────────────────────────╯  ╰───────────────────────────────────────────────╯</text>
+<text x="36" y="732" class="term" xml:space="preserve"></text>
+<text x="36" y="748" class="term" xml:space="preserve">╭─ ○ kimi ───────────────────────── signed out ─╮  ╭─ ○ zai ────────────────────────── signed out ─╮</text>
+<text x="36" y="764" class="term" xml:space="preserve">│                                               │  │                                               │</text>
+<text x="36" y="780" class="term" xml:space="preserve">  ↓ 4 more · j/k PgUp/PgDn g/G scroll · q quit</text>
+<rect x="20" y="805" width="1080" height="230" rx="9" fill="#030712" stroke="#374151"/>
+<text x="36" y="830" class="title">After resize - G reaches the final provider cards</text>
+<text x="36" y="854" class="term" xml:space="preserve">  quota-axi · 2026-08-28 11:27 PDT · 0 live · 4 signed out</text>
+<text x="36" y="870" class="term" xml:space="preserve">│   excluded from fleet totals                  │  │   excluded from fleet totals                  │</text>
+<text x="36" y="886" class="term" xml:space="preserve">│                                               │  │                                               │</text>
+<text x="36" y="902" class="term" xml:space="preserve">╰───────────────────────────────────────────────╯  ╰───────────────────────────────────────────────╯</text>
+<text x="36" y="918" class="term" xml:space="preserve"></text>
+<text x="36" y="934" class="term" xml:space="preserve">╭─ ○ kimi ───────────────────────── signed out ─╮  ╭─ ○ zai ────────────────────────── signed out ─╮</text>
+<text x="36" y="950" class="term" xml:space="preserve">│                                               │  │                                               │</text>
+<text x="36" y="966" class="term" xml:space="preserve">│   kimi credential unavailable                 │  │   zai credential unavailable                  │</text>
+<text x="36" y="982" class="term" xml:space="preserve">│   excluded from fleet totals                  │  │   excluded from fleet totals                  │</text>
+<text x="36" y="998" class="term" xml:space="preserve">│                                               │  │                                               │</text>
+<text x="36" y="1014" class="term" xml:space="preserve">╰───────────────────────────────────────────────╯  ╰───────────────────────────────────────────────╯</text>
+<text x="36" y="1030" class="term" xml:space="preserve">  ↑ 4 more · j/k PgUp/PgDn g/G scroll · q quit</text>
+</svg>
