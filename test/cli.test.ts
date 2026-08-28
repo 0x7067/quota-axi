@@ -1199,6 +1199,66 @@ async function capture(argv: string[]): Promise<string> {
   return chunks.join("");
 }
 
+describe("terminal height and the machine output paths", () => {
+  async function run(
+    argv: string[],
+    rows: number | undefined,
+  ): Promise<string> {
+    const stdout = process.stdout as unknown as {
+      rows: number | undefined;
+      columns: number | undefined;
+    };
+    const originalRows = stdout.rows;
+    const originalColumns = stdout.columns;
+    stdout.rows = rows;
+    stdout.columns = 100;
+    try {
+      const chunks: string[] = [];
+      await main({
+        argv,
+        binPath: "quota-axi",
+        stdout: {
+          write(chunk) {
+            chunks.push(String(chunk));
+            return true;
+          },
+        },
+      });
+      return chunks.join("");
+    } finally {
+      stdout.rows = originalRows;
+      stdout.columns = originalColumns;
+    }
+  }
+
+  function stubFleet(): void {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-15T12:00:00.000Z"));
+    useTempCache();
+    PROVIDERS.claude = providerWithQuota(staleClaudeQuota());
+    PROVIDERS.codex = providerWithQuota(freshCodexQuota());
+  }
+
+  for (const argv of [
+    ["--provider", "claude,codex"],
+    ["--provider", "claude,codex", "--json"],
+    ["--provider", "claude,codex", "--tui", "--once"],
+  ]) {
+    it(`renders \`${argv.join(" ")}\` identically at every height`, async () => {
+      stubFleet();
+      const tall = await run(argv, 60);
+      stubFleet();
+      const short = await run(argv, 6);
+      stubFleet();
+      const unknown = await run(argv, undefined);
+
+      expect(short).toBe(tall);
+      expect(unknown).toBe(tall);
+      expect(tall.length).toBeGreaterThan(0);
+    });
+  }
+});
+
 function providerWithQuota(quota: ProviderQuota): ProviderAdapter {
   return {
     id: quota.provider,

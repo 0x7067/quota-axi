@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { formatInterval, runLiveTui, type LiveTuiIo } from "../src/tui-live.js";
+import { scrollHint } from "../src/tui-viewport.js";
 
 const ENTER_SCREEN = "\x1b[?1049h";
 const LEAVE_SCREEN = "\x1b[?1049l";
+const CLEAR_SCREEN = "\x1b[H\x1b[2J";
+const HINT = "Press q to quit · refreshing every 5m";
 
 type Harness = {
   io: LiveTuiIo;
@@ -14,7 +17,9 @@ type Harness = {
   subscriptions(): number;
   pendingTimers(): number;
   press(key: string): void;
-  resize(): void;
+  setRows(rows: number | undefined): void;
+  resize(rows?: number): void;
+  frame(): string;
   signal(): void;
   tick(): void;
 };
@@ -29,6 +34,7 @@ function harness(): Harness {
   let nextTimer = 1;
   let resumes = 0;
   let pauses = 0;
+  let rows: number | undefined;
 
   const io: LiveTuiIo = {
     stdout: {
@@ -48,6 +54,7 @@ function harness(): Harness {
       on: (_event, listener) => dataListeners.add(listener),
       off: (_event, listener) => dataListeners.delete(listener),
     },
+    rows: () => rows,
     setTimer: (callback) => {
       const handle = nextTimer++;
       timers.set(handle, callback);
@@ -79,8 +86,18 @@ function harness(): Harness {
     press: (key) => {
       for (const listener of [...dataListeners]) listener(Buffer.from(key));
     },
-    resize: () => {
+    setRows: (next) => {
+      rows = next;
+    },
+    resize: (next) => {
+      if (next !== undefined) rows = next;
       for (const listener of [...resizeListeners]) listener();
+    },
+    frame: () => {
+      const painted = [...writes]
+        .reverse()
+        .find((chunk) => chunk.startsWith(CLEAR_SCREEN));
+      return (painted ?? "").slice(CLEAR_SCREEN.length);
     },
     signal: () => {
       for (const listener of [...signalListeners]) listener();
@@ -241,6 +258,141 @@ describe("live terminal report loop", () => {
     expect(io.rawModes).toEqual([true, false]);
     expect(io.pauses()).toBe(1);
     expect(io.subscriptions()).toBe(0);
+  });
+});
+
+describe("live terminal report at short heights", () => {
+  const BODY = Array.from({ length: 40 }, (_, index) => `line ${index}`).join(
+    "\n",
+  );
+
+  type Live = { io: Harness; run: Promise<unknown> };
+
+  async function start(rows: number | undefined): Promise<Live> {
+    const io = harness();
+    io.setRows(rows);
+    const run = runLiveTui<number>({
+      load: async () => 1,
+      render: () => BODY,
+      status: (scroll) => `  ${scrollHint(scroll, HINT)}`,
+      intervalMillis: 300_000,
+      io: io.io,
+    });
+    await flush();
+    return { io, run };
+  }
+
+  async function press(live: Live, ...keys: string[]): Promise<string[]> {
+    for (const key of keys) live.io.press(key);
+    await flush();
+    return live.io.frame().split("\n");
+  }
+
+  async function stop(live: Live): Promise<void> {
+    live.io.press("q");
+    await live.run;
+  }
+
+  it("paints the top of the report and an affordance at startup", async () => {
+    const live = await start(10);
+    const lines = live.io.frame().split("\n");
+
+    expect(lines.length).toBe(10);
+    expect(lines[0]).toBe("line 0");
+    expect(lines[1]).toBe("line 1");
+    expect(lines.at(-1)).toContain("↓ 31 more");
+    expect(lines.at(-1)).toContain("j/k PgUp/PgDn g/G scroll");
+    expect(lines.at(-1)).toContain("q quit");
+    await stop(live);
+  });
+
+  it("scrolls line by line and clamps at the top", async () => {
+    const live = await start(10);
+
+    expect((await press(live, "j"))[1]).toBe("line 2");
+    expect((await press(live, "j"))[1]).toBe("line 3");
+    expect((await press(live, "k"))[1]).toBe("line 2");
+
+    const clamped = await press(live, "k", "k", "k", "k", "k");
+    expect(clamped[1]).toBe("line 1");
+    expect(clamped.at(-1)).not.toContain("↑");
+    await stop(live);
+  });
+
+  it("reaches the last line of the report and clamps at the bottom", async () => {
+    const live = await start(10);
+
+    const bottom = await press(live, "G");
+    expect(bottom.at(-2)).toBe("line 39");
+    expect(bottom.at(-1)).toContain("↑ 31 more");
+    expect(bottom.at(-1)).not.toContain("↓");
+
+    expect(await press(live, "j", "j", "j")).toEqual(bottom);
+    expect((await press(live, "g"))[1]).toBe("line 1");
+    await stop(live);
+  });
+
+  it("steps by the visible window on the page keys", async () => {
+    const live = await start(12);
+    const page = 10;
+
+    expect((await press(live, "\x1b[6~"))[1]).toBe(`line ${1 + page}`);
+    expect((await press(live, "\x1b[6~"))[1]).toBe(`line ${1 + page * 2}`);
+    expect((await press(live, "\x1b[5~"))[1]).toBe(`line ${1 + page}`);
+    await stop(live);
+  });
+
+  it("accepts arrow keys as well as the vi keys", async () => {
+    const live = await start(10);
+
+    expect((await press(live, "\x1b[B"))[1]).toBe("line 2");
+    expect((await press(live, "\x1b[B"))[1]).toBe("line 3");
+    expect((await press(live, "\x1b[A"))[1]).toBe("line 2");
+    expect((await press(live, "\x1b[F")).at(-2)).toBe("line 39");
+    expect((await press(live, "\x1b[H"))[1]).toBe("line 1");
+    await stop(live);
+  });
+
+  it("windows on shrink and restores the whole report on growth", async () => {
+    const live = await start(60);
+    expect(live.io.frame()).toBe(`${BODY}\n\n  ${HINT}`);
+
+    live.io.resize(12);
+    await flush();
+    const short = live.io.frame().split("\n");
+    expect(short.length).toBe(12);
+    expect(short.at(-1)).toContain("↓");
+
+    await press(live, "G");
+    live.io.resize(60);
+    await flush();
+    expect(live.io.frame()).toBe(`${BODY}\n\n  ${HINT}`);
+    await stop(live);
+  });
+
+  it("keeps the scroll position across a refresh", async () => {
+    const live = await start(10);
+    await press(live, "j", "j", "j");
+
+    live.io.tick();
+    await flush();
+    expect(live.io.frame().split("\n")[1]).toBe("line 4");
+    await stop(live);
+  });
+
+  it("paints the report unwindowed when the height is unknown", async () => {
+    const live = await start(undefined);
+    expect(live.io.frame()).toBe(`${BODY}\n\n  ${HINT}`);
+    expect(await press(live, "j")).toEqual(live.io.frame().split("\n"));
+    await stop(live);
+  });
+
+  it("still quits on q and Ctrl+C while scrolled", async () => {
+    const live = await start(8);
+    await press(live, "G");
+    live.io.press(String.fromCharCode(3));
+    await expect(live.run).resolves.toBe(1);
+    expect(live.io.writes.at(-1)).toContain(LEAVE_SCREEN);
   });
 });
 
