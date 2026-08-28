@@ -107,7 +107,7 @@ const GROK_CLI_REFRESH_DELEGATE: RefreshDelegate = {
   source: "grok-cli-refresh",
   command: "grok",
   args: ["models"],
-  timeoutMs: 20_000,
+  waitBudgetMs: 20_000,
 };
 
 const GROK_SIGN_IN_REQUIRED_ERROR = "Grok sign-in required";

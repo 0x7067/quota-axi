@@ -7,6 +7,7 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -15,6 +16,44 @@ import {
   runRefreshDelegate,
   type RefreshDelegate,
 } from "../../src/providers/delegated-refresh.js";
+import type {
+  RunningProcess,
+  RunningProcessList,
+} from "../../src/lib/running-processes.js";
+import { runLiveTui, type LiveTuiIo } from "../../src/tui-live.js";
+import type { ProviderQuota } from "../../src/types.js";
+
+/**
+ * The process table is a real input to the refresh decision, so these suites
+ * own it instead of inheriting whatever happens to run on the test machine.
+ * The default is the machine a delegated refresh is actually meant for: no
+ * Claude Code running, so nothing else owns the credential store.
+ */
+const processTable = vi.hoisted(() => ({
+  current: { status: "listed", processes: [] } as RunningProcessList,
+}));
+
+vi.mock("../../src/lib/running-processes.js", () => ({
+  listRunningCommandLines: async () => processTable.current,
+}));
+
+function withRunningProcesses(...commandLines: string[]): void {
+  processTable.current = {
+    status: "listed",
+    processes: commandLines.map((commandLine, index) => ({
+      pid: 10_000 + index,
+      commandLine,
+    })),
+  };
+}
+
+function withRunningProcessEntries(...processes: RunningProcess[]): void {
+  processTable.current = { status: "listed", processes };
+}
+
+function withUnlistableProcesses(): void {
+  processTable.current = { status: "unavailable" };
+}
 
 const USAGE_URL = "https://api.anthropic.com/api/oauth/usage";
 const PROFILE_URL = "https://api.anthropic.com/api/oauth/profile";
@@ -44,9 +83,14 @@ beforeEach(() => {
   process.env.CODEX_HOME = join(tempDir, ".codex");
   delete process.env.QUOTA_AXI_CODEX_BINARY;
   process.exitCode = undefined;
+  withRunningProcesses();
 });
 
 afterEach(() => {
+  // Module mocks are per-test: a failing assertion must not leak one into the
+  // next test, which would silently change what that test exercises.
+  vi.doUnmock("../../src/lib/process.js");
+  vi.doUnmock("../../src/providers/delegated-refresh.js");
   vi.unstubAllGlobals();
   vi.useRealTimers();
   if (originalPlatform)
@@ -91,12 +135,40 @@ function installStub(name: string, body: string[]): string {
   return file;
 }
 
+/** The same PATH stub, but running a real Node program instead of `sh`. */
+function installNodeStub(name: string, source: string): string {
+  const binDir = join(tempDir, "stub-bin");
+  mkdirSync(binDir, { recursive: true });
+  const file = join(binDir, name);
+  writeFileSync(file, `#!${process.execPath}\n${source}\n`, { mode: 0o755 });
+  chmodSync(file, 0o755);
+  process.env.PATH = binDir;
+  return file;
+}
+
+function processGroupOf(pid: number): number {
+  return Number(
+    execFileSync("/bin/ps", ["-o", "pgid=", "-p", String(pid)])
+      .toString()
+      .trim(),
+  );
+}
+
+async function waitForFile(file: string, timeoutMs = 10_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (existsSync(file)) return;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error(`timed out waiting for ${file}`);
+}
+
 function shellSingleQuote(value: string): string {
   return `'${value.replaceAll("'", `'\\''`)}'`;
 }
 
-function delegateFor(name: string, timeoutMs = 5_000): RefreshDelegate {
-  return { source: `${name}-refresh`, command: name, args: [], timeoutMs };
+function delegateFor(name: string, waitBudgetMs = 5_000): RefreshDelegate {
+  return { source: `${name}-refresh`, command: name, args: [], waitBudgetMs };
 }
 
 // These delegate behavior suites are POSIX-only by design: their executable
@@ -112,7 +184,7 @@ describe.skipIf(process.platform === "win32")(
         source: "vendor-refresh",
         command: "vendorcli",
         args: ["models"],
-        timeoutMs: 5_000,
+        waitBudgetMs: 5_000,
       });
 
       expect(run).toEqual({ status: "ran", exitCode: 0 });
@@ -143,18 +215,75 @@ describe.skipIf(process.platform === "win32")(
       expect(existsSync(captured)).toBe(false);
     });
 
-    it("terminates a vendor command that outruns its budget", async () => {
-      // An absolute command path also exercises the non-PATH resolution branch.
+    it("stops waiting for a slow vendor without signalling it", async () => {
+      // The delegated command is the vendor's own single-use refresh-token
+      // exchange. Interrupting it is the sign-out this design exists to
+      // prevent, so the budget may only bound quota-axi's wait.
+      const signalled = join(tempDir, "signalled");
+      const finished = join(tempDir, "finished");
+      installNodeStub(
+        "vendorcli",
+        `const { writeFileSync } = require("node:fs");
+for (const signal of ["SIGTERM", "SIGINT", "SIGHUP"]) {
+  process.on(signal, () => writeFileSync(${JSON.stringify(signalled)}, signal));
+}
+setTimeout(() => {
+  writeFileSync(${JSON.stringify(finished)}, "ok");
+  process.exit(0);
+}, 1200);`,
+      );
+      const delegate = delegateFor("vendorcli", 250);
       const started = Date.now();
-      const run = await runRefreshDelegate({
-        source: "vendor-refresh",
-        command: process.execPath,
-        args: ["-e", "setInterval(() => {}, 1000)"],
-        timeoutMs: 300,
+
+      const run = await runRefreshDelegate(delegate);
+
+      expect(run).toEqual({
+        status: "unconfirmed",
+        error: "refresh_timed_out",
+      });
+      // quota-axi stopped waiting at its own budget, not at the vendor's pace.
+      expect(Date.now() - started).toBeLessThan(1_000);
+      // The caller sees an unfinished attempt, never a successful refresh.
+      expect(refreshDelegateAttempt(delegate, run)).toEqual({
+        source: "vendorcli-refresh",
+        status: "failed",
+        error: "refresh_timed_out",
       });
 
-      expect(run).toEqual({ status: "failed", error: "refresh_timed_out" });
-      expect(Date.now() - started).toBeLessThan(10_000);
+      // The vendor ran to completion on its own: no SIGTERM/SIGINT/SIGHUP
+      // reached it, and it was never SIGKILLed (that would lose the marker).
+      await waitForFile(finished);
+      expect(existsSync(signalled)).toBe(false);
+    });
+
+    it("runs the vendor in its own process group, out of Ctrl+C's reach", async () => {
+      // Ctrl+C in a live `--tui` signals quota-axi's whole process group. A
+      // vendor mid-exchange must not be in that group.
+      const report = join(tempDir, "group.json");
+      installNodeStub(
+        "vendorcli",
+        `require("node:fs").writeFileSync(${JSON.stringify(report)},
+  JSON.stringify({ pid: process.pid, pgid: processGroupOf(process.pid) }));
+function processGroupOf(pid) {
+  return Number(
+    require("node:child_process")
+      .execFileSync("/bin/ps", ["-o", "pgid=", "-p", String(pid)])
+      .toString()
+      .trim(),
+  );
+}`,
+      );
+
+      const run = await runRefreshDelegate(delegateFor("vendorcli"));
+
+      expect(run).toEqual({ status: "ran", exitCode: 0 });
+      const child = JSON.parse(readFileSync(report, "utf8")) as {
+        pid: number;
+        pgid: number;
+      };
+      // Its own group leader, so it is not in the group Ctrl+C would signal.
+      expect(child.pgid).toBe(child.pid);
+      expect(child.pgid).not.toBe(processGroupOf(process.pid));
     });
 
     it("reports an absent vendor CLI without spawning anything", async () => {
@@ -420,7 +549,6 @@ describe.skipIf(process.platform === "win32")(
       expect(fetchMock).toHaveBeenCalledTimes(2);
       expect(cli.invocationCount()).toBe(0);
       expect(result.state.sourcesTried).not.toContain("claude-cli-refresh");
-      vi.doUnmock("../../src/lib/process.js");
     });
 
     it("does not delegate for a transient failure", async () => {
@@ -480,7 +608,306 @@ describe.skipIf(process.platform === "win32")(
         error: "keychain_prompt_required",
         credentialPresent: true,
       });
-      vi.doUnmock("../../src/lib/process.js");
+    });
+
+    it("stands down while Claude Code is already running", async () => {
+      // Claude Code refreshes its own single-use session on its own schedule.
+      // A second refresher racing it is how one holder ends up presenting a
+      // spent token, so quota-axi's doctor is redundant and racy here.
+      withRunningProcesses(
+        "/usr/bin/ssh -N kuns-mac-mini",
+        "/Users/fixture/.local/share/claude/versions/2.1.251/claude --resume",
+      );
+      writeExpiredClaudeCredential();
+      const cli = stubClaudeCli({ rotateTo: "rotated-access-token" });
+      stubBearerAwareFetch("rotated-access-token");
+
+      const { fetchQuota } = await import("../../src/providers/claude.js");
+      const result = await fetchQuota({
+        allowKeychainPrompt: false,
+        refreshCredentials: true,
+      });
+
+      expect(cli.invocationCount()).toBe(0);
+      expect(result.attempts).toContainEqual({
+        source: "claude-cli-refresh",
+        status: "skipped",
+        error: "refresh_live_vendor_process",
+      });
+    });
+
+    it("stands down when the Claude Code path contains a space", async () => {
+      // `ps` gives one command line, so an installation path with a space
+      // splits mid-path. The scan must still see the executable.
+      withRunningProcesses("/Users/Kun Chen/.local/bin/claude --continue");
+      writeExpiredClaudeCredential();
+      const cli = stubClaudeCli({ rotateTo: "rotated-access-token" });
+      stubBearerAwareFetch("rotated-access-token");
+
+      const { fetchQuota } = await import("../../src/providers/claude.js");
+      const result = await fetchQuota({
+        allowKeychainPrompt: false,
+        refreshCredentials: true,
+      });
+
+      expect(cli.invocationCount()).toBe(0);
+      expect(result.attempts).toContainEqual({
+        source: "claude-cli-refresh",
+        status: "skipped",
+        error: "refresh_live_vendor_process",
+      });
+    });
+
+    it("stands down for a Claude Code install running under Node", async () => {
+      withRunningProcesses(
+        "node /usr/local/lib/node_modules/@anthropic-ai/claude-code/cli.js",
+      );
+      writeExpiredClaudeCredential();
+      const cli = stubClaudeCli({ rotateTo: "rotated-access-token" });
+      stubBearerAwareFetch("rotated-access-token");
+
+      const { fetchQuota } = await import("../../src/providers/claude.js");
+      const result = await fetchQuota({
+        allowKeychainPrompt: false,
+        refreshCredentials: true,
+      });
+
+      expect(cli.invocationCount()).toBe(0);
+      expect(result.attempts).toContainEqual({
+        source: "claude-cli-refresh",
+        status: "skipped",
+        error: "refresh_live_vendor_process",
+      });
+    });
+
+    it("still delegates when unrelated processes are running", async () => {
+      // The condition is narrow on purpose: a name that merely contains
+      // "claude" is not Claude Code holding the credential store.
+      withRunningProcessEntries(
+        {
+          pid: 10_001,
+          commandLine: "/opt/homebrew/bin/claude-code-router serve",
+        },
+        {
+          pid: process.pid,
+          commandLine: "/Users/fixture/bin/quota-axi --provider claude",
+        },
+        { pid: 10_002, commandLine: "/usr/bin/vim claude-notes.md" },
+      );
+      writeExpiredClaudeCredential();
+      const cli = stubClaudeCli({ rotateTo: "rotated-access-token" });
+      stubBearerAwareFetch("rotated-access-token");
+
+      const { fetchQuota } = await import("../../src/providers/claude.js");
+      const result = await fetchQuota({
+        allowKeychainPrompt: false,
+        refreshCredentials: true,
+      });
+
+      expect(cli.invocationCount()).toBe(1);
+      expect(result.state.status).toBe("fresh");
+    });
+
+    it("delegates when only quota-axi's own Claude argument is present", async () => {
+      withRunningProcessEntries({
+        pid: process.pid,
+        commandLine: "quota-axi --provider claude",
+      });
+      writeExpiredClaudeCredential();
+      const cli = stubClaudeCli({ rotateTo: "rotated-access-token" });
+      stubBearerAwareFetch("rotated-access-token");
+
+      const { fetchQuota } = await import("../../src/providers/claude.js");
+      const result = await fetchQuota({
+        allowKeychainPrompt: false,
+        refreshCredentials: true,
+      });
+
+      expect(cli.invocationCount()).toBe(1);
+      expect(cli.arguments()).toEqual(["doctor"]);
+      expect(result.state.status).toBe("fresh");
+    });
+
+    it("stands down when another Claude process accompanies quota-axi", async () => {
+      withRunningProcessEntries(
+        {
+          pid: process.pid,
+          commandLine: "quota-axi --provider claude",
+        },
+        {
+          pid: process.pid + 1,
+          commandLine: "/path/.local/bin/claude",
+        },
+      );
+      writeExpiredClaudeCredential();
+      const cli = stubClaudeCli({ rotateTo: "rotated-access-token" });
+      stubBearerAwareFetch("rotated-access-token");
+
+      const { fetchQuota } = await import("../../src/providers/claude.js");
+      const result = await fetchQuota({
+        allowKeychainPrompt: false,
+        refreshCredentials: true,
+      });
+
+      expect(cli.invocationCount()).toBe(0);
+      expect(result.attempts).toContainEqual({
+        source: "claude-cli-refresh",
+        status: "skipped",
+        error: "refresh_live_vendor_process",
+      });
+    });
+
+    it("stays read-only when it cannot tell what is running", async () => {
+      // Refresh is preserved only where it is demonstrably safe; an unlistable
+      // process table is not proof of safety.
+      withUnlistableProcesses();
+      writeExpiredClaudeCredential();
+      const cli = stubClaudeCli({ rotateTo: "rotated-access-token" });
+      stubBearerAwareFetch("rotated-access-token");
+
+      const { fetchQuota } = await import("../../src/providers/claude.js");
+      const result = await fetchQuota({
+        allowKeychainPrompt: false,
+        refreshCredentials: true,
+      });
+
+      expect(cli.invocationCount()).toBe(0);
+      expect(result.attempts).toContainEqual({
+        source: "claude-cli-refresh",
+        status: "skipped",
+        error: "refresh_vendor_processes_unknown",
+      });
+    });
+
+    it("delegates once across live report cycles and not again while the session reads fine", async () => {
+      // The live `--tui` loop re-runs the same quota read every refresh. The
+      // recovered session must not be re-refreshed on every later cycle.
+      writeExpiredClaudeCredential();
+      const cli = stubClaudeCli({ rotateTo: "rotated-access-token" });
+      stubBearerAwareFetch("rotated-access-token");
+
+      const { fetchQuota } = await import("../../src/providers/claude.js");
+      const reports = await runLiveReportCycles(3, () =>
+        fetchQuota({ allowKeychainPrompt: false, refreshCredentials: true }),
+      );
+
+      expect(reports).toHaveLength(3);
+      for (const report of reports) expect(report.state.status).toBe("fresh");
+      expect(cli.invocationCount()).toBe(1);
+      expect(cli.arguments()).toEqual(["doctor"]);
+    });
+
+    it("never delegates across live report cycles while Claude Code is running", async () => {
+      withRunningProcesses("/Users/fixture/.local/bin/claude");
+      writeExpiredClaudeCredential();
+      const cli = stubClaudeCli({ rotateTo: "rotated-access-token" });
+      stubBearerAwareFetch("rotated-access-token");
+
+      const { fetchQuota } = await import("../../src/providers/claude.js");
+      const reports = await runLiveReportCycles(3, () =>
+        fetchQuota({ allowKeychainPrompt: false, refreshCredentials: true }),
+      );
+
+      expect(cli.invocationCount()).toBe(0);
+      for (const report of reports) {
+        expect(report.state.status).not.toBe("fresh");
+        expect(report.attempts).toContainEqual({
+          source: "claude-cli-refresh",
+          status: "skipped",
+          error: "refresh_live_vendor_process",
+        });
+      }
+    });
+
+    it("reports a refresh it could not confirm as unmeasured, not as a sign-out", async () => {
+      // The vendor outran the wait and was left running, so the store may be
+      // mid-rewrite. quota-axi must not turn "I do not know" into "signed out",
+      // and must not retire the snapshot it already has.
+      const cached = await seedFreshClaudeCache();
+      expect(cached.state.status).toBe("fresh");
+
+      writeExpiredClaudeCredential();
+      stubBearerAwareFetch("rotated-access-token");
+      vi.resetModules();
+      vi.doMock(
+        "../../src/providers/delegated-refresh.js",
+        async (original) => {
+          const actual =
+            await original<
+              typeof import("../../src/providers/delegated-refresh.js")
+            >();
+          return {
+            ...actual,
+            runRefreshDelegate: async () => ({
+              status: "unconfirmed",
+              error: actual.REFRESH_TIMED_OUT,
+            }),
+          };
+        },
+      );
+
+      const { fetchQuota } = await import("../../src/providers/claude.js");
+      const result = await fetchQuota({
+        allowKeychainPrompt: false,
+        refreshCredentials: true,
+      });
+
+      expect(result.attempts).toContainEqual({
+        source: "claude-cli-refresh",
+        status: "failed",
+        error: "refresh_timed_out",
+      });
+      expect(result.state.status).toBe("stale");
+      expect(result.state.stale).toBe(true);
+      expect(result.state.error).toBe("claude_refresh_unconfirmed");
+      expect(result.windows.length).toBeGreaterThan(0);
+
+      // The snapshot survives: an unconfirmed refresh is not a credential
+      // verdict, so nothing about the cached reading has been disproven.
+      const { readCachedProvider } = await import("../../src/cache.js");
+      expect(readCachedProvider("claude")).toBeDefined();
+    });
+
+    it("does not stack another refresh while an unconfirmed Claude delegate is still running", async () => {
+      writeExpiredClaudeCredential();
+      stubBearerAwareFetch("rotated-access-token");
+      vi.resetModules();
+      const runDelegate = vi.fn(async () => {
+        // The timed-out delegate remains a normal Claude Code process in the
+        // next read-only process snapshot. That snapshot, rather than a new
+        // OAuth lock or a signal, prevents another refresh from stacking.
+        withRunningProcesses("/fixture/bin/claude doctor");
+        return {
+          status: "unconfirmed" as const,
+          error: "refresh_timed_out",
+        };
+      });
+      vi.doMock(
+        "../../src/providers/delegated-refresh.js",
+        async (original) => {
+          const actual =
+            await original<
+              typeof import("../../src/providers/delegated-refresh.js")
+            >();
+          return { ...actual, runRefreshDelegate: runDelegate };
+        },
+      );
+
+      const { fetchQuota } = await import("../../src/providers/claude.js");
+      const options = {
+        allowKeychainPrompt: false,
+        refreshCredentials: true,
+      };
+      const first = await fetchQuota(options);
+      const second = await fetchQuota(options);
+
+      expect(first.state.error).toBe("claude_refresh_unconfirmed");
+      expect(runDelegate).toHaveBeenCalledTimes(1);
+      expect(second.attempts).toContainEqual({
+        source: "claude-cli-refresh",
+        status: "skipped",
+        error: "refresh_live_vendor_process",
+      });
     });
 
     it("reports an absent Claude CLI as a skipped refresh instead of failing", async () => {
@@ -499,6 +926,120 @@ describe.skipIf(process.platform === "win32")(
         error: "refresh_command_not_found",
       });
       expect(result.state.status).not.toBe("fresh");
+    });
+  },
+);
+
+/**
+ * Drive the live report the way `--tui` does: one load per refresh cycle on
+ * the same 5-minute interval the command uses, with every terminal effect
+ * injected. Returns each cycle's snapshot.
+ */
+async function runLiveReportCycles<T>(
+  cycles: number,
+  load: () => Promise<T>,
+): Promise<T[]> {
+  const snapshots: T[] = [];
+  const dataListeners = new Set<(chunk: Buffer | string) => void>();
+  const timers = new Map<number, () => void>();
+  let nextTimer = 1;
+  const io: LiveTuiIo = {
+    stdout: { write: () => true },
+    stdin: {
+      on: (_event, listener) => dataListeners.add(listener),
+      off: (_event, listener) => dataListeners.delete(listener),
+    },
+    setTimer: (callback) => {
+      const handle = nextTimer++;
+      timers.set(handle, callback);
+      return handle;
+    },
+    clearTimer: (handle) => {
+      timers.delete(handle as number);
+    },
+  };
+
+  const run = runLiveTui<T>({
+    load: async () => {
+      const snapshot = await load();
+      snapshots.push(snapshot);
+      return snapshot;
+    },
+    render: () => "",
+    intervalMillis: 300_000,
+    io,
+  });
+
+  for (let cycle = 1; cycle < cycles; cycle += 1) {
+    await waitUntil(() => timers.size > 0);
+    const [handle, callback] = [...timers.entries()].at(-1) ?? [];
+    if (handle === undefined || !callback) throw new Error("no timer armed");
+    timers.delete(handle);
+    callback();
+  }
+  await waitUntil(() => snapshots.length === cycles && timers.size > 0);
+  for (const listener of [...dataListeners]) listener(Buffer.from("q"));
+  await run;
+  return snapshots;
+}
+
+async function waitUntil(
+  condition: () => boolean,
+  timeoutMs = 10_000,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (condition()) return;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  throw new Error("timed out waiting for the live report loop");
+}
+
+/** Record one real fresh Claude reading in the cache, as a live run would. */
+async function seedFreshClaudeCache(): Promise<ProviderQuota> {
+  writeValidClaudeCredential();
+  stubBearerAwareFetch("stored-valid-access-token");
+  const { fetchQuota } = await import("../../src/providers/claude.js");
+  const fresh = await fetchQuota({
+    allowKeychainPrompt: false,
+    refreshCredentials: true,
+  });
+  const { writeCachedProviders } = await import("../../src/cache.js");
+  writeCachedProviders([fresh]);
+  return fresh;
+}
+
+describe.skipIf(process.platform === "win32")(
+  "delegated refresh opt-out",
+  () => {
+    it("never delegates for the quota command with --no-credential-refresh", async () => {
+      writeExpiredClaudeCredential();
+      const cli = stubClaudeCli({ rotateTo: "rotated-access-token" });
+      stubBearerAwareFetch("rotated-access-token");
+
+      const { quotaCommand } = await import("../../src/commands.js");
+      const report = await quotaCommand(
+        ["--provider", "claude", "--json", "--full", "--no-credential-refresh"],
+        undefined,
+      );
+
+      expect(cli.invocationCount()).toBe(0);
+      expect(report).not.toContain("claude-cli-refresh");
+    });
+
+    it("never delegates for the read-only auth command", async () => {
+      writeExpiredClaudeCredential();
+      const cli = stubClaudeCli({ rotateTo: "rotated-access-token" });
+      stubBearerAwareFetch("rotated-access-token");
+
+      const { authCommand } = await import("../../src/commands.js");
+      const report = await authCommand(
+        ["--provider", "claude", "--json"],
+        undefined,
+      );
+
+      expect(cli.invocationCount()).toBe(0);
+      expect(report).not.toContain("claude-cli-refresh");
     });
   },
 );

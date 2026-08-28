@@ -11,6 +11,7 @@ import {
   type JsonFileReadResult,
 } from "../lib/fs.js";
 import { execFileText } from "../lib/process.js";
+import { listRunningCommandLines } from "../lib/running-processes.js";
 import { clampPercent, nowIso, retryAfterToIso } from "../lib/time.js";
 import type {
   AuthProviderReport,
@@ -32,6 +33,8 @@ import {
 import {
   refreshDelegateAttempt,
   runRefreshDelegate,
+  REFRESH_LIVE_VENDOR_PROCESS,
+  REFRESH_VENDOR_UNKNOWN,
   type RefreshDelegate,
 } from "./delegated-refresh.js";
 import { withUsageFetchFailure } from "./usage-fetch-failure.js";
@@ -146,17 +149,23 @@ export const claudeAdapter: ProviderAdapter = {
  * request, spends no quota, opens no browser, and - unlike `claude mcp list` -
  * does not connect to configured MCP servers.
  *
- * Observed behavior that makes it safe to delegate to: with the access token
+ * Observed behavior that supports delegating to it: with the access token
  * expired it performs the refresh exchange, and a network failure during that
  * exchange leaves the stored session untouched. Only Anthropic definitively
  * rejecting the refresh token clears the session, which is Claude Code's own
  * handling of a session that has genuinely ended.
+ *
+ * That last property is exactly why the budget is generous and never enforced
+ * with a signal: the run being delegated is a single-use refresh-token
+ * exchange, so the dangerous outcome is not a slow `claude doctor` but a
+ * half-finished one. quota-axi waits, then walks away (see
+ * {@link runRefreshDelegate}).
  */
 const CLAUDE_CLI_REFRESH_DELEGATE: RefreshDelegate = {
   source: "claude-cli-refresh",
   command: "claude",
   args: ["doctor"],
-  timeoutMs: 20_000,
+  waitBudgetMs: 45_000,
 };
 
 type ClaudeQuotaPass =
@@ -182,12 +191,23 @@ export async function fetchQuota(
   // Soft expiry the Claude CLI can fix: hand the rotation to the CLI that owns
   // the credential store, then read back the session it rewrote.
   if (shouldDelegateClaudeRefresh(options, pass)) {
-    const run = await runRefreshDelegate(CLAUDE_CLI_REFRESH_DELEGATE);
-    attempts.push(refreshDelegateAttempt(CLAUDE_CLI_REFRESH_DELEGATE, run));
-    if (run.status === "ran") {
-      const retry = await attemptClaudeQuota(options, attempts);
-      if (retry.kind === "success") return retry.report;
-      pass = retry;
+    const blocker = await liveClaudeRefreshBlocker();
+    if (blocker) {
+      attempts.push({
+        source: CLAUDE_CLI_REFRESH_DELEGATE.source,
+        status: "skipped",
+        error: blocker,
+      });
+    } else {
+      const run = await runRefreshDelegate(CLAUDE_CLI_REFRESH_DELEGATE);
+      attempts.push(refreshDelegateAttempt(CLAUDE_CLI_REFRESH_DELEGATE, run));
+      if (run.status === "ran") {
+        const retry = await attemptClaudeQuota(options, attempts);
+        if (retry.kind === "success") return retry.report;
+        pass = retry;
+      } else if (run.status === "unconfirmed") {
+        pass = { ...pass, failure: unconfirmedRefreshFailure() };
+      }
     }
   }
 
@@ -210,6 +230,72 @@ function shouldDelegateClaudeRefresh(
     pass.refreshableExpiredRejected &&
     !pass.keychainWithheld
   );
+}
+
+/**
+ * A best-effort concurrency check on top of
+ * {@link shouldDelegateClaudeRefresh}: quota-axi proceeds past this check only
+ * when its process snapshot shows no Claude Code process already running.
+ *
+ * Claude Code owns its own session and refreshes it on its own schedule, and
+ * the refresh token behind that session is single-use. A second refresher
+ * racing a live session is how one holder ends up presenting a spent token, so
+ * when the snapshot contains a live Claude Code process, quota-axi's
+ * `claude doctor` is at best redundant and at worst the thing that signs the
+ * user out. A quota reader loses nothing by standing down: the process that
+ * owns the store is already doing the work, and the next read picks up the
+ * session it wrote.
+ *
+ * Not knowing is treated the same as knowing a session is live, so an
+ * unlistable process table (Windows, no effective uid, no `ps`) stays read-only
+ * rather than guessing. The check and spawn are not atomic: a Claude Code
+ * session starting after the check or another concurrent quota-axi read can
+ * still overlap the delegate. This narrows the common repeated five-minute
+ * `--tui` versus live-session collision and, together with never signaling the
+ * delegate, is strictly safer than force-killing without adding a failure mode
+ * beyond the pre-existing vendor-owned race. The skipped reason is recorded so
+ * `--full` shows why no refresh happened.
+ */
+async function liveClaudeRefreshBlocker(): Promise<string | undefined> {
+  const processes = await listRunningCommandLines();
+  if (processes.status === "unavailable") return REFRESH_VENDOR_UNKNOWN;
+  return processes.processes.some(
+    ({ pid, commandLine }) =>
+      pid !== process.pid && isLiveClaudeCodeProcess(commandLine),
+  )
+    ? REFRESH_LIVE_VENDOR_PROCESS
+    : undefined;
+}
+
+/**
+ * Recognize a running Claude Code process other than quota-axi itself from its
+ * command line. The PID check in the caller is essential because quota-axi's
+ * own argv may contain a standalone `claude` provider argument.
+ *
+ * The installed
+ * `claude` executable (native installer or a versioned shim) or the npm
+ * package running under a Node runtime. Every whitespace-separated token is
+ * checked rather than only the first, because a `ps` command line splits an
+ * installation path that contains a space. Matching is deliberately generous -
+ * over-matching only means quota-axi stays read-only, which is the safe side.
+ */
+function isLiveClaudeCodeProcess(commandLine: string): boolean {
+  const tokens = commandLine.split(/\s+/);
+  if (tokens.some((token) => token.split("/").pop() === "claude")) return true;
+  return commandLine.includes("@anthropic-ai/claude-code/");
+}
+
+/**
+ * The vendor outran the wait and was left running, so quota-axi does not know
+ * what the credential store now holds. It refuses to turn that into a sign-out
+ * verdict: the report is an unmeasured provider (stale cache when one applies),
+ * and the cached snapshot is kept rather than retired.
+ */
+function unconfirmedRefreshFailure(): ClaudeFailure {
+  return new ClaudeFailure("claude_refresh_unconfirmed", {
+    status: "unavailable",
+    staleEligible: true,
+  });
 }
 
 async function attemptClaudeQuota(
