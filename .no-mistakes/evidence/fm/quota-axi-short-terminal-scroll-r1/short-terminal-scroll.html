@@ -1,0 +1,93 @@
+<!doctype html><html><head><meta charset="utf-8"><title>quota-axi short terminal PTY evidence</title><style>
+:root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, sans-serif; background:#11111b; color:#cdd6f4 }
+body { max-width:1240px; margin:0 auto; padding:32px } h1 { margin-bottom:6px } .lede { color:#a6adc8; margin-top:0; max-width:900px }
+.grid { display:grid; gap:28px } section { background:#181825; border:1px solid #313244; border-radius:14px; padding:18px }
+h2 { font-size:18px; margin:0 0 4px } p { color:#a6adc8; margin:0 0 14px }
+.terminal { background:#1e1e2e; border:1px solid #45475a; border-radius:9px; padding:12px; overflow:auto; box-shadow:0 12px 32px #0007 inset }
+pre { margin:0; min-height:calc(var(--rows) * 1.25em); font:13px/1.25 Menlo, Monaco, Consolas, monospace; color:#cdd6f4; white-space:pre }
+code { color:#a6e3a1 }
+</style></head><body><h1>quota-axi short-terminal scrolling</h1><p class="lede">End-to-end captures from the stock interactive <code>pnpm dev --tui --provider cursor,copilot,grok,kimi,zai,agy --no-credential-refresh</code> command in real constrained PTYs, driven by Python <code>pty.fork</code> and rendered with pyte. Credentials were isolated with an empty HOME.</p><main class="grid"><section><h2>Startup at 10 rows - top</h2><p>The quota header remains visible and the pinned footer reports hidden rows plus scroll keys.</p><div class="terminal" style="--rows:10"><pre>  quota-axi · 2026-08-28 11:16 PDT · 0 live · 5 signed out · 1 unavailable
+
+╭─ ○ cursor ─────────────────────── signed out ─╮  ╭─ ○ copilot ────────────────────── signed out ─╮
+│                                               │  │                                               │
+│   Cursor sign-in required                     │  │   GitHub Copilot sign-in required             │
+│   excluded from fleet totals                  │  │   excluded from fleet totals                  │
+│                                               │  │                                               │
+╰───────────────────────────────────────────────╯  ╰───────────────────────────────────────────────╯
+
+  ↓ 13 more · j/k PgUp/PgDn g/G scroll · q quit</pre></div></section><section><h2>Startup at 10 rows - after G</h2><p>The same live process reaches the last provider cards; the footer now reports rows hidden above.</p><div class="terminal" style="--rows:10"><pre>  quota-axi · 2026-08-28 11:16 PDT · 0 live · 5 signed out · 1 unavailable
+╰───────────────────────────────────────────────╯  ╰───────────────────────────────────────────────╯
+
+╭─ ○ zai ────────────────────────── signed out ─╮  ╭─ ○ agy ───────────────────────── unavailable ─╮
+│                                               │  │                                               │
+│   zai credential unavailable                  │  │   Antigravity/agy is not running              │
+│   excluded from fleet totals                  │  │   excluded from fleet totals                  │
+│                                               │  │                                               │
+╰───────────────────────────────────────────────╯  ╰───────────────────────────────────────────────╯
+  ↑ 13 more · j/k PgUp/PgDn g/G scroll · q quit</pre></div></section><section><h2>Live resize 45 to 12 rows</h2><p>SIGWINCH repaints the running TUI into exactly 12 rows without clipping its own header.</p><div class="terminal" style="--rows:12"><pre>  quota-axi · 2026-08-28 11:16 PDT · 0 live · 5 signed out · 1 unavailable
+
+╭─ ○ cursor ─────────────────────── signed out ─╮  ╭─ ○ copilot ────────────────────── signed out ─╮
+│                                               │  │                                               │
+│   Cursor sign-in required                     │  │   GitHub Copilot sign-in required             │
+│   excluded from fleet totals                  │  │   excluded from fleet totals                  │
+│                                               │  │                                               │
+╰───────────────────────────────────────────────╯  ╰───────────────────────────────────────────────╯
+
+╭─ ○ grok ───────────────────────── signed out ─╮  ╭─ ○ kimi ───────────────────────── signed out ─╮
+│                                               │  │                                               │
+  ↓ 11 more · j/k PgUp/PgDn g/G scroll · q quit</pre></div></section><section><h2>Resized terminal - after G</h2><p>Scrolling still reaches the bottom after resize.</p><div class="terminal" style="--rows:12"><pre>  quota-axi · 2026-08-28 11:16 PDT · 0 live · 5 signed out · 1 unavailable
+│   excluded from fleet totals                  │  │   excluded from fleet totals                  │
+│                                               │  │                                               │
+╰───────────────────────────────────────────────╯  ╰───────────────────────────────────────────────╯
+
+╭─ ○ zai ────────────────────────── signed out ─╮  ╭─ ○ agy ───────────────────────── unavailable ─╮
+│                                               │  │                                               │
+│   zai credential unavailable                  │  │   Antigravity/agy is not running              │
+│   excluded from fleet totals                  │  │   excluded from fleet totals                  │
+│                                               │  │                                               │
+╰───────────────────────────────────────────────╯  ╰───────────────────────────────────────────────╯
+  ↑ 11 more · j/k PgUp/PgDn g/G scroll · q quit</pre></div></section><section><h2>Resize back to 45 rows</h2><p>Growing the terminal restores the complete unwindowed report and resting quit hint.</p><div class="terminal" style="--rows:45"><pre>  quota-axi · 2026-08-28 11:16 PDT · 0 live · 5 signed out · 1 unavailable
+
+╭─ ○ cursor ─────────────────────── signed out ─╮  ╭─ ○ copilot ────────────────────── signed out ─╮
+│                                               │  │                                               │
+│   Cursor sign-in required                     │  │   GitHub Copilot sign-in required             │
+│   excluded from fleet totals                  │  │   excluded from fleet totals                  │
+│                                               │  │                                               │
+╰───────────────────────────────────────────────╯  ╰───────────────────────────────────────────────╯
+
+╭─ ○ grok ───────────────────────── signed out ─╮  ╭─ ○ kimi ───────────────────────── signed out ─╮
+│                                               │  │                                               │
+│   Grok sign-in required                       │  │   kimi credential unavailable                 │
+│   excluded from fleet totals                  │  │   excluded from fleet totals                  │
+│                                               │  │                                               │
+╰───────────────────────────────────────────────╯  ╰───────────────────────────────────────────────╯
+
+╭─ ○ zai ────────────────────────── signed out ─╮  ╭─ ○ agy ───────────────────────── unavailable ─╮
+│                                               │  │                                               │
+│   zai credential unavailable                  │  │   Antigravity/agy is not running              │
+│   excluded from fleet totals                  │  │   excluded from fleet totals                  │
+│                                               │  │                                               │
+╰───────────────────────────────────────────────╯  ╰───────────────────────────────────────────────╯
+
+  Press q to quit · refreshing every 5m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+</pre></div></section></main></body></html>
