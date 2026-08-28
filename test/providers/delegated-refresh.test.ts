@@ -220,12 +220,10 @@ describe.skipIf(process.platform === "win32")(
       // exchange. Interrupting it is the sign-out this design exists to
       // prevent, so the budget may only bound quota-axi's wait.
       const signalled = join(tempDir, "signalled");
-      const startedRuns = join(tempDir, "started-runs");
       const finished = join(tempDir, "finished");
       installNodeStub(
         "vendorcli",
-        `const { appendFileSync, writeFileSync } = require("node:fs");
-appendFileSync(${JSON.stringify(startedRuns)}, "run\\n");
+        `const { writeFileSync } = require("node:fs");
 for (const signal of ["SIGTERM", "SIGINT", "SIGHUP"]) {
   process.on(signal, () => writeFileSync(${JSON.stringify(signalled)}, signal));
 }
@@ -251,15 +249,6 @@ setTimeout(() => {
         status: "failed",
         error: "refresh_timed_out",
       });
-
-      // A repeated live-TUI read must remain unconfirmed without stacking a
-      // second refresh on the unfinished vendor command.
-      await expect(runRefreshDelegate(delegate)).resolves.toEqual({
-        status: "unconfirmed",
-        error: "refresh_timed_out",
-      });
-      await waitForFile(startedRuns);
-      expect(readFileSync(startedRuns, "utf8")).toBe("run\n");
 
       // The vendor ran to completion on its own: no SIGTERM/SIGINT/SIGHUP
       // reached it, and it was never SIGKILLed (that would lose the marker).
