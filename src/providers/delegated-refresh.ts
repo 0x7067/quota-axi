@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { findCommandPath, terminateChild } from "../lib/process.js";
+import { findCommandPath } from "../lib/process.js";
 import type { SourceAttempt } from "../types.js";
 
 /**
@@ -32,10 +32,21 @@ import type { SourceAttempt } from "../types.js";
  * - no interactive surface: the child gets no stdin (so a vendor TUI or prompt
  *   exits instead of waiting), `TERM=dumb`, and the vendor's own documented
  *   "do not open a browser" environment variables.
- * - a bounded wall-clock budget with SIGTERM/SIGKILL teardown.
- * - the child's output is drained and discarded. Credentials are never parsed
- *   out of vendor output; the refreshed value only ever comes from re-reading
- *   the vendor's own store.
+ * - a bounded wall-clock budget that quota-axi waits out but never enforces
+ *   with a signal. The delegated command is the vendor performing a single-use
+ *   OAuth refresh-token exchange against its own credential store; killing it
+ *   part way through can leave that store holding a spent token, which is the
+ *   very sign-out this whole design exists to avoid. So the budget bounds how
+ *   long quota-axi waits, not how long the vendor may run: on expiry quota-axi
+ *   detaches and reports the refresh as unconfirmed, and the caller falls back
+ *   to a read-only report rather than pretending the run either succeeded or
+ *   definitively failed. The child is spawned in its own process group for the
+ *   same reason, so a Ctrl+C aimed at quota-axi (a live `--tui`, most of all)
+ *   cannot land on a vendor mid-exchange either.
+ * - the child's output is discarded at the operating system, not read.
+ *   Credentials are never parsed out of vendor output; the refreshed value only
+ *   ever comes from re-reading the vendor's own store. Owning no pipe also
+ *   means a detached vendor can never block on one quota-axi stopped draining.
  * - at most one delegated refresh per credential source per quota read, which
  *   each caller enforces by delegating only on its single recovery path. It is
  *   deliberately per read rather than per process, so a long-running `--tui`
@@ -64,13 +75,24 @@ export type DelegatedRefreshRun =
   | { status: "ran"; exitCode: number | null }
   /** The vendor CLI is not installed, so there is nothing to delegate to. */
   | { status: "unavailable"; error: string }
-  /** The command could not be started or exceeded its budget. */
-  | { status: "failed"; error: string };
+  /** The command could not be started. */
+  | { status: "failed"; error: string }
+  /**
+   * The vendor outran quota-axi's wait and was left running. Nothing is known
+   * about the store it owns: it may have been rewritten, may be mid-exchange,
+   * or may never finish. Callers must not read this as success or as a
+   * definitive credential verdict.
+   */
+  | { status: "unconfirmed"; error: string };
 
 export const REFRESH_COMMAND_NOT_FOUND = "refresh_command_not_found";
 export const REFRESH_SPAWN_FAILED = "refresh_spawn_failed";
 export const REFRESH_TIMED_OUT = "refresh_timed_out";
 export const REFRESH_EXIT_STATUS = "refresh_exit_status";
+/** A live vendor process already owns refreshing its own credential store. */
+export const REFRESH_LIVE_VENDOR_PROCESS = "refresh_live_vendor_process";
+/** quota-axi could not tell whether the vendor is already running. */
+export const REFRESH_VENDOR_UNKNOWN = "refresh_vendor_processes_unknown";
 
 /**
  * Environment forced onto every delegated run. `NO_COLOR` and `TERM=dumb` keep
@@ -97,7 +119,13 @@ export async function runRefreshDelegate(
     try {
       child = spawn(executable, [...delegate.args], {
         // No stdin: a vendor command that would prompt exits instead of hanging.
-        stdio: ["ignore", "pipe", "pipe"],
+        // No pipes either: vendor output is never a credential source, and a
+        // child quota-axi has stopped waiting for must not block writing to a
+        // pipe nobody drains.
+        stdio: ["ignore", "ignore", "ignore"],
+        // Its own process group, so a signal sent to quota-axi's group - the
+        // Ctrl+C that quits a live `--tui` - cannot interrupt a token exchange.
+        detached: true,
         env: { ...process.env, ...NON_INTERACTIVE_ENV, ...delegate.env },
       });
     } catch {
@@ -113,14 +141,13 @@ export async function runRefreshDelegate(
       resolve(run);
     };
     const timer = setTimeout(() => {
-      terminateChild(child);
-      settle({ status: "failed", error: REFRESH_TIMED_OUT });
+      // Deliberately no signal. The vendor may be part way through a
+      // single-use refresh-token exchange, and quota-axi is a reader: it stops
+      // waiting and lets the process that owns the store finish on its own.
+      child.unref();
+      settle({ status: "unconfirmed", error: REFRESH_TIMED_OUT });
     }, delegate.timeoutMs);
 
-    // Drain and discard: the child must never block on a full pipe, and its
-    // output is never a credential source.
-    child.stdout?.resume();
-    child.stderr?.resume();
     child.on("error", () =>
       settle({ status: "failed", error: REFRESH_SPAWN_FAILED }),
     );
@@ -153,7 +180,7 @@ export function refreshDelegateAttempt(
   if (run.status === "unavailable") {
     return { source: delegate.source, status: "skipped", error: run.error };
   }
-  if (run.status === "failed") {
+  if (run.status === "failed" || run.status === "unconfirmed") {
     return { source: delegate.source, status: "failed", error: run.error };
   }
   if (run.exitCode === 0) return { source: delegate.source, status: "success" };
