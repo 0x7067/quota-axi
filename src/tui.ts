@@ -23,8 +23,6 @@ export type TuiOptions = {
   full?: boolean;
   /** IANA time zone for header/absolute times; defaults to the system zone. */
   timeZone?: string;
-  /** Dim closing line used by the live report for its key hint. */
-  footerHint?: string;
 };
 
 const CARD_WIDTH = 49;
@@ -121,10 +119,7 @@ export function renderQuotaTui(
   response: QuotaAxiResponse,
   options: TuiOptions = {},
 ): string {
-  const columns = Math.min(
-    MAX_COLUMNS,
-    Math.max(MIN_COLUMNS, options.columns ?? TWO_COLUMN_MIN),
-  );
+  const columns = resolveColumns(options.columns);
   const twoColumn = columns >= TWO_COLUMN_MIN;
   const generatedAtMs = Date.parse(response.generatedAt);
   const timeZone = options.timeZone;
@@ -147,16 +142,31 @@ export function renderQuotaTui(
       }
     }
   }
-  if (options.footerHint !== undefined) {
-    lines.push([]);
-    lines.push([
-      { text: `  ${truncate(options.footerHint, columns - 2)}`, style: "dim" },
-    ]);
-  }
-
   return lines
     .map((line) => renderLine(trimRight(line), options.colorDepth ?? "none"))
     .join("\n");
+}
+
+/**
+ * The report's dim closing line, rendered on its own so the live viewport can
+ * pin it to the last row instead of letting it scroll away with the cards.
+ */
+export function renderTuiHintLine(
+  text: string,
+  options: TuiOptions = {},
+): string {
+  const columns = resolveColumns(options.columns);
+  const line: Line = [
+    { text: `  ${truncate(text, columns - 2)}`, style: "dim" },
+  ];
+  return renderLine(trimRight(line), options.colorDepth ?? "none");
+}
+
+function resolveColumns(columns: number | undefined): number {
+  return Math.min(
+    MAX_COLUMNS,
+    Math.max(MIN_COLUMNS, columns ?? TWO_COLUMN_MIN),
+  );
 }
 
 function isLive(provider: ProviderQuota): boolean {

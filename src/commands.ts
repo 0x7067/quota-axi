@@ -14,7 +14,13 @@ import {
   renderQuotaToon,
 } from "./render.js";
 import { formatInterval, runLiveTui, type LiveTuiIo } from "./tui-live.js";
-import { detectTuiColorDepth, renderQuotaTui } from "./tui.js";
+import {
+  detectTuiColorDepth,
+  renderQuotaTui,
+  renderTuiHintLine,
+  type TuiColorDepth,
+} from "./tui.js";
+import { scrollHint } from "./tui-viewport.js";
 import type {
   AuthProviderReport,
   ProviderId,
@@ -61,15 +67,16 @@ async function quotaTuiReport(
   flags: QuotaFlags,
   options: ProviderOptions,
 ): Promise<string> {
-  const frame = (response: QuotaAxiResponse, footerHint?: string): string =>
+  const terminal = (): { columns?: number; colorDepth: TuiColorDepth } => ({
+    ...(process.stdout.columns === undefined
+      ? {}
+      : { columns: process.stdout.columns }),
+    colorDepth: detectTuiColorDepth(process.env, process.stdout.isTTY === true),
+  });
+  const frame = (response: QuotaAxiResponse): string =>
     renderQuotaTui(redactedResponse(response, flags.full), {
-      columns: process.stdout.columns,
-      colorDepth: detectTuiColorDepth(
-        process.env,
-        process.stdout.isTTY === true,
-      ),
+      ...terminal(),
       full: flags.full,
-      ...(footerHint === undefined ? {} : { footerHint }),
     });
 
   if (flags.once || !isInteractiveTerminal()) {
@@ -80,7 +87,8 @@ async function quotaTuiReport(
   const hint = `Press q to quit · refreshing every ${formatInterval(refreshSeconds)}`;
   const last = await runLiveTui<QuotaAxiResponse>({
     load: () => loadQuota(flags.providers, options, true),
-    render: (response) => frame(response, hint),
+    render: frame,
+    status: (scroll) => renderTuiHintLine(scrollHint(scroll, hint), terminal()),
     intervalMillis: refreshSeconds * 1000,
     io: processLiveTuiIo(),
   });
@@ -95,6 +103,7 @@ function processLiveTuiIo(): LiveTuiIo {
   return {
     stdout: process.stdout,
     stdin: process.stdin,
+    rows: () => process.stdout.rows,
     setTimer: (callback, milliseconds) => setTimeout(callback, milliseconds),
     clearTimer: (handle) => {
       clearTimeout(handle as ReturnType<typeof setTimeout>);
