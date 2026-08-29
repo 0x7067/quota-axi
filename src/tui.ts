@@ -930,11 +930,11 @@ function displayWidth(text: string): number {
   return width;
 }
 
-function terminalTextUnits(text: string): string[] {
+export function terminalTextUnits(text: string): string[] {
   return [...GRAPHEME_SEGMENTER.segment(text)].map((part) => part.segment);
 }
 
-function sanitizeTerminalText(text: string): string {
+export function sanitizeTerminalText(text: string): string {
   let result = "";
   for (const character of text) {
     const codePoint = character.codePointAt(0) ?? 0;
@@ -947,7 +947,7 @@ function sanitizeTerminalText(text: string): string {
   return result;
 }
 
-function terminalUnitWidth(unit: string): number {
+export function terminalUnitWidth(unit: string): number {
   if (
     /\p{Emoji_Presentation}/u.test(unit) ||
     (/\p{Emoji}/u.test(unit) &&

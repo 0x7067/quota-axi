@@ -104,6 +104,7 @@ function processLiveTuiIo(): LiveTuiIo {
     stdout: process.stdout,
     stdin: process.stdin,
     rows: () => process.stdout.rows,
+    columns: () => process.stdout.columns,
     setTimer: (callback, milliseconds) => setTimeout(callback, milliseconds),
     clearTimer: (handle) => {
       clearTimeout(handle as ReturnType<typeof setTimeout>);

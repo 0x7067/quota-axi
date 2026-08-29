@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { formatInterval, runLiveTui, type LiveTuiIo } from "../src/tui-live.js";
-import { scrollHint } from "../src/tui-viewport.js";
+import { renderTuiHintLine } from "../src/tui.js";
+import { scrollFrame, scrollHint } from "../src/tui-viewport.js";
 
 const ENTER_SCREEN = "\x1b[?1049h";
 const LEAVE_SCREEN = "\x1b[?1049l";
@@ -20,6 +21,7 @@ type Harness = {
   setRows(rows: number | undefined): void;
   resize(rows?: number): void;
   frame(): string;
+  physicalRows(columns: number): number;
   signal(): void;
   tick(): void;
 };
@@ -55,6 +57,7 @@ function harness(): Harness {
       off: (_event, listener) => dataListeners.delete(listener),
     },
     rows: () => rows,
+    columns: () => 80,
     setTimer: (callback) => {
       const handle = nextTimer++;
       timers.set(handle, callback);
@@ -99,6 +102,14 @@ function harness(): Harness {
         .find((chunk) => chunk.startsWith(CLEAR_SCREEN));
       return (painted ?? "").slice(CLEAR_SCREEN.length);
     },
+    physicalRows: (columns) =>
+      terminalRows(
+        [...writes]
+          .reverse()
+          .find((chunk) => chunk.startsWith(CLEAR_SCREEN))
+          ?.slice(CLEAR_SCREEN.length) ?? "",
+        columns,
+      ),
     signal: () => {
       for (const listener of [...signalListeners]) listener();
     },
@@ -109,6 +120,28 @@ function harness(): Harness {
       callback();
     },
   };
+}
+
+function terminalRows(text: string, columns: number): number {
+  let rows = 1;
+  let column = 0;
+  let wrapPending = false;
+  for (const character of text) {
+    if (character === "\n") {
+      rows += 1;
+      column = 0;
+      wrapPending = false;
+      continue;
+    }
+    if (wrapPending) {
+      rows += 1;
+      column = 0;
+      wrapPending = false;
+    }
+    column += 1;
+    if (column === columns) wrapPending = true;
+  }
+  return rows;
 }
 
 function flush(): Promise<void> {
@@ -292,6 +325,65 @@ describe("live terminal report at short heights", () => {
     live.io.press("q");
     await live.run;
   }
+
+  it("does not scroll a frame away when it exactly fills the terminal", async () => {
+    const io = harness();
+    io.setRows(4);
+    const body = "line 0\r\nline 1\r\nline 2\r\n";
+    const run = runLiveTui<number>({
+      load: async () => 1,
+      render: () => body,
+      intervalMillis: 300_000,
+      io: io.io,
+    });
+    await flush();
+
+    const expected = body.replace(/\r\n$/, "").replaceAll("\r\n", "\n");
+    expect(io.frame()).toBe(expected);
+    expect(io.writes.at(-1)).toBe(`${CLEAR_SCREEN}${expected}`);
+    expect(io.writes.at(-1)).not.toMatch(/\n$/);
+    await stop({ io, run });
+  });
+
+  it("keeps a full-width first visible line and hint within the height budget", async () => {
+    const io = harness();
+    io.setRows(3);
+    const fullWidthLine = "x".repeat(80);
+    const body = `header\n${fullWidthLine}\nline 2\nline 3`;
+    const run = runLiveTui<number>({
+      load: async () => 1,
+      render: () => body,
+      status: (scroll) =>
+        renderTuiHintLine(scrollHint(scroll, HINT), {
+          columns: 80,
+          colorDepth: "none",
+        }),
+      intervalMillis: 300_000,
+      io: io.io,
+    });
+    await flush();
+
+    io.press("j");
+    await flush();
+
+    const lines = io.frame().split("\n");
+    expect(lines).toHaveLength(3);
+    expect(lines[0]).toBe(fullWidthLine);
+    expect(lines[1]).toBe("line 2");
+    expect(lines[2]).toContain("q quit");
+    expect(lines.every((line) => line.length <= 80)).toBe(true);
+    expect(io.physicalRows(80)).toBe(3);
+    await stop({ io, run });
+  });
+
+  it("resets ANSI styling when truncating an oversized line", () => {
+    const frame = scrollFrame(`\x1b[0;31m${"x".repeat(160)}\x1b[0m`, {
+      rows: 1,
+      columns: 80,
+    });
+
+    expect(frame.text).toBe(`\x1b[0;31m${"x".repeat(80)}\x1b[0m`);
+  });
 
   it("paints the top of the report and an affordance at startup", async () => {
     const live = await start(10);

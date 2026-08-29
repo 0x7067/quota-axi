@@ -192,6 +192,69 @@ describe("live report viewport", () => {
     expect(windowed.text).not.toContain("q quit");
   });
 
+  it("preserves meaningful trailing blank rows", () => {
+    expect(scrollFrame("a\n\n").text).toBe("a\n");
+  });
+
+  it("counts repeated lines when protecting the physical row budget", () => {
+    const frame = scrollFrame("x\nx\nx", {
+      rows: 3,
+      columns: 1,
+      status: () => "x",
+    });
+    expect(frame.text).toBe("x\nx\nx");
+  });
+
+  it("protects the physical row budget without a closing line", () => {
+    const frame = scrollFrame(`${"x".repeat(160)}\ny`, {
+      rows: 3,
+      columns: 80,
+    });
+    expect(frame.text).toBe(`${"x".repeat(160)}\ny`);
+    expect(frame.pageLines).toBe(2);
+  });
+
+  it("counts wide graphemes when checking physical rows", () => {
+    const frame = scrollFrame(`${"a".repeat(79)}界`, {
+      rows: 1,
+      columns: 80,
+    });
+    expect(frame.scrollable).toBe(true);
+  });
+
+  it("does not count combining graphemes as extra cells", () => {
+    const frame = scrollFrame(`${"a".repeat(80)}\u0301`, {
+      rows: 1,
+      columns: 80,
+    });
+    expect(frame.scrollable).toBe(false);
+  });
+
+  it("counts a wide grapheme that exceeds a narrow terminal", () => {
+    const frame = scrollFrame("界", {
+      rows: 1,
+      columns: 1,
+    });
+    expect(frame.scrollable).toBe(true);
+  });
+
+  it("clips a logical line that exceeds the physical viewport", () => {
+    const frame = scrollFrame("x".repeat(160), {
+      rows: 1,
+      columns: 80,
+    });
+    expect(frame.text).toBe("x".repeat(80));
+  });
+
+  it("counts a full-width line break as one physical row", () => {
+    const frame = scrollFrame(`${"x".repeat(80)}\ny`, {
+      rows: 2,
+      columns: 80,
+    });
+    expect(frame.scrollable).toBe(false);
+    expect(frame.text).toBe(`${"x".repeat(80)}\ny`);
+  });
+
   it("keeps the resting hint verbatim and swaps it for scroll help", () => {
     expect(
       scrollHint({ scrollable: false, offset: 0, maxOffset: 0 }, HINT),

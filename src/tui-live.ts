@@ -30,6 +30,8 @@ export type LiveTuiIo = {
   clearTimer(handle: unknown): void;
   /** Current terminal height; absent or unknown means paint unwindowed. */
   rows?(): number | undefined;
+  /** Current terminal width; absent or unknown means use logical rows. */
+  columns?(): number | undefined;
   /** Subscribe to terminal resize; returns the unsubscribe function. */
   onResize?(listener: () => void): () => void;
   /** Subscribe to termination signals; returns the unsubscribe function. */
@@ -166,6 +168,7 @@ export async function runLiveTui<T>({
         const body = render(snapshot);
         const options = {
           rows: io.rows?.(),
+          columns: io.columns?.(),
           offset,
           ...(status === undefined ? {} : { status }),
         };
