@@ -9,10 +9,21 @@ export function execFileText(
   timeoutMs: number,
 ): Promise<string> {
   return new Promise((resolve, reject) => {
+    let invocation: ReturnType<typeof shimInvocation>;
+    try {
+      invocation = shimInvocation(command, args);
+    } catch (error) {
+      reject(error);
+      return;
+    }
     execFile(
-      command,
-      args,
-      { timeout: timeoutMs, maxBuffer: 1024 * 1024 },
+      invocation.command,
+      invocation.args,
+      {
+        timeout: timeoutMs,
+        maxBuffer: 1024 * 1024,
+        ...(invocation.environment ? { env: invocation.environment } : {}),
+      },
       (error, stdout) => {
         if (error) {
           reject(error);
@@ -22,6 +33,79 @@ export function execFileText(
       },
     );
   });
+}
+
+function shimInvocation(
+  command: string,
+  args: string[],
+): {
+  command: string;
+  args: string[];
+  environment?: NodeJS.ProcessEnv;
+} {
+  if (
+    process.platform !== "win32" ||
+    ![".cmd", ".bat"].includes(path.win32.extname(command).toLowerCase())
+  ) {
+    return { command, args };
+  }
+  const environment: NodeJS.ProcessEnv = {
+    ...process.env,
+    QUOTA_AXI_COMMAND: validateWindowsArgument(command),
+    ...Object.fromEntries(
+      args.map((argument, index) => [
+        `QUOTA_AXI_ARG_${index}`,
+        validateWindowsArgument(argument),
+      ]),
+    ),
+  };
+  const script = [
+    "$command = [Environment]::GetEnvironmentVariable('QUOTA_AXI_COMMAND')",
+    "$arguments = @(",
+    ...args.map(
+      (_, index) =>
+        `[Environment]::GetEnvironmentVariable('QUOTA_AXI_ARG_${index}')`,
+    ),
+    ")",
+    "& $command @arguments",
+    "exit $LASTEXITCODE",
+  ].join(";");
+  return {
+    command: powershellPath(),
+    args: [
+      "-NoLogo",
+      "-NoProfile",
+      "-NonInteractive",
+      "-ExecutionPolicy",
+      "Bypass",
+      "-EncodedCommand",
+      Buffer.from(script, "utf16le").toString("base64"),
+    ],
+    environment,
+  };
+}
+
+function powershellPath(): string {
+  const systemRoot = process.env.SystemRoot || process.env.WINDIR;
+  return systemRoot
+    ? path.win32.join(
+        systemRoot,
+        "System32",
+        "WindowsPowerShell",
+        "v1.0",
+        "powershell.exe",
+      )
+    : "powershell.exe";
+}
+
+function validateWindowsArgument(value: string): string {
+  for (const character of value) {
+    const codePoint = character.codePointAt(0);
+    if (codePoint !== undefined && (codePoint <= 0x1f || codePoint === 0x7f)) {
+      throw new TypeError("Windows command arguments cannot contain controls");
+    }
+  }
+  return value;
 }
 
 export async function commandExists(command: string): Promise<boolean> {

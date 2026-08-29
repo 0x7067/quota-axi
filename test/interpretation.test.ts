@@ -161,6 +161,29 @@ describe("quota semantics", () => {
     ).toBe(true);
   });
 
+  it("does not copy unproven account bounds into Alibaba model scopes", () => {
+    const result = withQuotaSemantics(
+      provider("alibaba", [
+        window("weekly", "weekly", 22),
+        window("model:qwen3-max", "model", 91),
+      ]),
+      GENERATED_AT,
+    );
+
+    expect(result.quotaSemantics?.effectiveAvailability).toEqual([
+      expect.objectContaining({
+        scope: "all_models",
+        effectivePercentRemaining: 22,
+        boundedBy: ["weekly"],
+      }),
+      expect.objectContaining({
+        scope: "model:qwen3-max",
+        effectivePercentRemaining: 91,
+        boundedBy: ["model:qwen3-max"],
+      }),
+    ]);
+  });
+
   it("does not block Claude effective runway when five_hour has not been triggered yet (no resetsAt)", () => {
     const result = withQuotaSemantics(
       provider("claude", [
@@ -194,6 +217,100 @@ describe("quota semantics", () => {
       status: "unknown",
       reason: "missing_cycle",
     });
+  });
+
+  it("does not promote a model's lower Alibaba limit into the account bound", () => {
+    const result = withQuotaSemantics(
+      provider("alibaba", [
+        window("weekly", "weekly", 80),
+        window("model:qwen3-max", "model", 3),
+      ]),
+      GENERATED_AT,
+    );
+
+    expect(result.quotaSemantics?.effectiveAvailability).toEqual([
+      expect.objectContaining({
+        scope: "all_models",
+        effectivePercentRemaining: 80,
+        boundedBy: ["weekly"],
+      }),
+      expect.objectContaining({
+        scope: "model:qwen3-max",
+        effectivePercentRemaining: 3,
+        boundedBy: ["model:qwen3-max"],
+      }),
+    ]);
+  });
+
+  it("combines repeated Alibaba limits for the same model scope", () => {
+    const result = withQuotaSemantics(
+      provider("alibaba", [
+        window("weekly", "weekly", 80),
+        window("model:qwen3-max", "model", 80),
+        {
+          ...window("model:qwen3-max:2", "model", 20),
+          label: "model:qwen3-max",
+        },
+      ]),
+      GENERATED_AT,
+    );
+
+    expect(result.quotaSemantics?.effectiveAvailability).toEqual([
+      expect.objectContaining({
+        scope: "all_models",
+        effectivePercentRemaining: 80,
+        boundedBy: ["weekly"],
+      }),
+      expect.objectContaining({
+        scope: "model:qwen3-max",
+        effectivePercentRemaining: 20,
+        boundedBy: ["model:qwen3-max", "model:qwen3-max:2"],
+      }),
+    ]);
+  });
+
+  it("keeps model names containing colons in separate Alibaba scopes", () => {
+    const result = withQuotaSemantics(
+      provider("alibaba", [
+        window("weekly", "weekly", 80),
+        window("model:qwen:latest", "model", 11),
+        window("model:qwen:reasoning", "model", 22),
+      ]),
+      GENERATED_AT,
+    );
+
+    expect(
+      result.quotaSemantics?.effectiveAvailability.map(
+        ({ scope, effectivePercentRemaining }) => [
+          scope,
+          effectivePercentRemaining,
+        ],
+      ),
+    ).toEqual([
+      ["all_models", 80],
+      ["model:qwen:latest", 11],
+      ["model:qwen:reasoning", 22],
+    ]);
+  });
+
+  it("does not claim independent OpenCode Go windows jointly bind all models", () => {
+    const result = withQuotaSemantics(
+      provider("opencode-go", [
+        window("five_hour", "session", 90),
+        window("weekly", "weekly", 80),
+        window("monthly", "monthly", 70),
+      ]),
+      GENERATED_AT,
+    );
+
+    expect(result.quotaSemantics).toMatchObject({
+      status: "unknown",
+      effectiveAvailability: [],
+      unresolvedWindowIds: ["five_hour", "weekly", "monthly"],
+    });
+    expect(result.quotaSemantics?.description).toContain(
+      "does not claim an effective combined percentage",
+    );
   });
 
   it("surfaces pace on a non-currently-limiting bounding window that is ahead", () => {

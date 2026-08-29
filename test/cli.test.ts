@@ -22,6 +22,8 @@ const originalGrokProvider = PROVIDERS.grok;
 const originalKimiProvider = PROVIDERS.kimi;
 const originalZaiProvider = PROVIDERS.zai;
 const originalAgyProvider = PROVIDERS.agy;
+const originalAlibabaProvider = PROVIDERS.alibaba;
+const originalOpenCodeGoProvider = PROVIDERS["opencode-go"];
 const originalXdgCacheHome = process.env.XDG_CACHE_HOME;
 let tempDir: string | undefined;
 
@@ -34,6 +36,8 @@ afterEach(() => {
   PROVIDERS.kimi = originalKimiProvider;
   PROVIDERS.zai = originalZaiProvider;
   PROVIDERS.agy = originalAgyProvider;
+  PROVIDERS.alibaba = originalAlibabaProvider;
+  PROVIDERS["opencode-go"] = originalOpenCodeGoProvider;
   if (originalXdgCacheHome === undefined) delete process.env.XDG_CACHE_HOME;
   else process.env.XDG_CACHE_HOME = originalXdgCacheHome;
   if (tempDir) rmSync(tempDir, { recursive: true, force: true });
@@ -53,6 +57,8 @@ describe("CLI flag parsing", () => {
       "kimi",
       "zai",
       "agy",
+      "alibaba",
+      "opencode-go",
     ]);
   });
 
@@ -88,6 +94,8 @@ describe("CLI flag parsing", () => {
           "kimi",
           "zai",
           "agy",
+          "alibaba",
+          "opencode-go",
         ],
         json: true,
         full: true,
@@ -783,6 +791,8 @@ describe("default TOON decision blocks", () => {
     PROVIDERS.kimi = providerWithQuota(rateLimitedKimiQuota());
     PROVIDERS.zai = providerWithQuota(freshZaiQuota());
     PROVIDERS.agy = providerWithQuota(unavailableAgyQuota());
+    PROVIDERS.alibaba = providerWithQuota(freshAlibabaQuota());
+    PROVIDERS["opencode-go"] = providerWithQuota(freshOpenCodeGoQuota());
 
     const output = await capture([]);
     const named = new Set([
@@ -792,12 +802,14 @@ describe("default TOON decision blocks", () => {
 
     expect([...named].sort()).toEqual([
       "agy",
+      "alibaba",
       "claude",
       "codex",
       "copilot",
       "cursor",
       "grok",
       "kimi",
+      "opencode-go",
       "zai",
     ]);
   });
@@ -1131,6 +1143,8 @@ describe("CLI plumbing via the axi SDK", () => {
     PROVIDERS.kimi = providerWithAuth("kimi", "Kimi");
     PROVIDERS.zai = providerWithAuth("zai", "Z.AI");
     PROVIDERS.agy = providerWithAuth("agy", "Antigravity");
+    PROVIDERS.alibaba = providerWithAuth("alibaba", "Alibaba Coding Plan");
+    PROVIDERS["opencode-go"] = providerWithAuth("opencode-go", "OpenCode Go");
 
     const output = await capture(["--allow-keychain-prompt", "auth"]);
     expect(output).toContain(
@@ -1640,6 +1654,56 @@ function freshZaiQuota(): ProviderQuota {
       sourcesTried: ["opencode:auth.json"],
     },
     attempts: [{ source: "opencode:auth.json", status: "success" }],
+  };
+}
+
+function freshAlibabaQuota(): ProviderQuota {
+  return {
+    provider: "alibaba",
+    label: "Alibaba Coding Plan",
+    source: "api",
+    plan: "Coding Plan Pro",
+    windows: [
+      {
+        id: "weekly",
+        label: "week",
+        kind: "weekly",
+        percentUsed: 10,
+        percentRemaining: 90,
+        windowSeconds: 604800,
+      },
+    ],
+    state: {
+      status: "fresh",
+      stale: false,
+      refreshedAt: "2026-07-06T18:10:00Z",
+      sourcesTried: ["pi:alibaba-plan"],
+    },
+  };
+}
+
+function freshOpenCodeGoQuota(): ProviderQuota {
+  return {
+    provider: "opencode-go",
+    label: "OpenCode Go",
+    source: "api",
+    plan: "OpenCode Go",
+    windows: [
+      {
+        id: "weekly",
+        label: "weekly",
+        kind: "weekly",
+        percentUsed: 12,
+        percentRemaining: 88,
+        windowSeconds: 604800,
+      },
+    ],
+    state: {
+      status: "fresh",
+      stale: false,
+      refreshedAt: "2026-07-06T18:10:00Z",
+      sourcesTried: ["opencode:auth.json"],
+    },
   };
 }
 

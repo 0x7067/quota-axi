@@ -17,6 +17,7 @@ import { PROVIDER_IDS } from "./types.js";
 const PROVIDER_SOURCES = [
   "oauth",
   "cli-rpc",
+  "cli",
   "api",
   "web",
   "cache",
