@@ -429,11 +429,7 @@ async function attemptClaudeQuota(
   }
 
   const keychainAccessFailure = credentialStates.find(
-    (state) =>
-      state.status === "skipped" &&
-      state.source.source === "keychain" &&
-      (state.source.error === "keychain_access_denied" ||
-        state.source.error === KEYCHAIN_UNREACHABLE_ERROR),
+    (state) => state.status === "skipped" && state.source.source === "keychain",
   );
   let failure =
     transientFailure ??
