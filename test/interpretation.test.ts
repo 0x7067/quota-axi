@@ -420,6 +420,126 @@ describe("quota semantics", () => {
     );
   });
 
+  it("reports a Codex bound conflict instead of exhaustion when a zeroed base window contradicts live model windows", () => {
+    const result = withQuotaSemantics(
+      provider("codex", [
+        window("five_hour", "session", 92, {
+          startsAt: GENERATED_AT,
+          resetsAt: offsetFromGeneratedAt(5 * 60 * 60),
+        }),
+        window("weekly", "weekly", 0, {
+          startsAt: offsetFromGeneratedAt(-4 * 24 * 60 * 60),
+          resetsAt: offsetFromGeneratedAt(3 * 24 * 60 * 60),
+        }),
+        window("model:codex_bengalfox:5h", "model", 92, {
+          startsAt: GENERATED_AT,
+          resetsAt: offsetFromGeneratedAt(5 * 60 * 60),
+        }),
+        window("model:codex_bengalfox:7d", "model", 96, {
+          startsAt: GENERATED_AT,
+          resetsAt: offsetFromGeneratedAt(7 * 24 * 60 * 60),
+        }),
+      ]),
+      GENERATED_AT,
+    );
+
+    const availability = result.quotaSemantics?.effectiveAvailability ?? [];
+    const model = availability.find(
+      (scope) => scope.scope === "model:codex_bengalfox",
+    );
+
+    expect(model).toMatchObject({
+      status: "unknown",
+      boundedBy: [
+        "five_hour",
+        "weekly",
+        "model:codex_bengalfox:5h",
+        "model:codex_bengalfox:7d",
+      ],
+      boundConflict: {
+        exhaustedWindowIds: ["weekly"],
+        liveWindowIds: ["model:codex_bengalfox:5h", "model:codex_bengalfox:7d"],
+      },
+    });
+    expect(model?.effectivePercentRemaining).toBeUndefined();
+    expect(model?.runway?.status).toBe("unknown");
+    expect(model?.selection?.status).toBe("unknown");
+
+    // The account's own meter really is exhausted, and still says so.
+    expect(availability).toContainEqual(
+      expect.objectContaining({
+        scope: "all_models",
+        status: "known",
+        effectivePercentRemaining: 0,
+        runway: expect.objectContaining({
+          status: "exhausted_now",
+          limitingWindowId: "weekly",
+        }),
+      }),
+    );
+  });
+
+  it("keeps a Codex model exhausted when its own window is the zero", () => {
+    const result = withQuotaSemantics(
+      provider("codex", [
+        window("weekly", "weekly", 0),
+        window("model:codex_bengalfox:5h", "model", 92),
+        window("model:codex_bengalfox:7d", "model", 0),
+      ]),
+      GENERATED_AT,
+    );
+
+    const model = result.quotaSemantics?.effectiveAvailability.find(
+      (scope) => scope.scope === "model:codex_bengalfox",
+    );
+
+    expect(model).toMatchObject({
+      status: "known",
+      effectivePercentRemaining: 0,
+      runway: expect.objectContaining({ status: "exhausted_now" }),
+    });
+    expect(model?.boundConflict).toBeUndefined();
+  });
+
+  // The bound conflict is opted into per provider. Claude's account 5h/7d bound
+  // is enforced across models, so the same reading shape must still resolve to
+  // the account's zero rather than degrading a correct verdict into `unknown`.
+  it("keeps a Claude model exhausted when the account window it inherits reads zero", () => {
+    const result = withQuotaSemantics(
+      provider("claude", [
+        window("five_hour", "session", 88, {
+          windowSeconds: 18_000,
+          resetsAt: offsetFromGeneratedAt(9_000),
+        }),
+        window("seven_day", "weekly", 0, {
+          windowSeconds: WEEK_SECONDS,
+          resetsAt: offsetFromGeneratedAt(WEEK_SECONDS / 2),
+        }),
+        window("model:fable", "model", 74, {
+          windowSeconds: WEEK_SECONDS,
+          resetsAt: offsetFromGeneratedAt(WEEK_SECONDS / 2),
+        }),
+      ]),
+      GENERATED_AT,
+    );
+
+    const model = result.quotaSemantics?.effectiveAvailability.find(
+      (scope) => scope.scope === "model:fable",
+    );
+
+    expect(model).toMatchObject({
+      status: "known",
+      effectivePercentRemaining: 0,
+      boundedBy: ["five_hour", "seven_day", "model:fable"],
+      limitingWindowIds: ["seven_day"],
+      runway: expect.objectContaining({
+        status: "exhausted_now",
+        limitingWindowId: "seven_day",
+      }),
+    });
+    expect(model?.boundConflict).toBeUndefined();
+  });
+
   it("marks unfamiliar Codex windows partial instead of ignoring them", () => {
     const result = withQuotaSemantics(
       provider("codex", [
