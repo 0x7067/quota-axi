@@ -1,27 +1,5 @@
 # Changelog
 
-## [0.1.38](https://github.com/kunchenguid/quota-axi/compare/quota-axi-v0.1.37...quota-axi-v0.1.38) (2026-09-05)
-
-
-### Bug Fixes
-
-* **providers:** fall back to working credential sources ([#147](https://github.com/kunchenguid/quota-axi/issues/147)) ([dc5accd](https://github.com/kunchenguid/quota-axi/commit/dc5accde5f8a8d6e2ec5ffa5ffdcd05a7d77e2c4))
-
-## [0.1.37](https://github.com/kunchenguid/quota-axi/compare/quota-axi-v0.1.36...quota-axi-v0.1.37) (2026-09-04)
-
-
-### Bug Fixes
-
-* **grok:** treat consumer-billing rejection as unmeasurable, not sign-out, for SuperGrok OAuth ([#142](https://github.com/kunchenguid/quota-axi/issues/142)) ([069379f](https://github.com/kunchenguid/quota-axi/commit/069379fcd5a80d8a6f39bffbbbfb8774f5d4a43f))
-
-## [0.1.36](https://github.com/kunchenguid/quota-axi/compare/quota-axi-v0.1.35...quota-axi-v0.1.36) (2026-09-03)
-
-
-### Bug Fixes
-
-* **agy:** discover Antigravity processes on Linux ([#141](https://github.com/kunchenguid/quota-axi/issues/141)) ([9797056](https://github.com/kunchenguid/quota-axi/commit/9797056378557a2c190beb204e875d05b4870b93))
-* **claude:** preserve quota cache when Keychain access is denied ([#139](https://github.com/kunchenguid/quota-axi/issues/139)) ([de1d184](https://github.com/kunchenguid/quota-axi/commit/de1d18420365ffc57f208ab62f3269ce7a26aefc))
-
 ## [0.1.35](https://github.com/kunchenguid/quota-axi/compare/quota-axi-v0.1.34...quota-axi-v0.1.35) (2026-09-01)
 
 
