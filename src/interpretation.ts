@@ -1,3 +1,4 @@
+import { degradedSources } from "./lib/source-attempts.js";
 import {
   computeEffectiveRunway,
   computeWindowPace,
@@ -25,10 +26,25 @@ export function withQuotaSemantics(
   const semantics = semanticsFor(withWindows, generatedAt);
   return {
     ...withWindows,
+    state: { ...provider.state, ...supersededSources(provider) },
     quotaSemantics: provider.state.stale
       ? staleSemantics(semantics)
       : semantics,
   };
+}
+
+/**
+ * Name the sources a working sibling superseded. Only a fresh reading can
+ * supersede anything: when nothing worked, `state.error` and the report status
+ * already carry the auth problem, and repeating every source there would bury
+ * it rather than make it visible.
+ */
+function supersededSources(
+  provider: ProviderQuota,
+): Pick<ProviderQuota["state"], "degradedSources"> {
+  if (provider.state.stale || provider.state.status !== "fresh") return {};
+  const degraded = degradedSources(provider.attempts);
+  return degraded.length > 0 ? { degradedSources: degraded } : {};
 }
 
 function staleSemantics(semantics: QuotaSemantics): QuotaSemantics {
@@ -114,7 +130,63 @@ function semanticsFor(
         provider.windows,
         "OpenCode Go reports rolling, weekly, and monthly windows, but quota-axi has no provider evidence that they jointly bound all models, so it does not claim an effective combined percentage.",
       );
+    case "minimax":
+      return minimaxSemantics(provider.windows, generatedAt);
+    case "mimo":
+      return unknownSemantics(
+        provider.windows,
+        "MiMo exposes local API authentication, but no first-party read-only quota endpoint is established, so model headroom remains unknown.",
+      );
+    case "deepseek":
+    case "openrouter":
+      return unknownSemantics(
+        provider.windows,
+        `${provider.label ?? provider.provider} reports a credit balance, not a usage window. quota-axi exposes the raw balance but does not infer an effective remaining percentage.`,
+      );
   }
+}
+
+function minimaxSemantics(
+  windows: QuotaWindow[],
+  generatedAt: string,
+): QuotaSemantics {
+  const modelWindows = windows.filter(
+    ({ id, kind }) => kind === "model" && id.startsWith("model:"),
+  );
+  const unresolved = windows.filter((window) => !modelWindows.includes(window));
+  const models = new Map<string, QuotaWindow[]>();
+  for (const window of modelWindows) {
+    const scope = minimaxModelScope(window.id);
+    const scoped = models.get(scope) ?? [];
+    scoped.push(window);
+    models.set(scope, scoped);
+  }
+  const effectiveAvailability = [...models].map(([scope, scoped]) =>
+    unresolved.length > 0
+      ? unresolvedAvailability(
+          scope,
+          scoped,
+          unresolved.map(({ id }) => id),
+        )
+      : availability(scope, scoped, generatedAt),
+  );
+  if (unresolved.length > 0) {
+    return {
+      status: "partial",
+      description:
+        "MiniMax reports quota rows for named models. Unrecognized rows are not assigned to a model, so effective model headroom remains unknown.",
+      effectiveAvailability,
+      unresolvedWindowIds: unresolved.map(({ id }) => id),
+    };
+  }
+  return knownSemantics(
+    effectiveAvailability,
+    "MiniMax reports quota windows for named models. Each model scope is bounded only by the windows the provider reports for that model; no account-wide bound is inferred.",
+  );
+}
+
+function minimaxModelScope(id: string): string {
+  return id.replace(/:(?:5h|7d|window:[^:]+)$/, "");
 }
 
 function alibabaSemantics(

@@ -343,6 +343,9 @@ async function attemptClaudeQuota(
       source: state.source.source,
       status: "skipped",
       error: `credentials_${state.status}`,
+      // A malformed store is not confirmed absent; retain its diagnostic
+      // even when a sibling source answers.
+      ...(state.status === "invalid" ? { credentialPresent: true } : {}),
     });
   }
 
@@ -366,6 +369,10 @@ async function attemptClaudeQuota(
                 source: "oauth-profile",
                 status: "failed",
                 error: quota.identityError,
+                // The identity lookup is not a credential source, so its
+                // failure never marks a source as superseded; `account`
+                // already reports the unverified identity.
+                degraded: false,
               }
             : { source: "oauth-profile", status: "success" },
         );
@@ -397,6 +404,7 @@ async function attemptClaudeQuota(
           }
         } else {
           transientFailure = failure.withUsageFetchFailure();
+          break;
         }
       }
     }
@@ -420,12 +428,24 @@ async function attemptClaudeQuota(
     }
   }
 
+  const keychainAccessFailure = credentialStates.find(
+    (state): state is SkippedCredentialState =>
+      state.status === "skipped" && state.source.source === "keychain",
+  );
+  let failure =
+    transientFailure ??
+    definitiveFailure ??
+    new ClaudeFailure("Claude quota unavailable", { staleEligible: true });
+  if (keychainAccessFailure && failure.definitiveAuth) {
+    failure = new ClaudeFailure(
+      keychainAccessFailure.source.error ?? KEYCHAIN_UNREACHABLE_ERROR,
+      { staleEligible: true },
+    );
+  }
+
   return {
     kind: "failure",
-    failure:
-      definitiveFailure ??
-      transientFailure ??
-      new ClaudeFailure("Claude quota unavailable", { staleEligible: true }),
+    failure,
     refreshableExpiredRejected,
     keychainWithheld: credentialStates.some(
       (state) =>
@@ -741,6 +761,7 @@ async function readSkippedKeychainCredentialState(
       source: "keychain",
       status: "skipped",
       error: "keychain_presence_check_failed",
+      credentialPresent: true,
     },
   };
 }
@@ -893,6 +914,7 @@ function keychainFailureState(error: unknown): CredentialState {
         source: "keychain",
         status: "skipped",
         error: "keychain_prompt_timeout",
+        credentialPresent: true,
       },
     };
   }
@@ -903,6 +925,7 @@ function keychainFailureState(error: unknown): CredentialState {
         source: "keychain",
         status: "skipped",
         error: KEYCHAIN_UNREACHABLE_ERROR,
+        credentialPresent: true,
       },
     };
   }
@@ -912,6 +935,7 @@ function keychainFailureState(error: unknown): CredentialState {
       source: "keychain",
       status: "skipped",
       error: "keychain_access_denied",
+      credentialPresent: true,
     },
   };
 }

@@ -499,11 +499,13 @@ describe("Claude credential-state reporting", () => {
           error: expectedError,
         },
       });
-      expect(result.attempts).toContainEqual({
-        source: "oauth-file",
-        status: "skipped",
-        error: expectedError,
-      });
+      expect(result.attempts).toContainEqual(
+        expect.objectContaining({
+          source: "oauth-file",
+          status: "skipped",
+          error: expectedError,
+        }),
+      );
       expect(readCachedProvider("claude")).toBeUndefined();
     },
   );
@@ -686,6 +688,62 @@ describe("Claude credential-state reporting", () => {
       expect(JSON.stringify(annotated)).not.toContain(fakeToken);
     },
   );
+  it("does not switch from a transient Keychain request to the OAuth file", async () => {
+    usePlatform("darwin");
+    const home = useTempHome();
+    await writeKeychainAccessMarker();
+    writeClaudeCredential(home, {
+      accessToken: "working-oauth-file-token",
+      expiresAt: "2035-01-01T00:00:00.000Z",
+    });
+    const execFileText = vi.fn(async () =>
+      JSON.stringify({
+        claudeAiOauth: {
+          accessToken: "transient-keychain-token",
+          expiresAt: "2035-01-01T00:00:00.000Z",
+        },
+      }),
+    );
+    vi.doMock("../../src/lib/process.js", () => ({ execFileText }));
+    const bearers: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+        const authorization =
+          (init?.headers as Record<string, string>)?.authorization ?? "";
+        bearers.push(authorization);
+        if (authorization === "Bearer transient-keychain-token") {
+          throw new TypeError("network unavailable");
+        }
+        return new Response(
+          JSON.stringify({ five_hour: { utilization: 12 } }),
+          { status: 200 },
+        );
+      }),
+    );
+
+    const { fetchQuota } = await import("../../src/providers/claude.js");
+    const result = await fetchQuota({
+      allowKeychainPrompt: false,
+      refreshCredentials: false,
+    });
+
+    expect(result.state).toMatchObject({
+      status: "error",
+      stale: false,
+      error: "network unavailable",
+    });
+    expect(result.attempts).toEqual([
+      {
+        source: "keychain",
+        status: "failed",
+        error: "network unavailable",
+      },
+    ]);
+    expect(bearers).toEqual(["Bearer transient-keychain-token"]);
+    expect(bearers).not.toContain("Bearer working-oauth-file-token");
+  });
+
   it("uses a stale snapshot only for its matching synthetic credential context", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-07-06T20:00:00.000Z"));
@@ -995,11 +1053,13 @@ describe("Claude credential-state reporting", () => {
 
     expect(result.state.status).toBe("fresh");
     expect(result.account).toEqual({ identityStatus: "unverified" });
-    expect(result.attempts).toContainEqual({
-      source: "oauth-profile",
-      status: "failed",
-      error: "identity_profile_unrecognized",
-    });
+    expect(result.attempts).toContainEqual(
+      expect.objectContaining({
+        source: "oauth-profile",
+        status: "failed",
+        error: "identity_profile_unrecognized",
+      }),
+    );
   });
 
   it("surfaces missing file credentials as a skipped attempt and auth_required", async () => {
@@ -1112,6 +1172,7 @@ describe("Claude credential-state reporting", () => {
       source: "keychain",
       status: "skipped",
       error: "keychain_unreachable",
+      credentialPresent: true,
     });
   });
 
@@ -1269,6 +1330,47 @@ describe("Claude credential-state reporting", () => {
     const marker = claudeKeychainAccessMarkerPath("fixture-user");
     expect(existsSync(marker)).toBe(true);
     expect(statSync(marker).mode & 0o777).toBe(0o600);
+  });
+
+  it("keeps an invalid OAuth file degraded when Keychain returns quota", async () => {
+    usePlatform("darwin");
+    const home = useTempHome();
+    await writeKeychainAccessMarker();
+    mkdirSync(join(home, ".claude"), { recursive: true });
+    writeFileSync(join(home, ".claude", ".credentials.json"), "{invalid");
+    const execFileText = vi.fn(async () =>
+      JSON.stringify({
+        claudeAiOauth: {
+          accessToken: "working-keychain-token",
+          expiresAt: "2035-01-01T00:00:00.000Z",
+        },
+      }),
+    );
+    vi.doMock("../../src/lib/process.js", () => ({ execFileText }));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL | Request) =>
+        String(input).endsWith("/api/oauth/profile")
+          ? new Response(JSON.stringify({ account: {} }), { status: 200 })
+          : new Response(JSON.stringify({ five_hour: { utilization: 12 } }), {
+              status: 200,
+            }),
+      ),
+    );
+
+    const { withQuotaSemantics } = await import("../../src/interpretation.js");
+    const { fetchQuota } = await import("../../src/providers/claude.js");
+    const result = await fetchQuota({
+      allowKeychainPrompt: false,
+      refreshCredentials: false,
+    });
+    const interpreted = withQuotaSemantics(result, new Date().toISOString());
+
+    expect(result.state.status).toBe("fresh");
+    expect(result.windows.length).toBeGreaterThan(0);
+    expect(interpreted.state.degradedSources).toEqual([
+      { source: "oauth-file", error: "credentials_invalid" },
+    ]);
   });
 
   it("selects the current-user item from duplicate services through the real CLI", async () => {
@@ -1495,11 +1597,13 @@ describe("Claude credential-state reporting", () => {
       source: "keychain",
       status: "skipped",
       error: "keychain_presence_check_failed",
+      credentialPresent: true,
     });
     expect(result.attempts).toContainEqual({
       source: "keychain",
       status: "skipped",
       error: "keychain_presence_check_failed",
+      credentialPresent: true,
     });
     expect(result.attempts).not.toContainEqual(
       expect.objectContaining({
@@ -1541,30 +1645,109 @@ describe("Claude credential-state reporting", () => {
     );
   });
 
-  it("does not treat Keychain exit 44 as signed-out or retire the Claude cache", async () => {
+  it.each([
+    {
+      name: "exit 44",
+      allowKeychainPrompt: true,
+      execError: Object.assign(new Error("not found"), { code: 44 }),
+      expectedError: "keychain_unreachable",
+    },
+    {
+      name: "prompt timeout",
+      allowKeychainPrompt: true,
+      execError: Object.assign(new Error("timed out"), { killed: true }),
+      expectedError: "keychain_prompt_timeout",
+    },
+    {
+      name: "prompt required",
+      allowKeychainPrompt: false,
+      execError: undefined,
+      expectedError: "keychain_prompt_required",
+    },
+  ])(
+    "does not treat Keychain $name plus sidecar 401 as signed-out",
+    async ({ allowKeychainPrompt, execError, expectedError }) => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-07-06T20:00:00.000Z"));
+      usePlatform("darwin");
+      const home = useTempHome();
+      writeClaudeCredential(home, {
+        accessToken: "expired-sidecar",
+        expiresAt: "2000-01-01T00:00:00.000Z",
+      });
+      const { readCachedProvider, writeCachedProviders } =
+        await import("../../src/cache.js");
+      writeCachedProviders([cachedClaudeQuota(34)]);
+      const execFileText = vi.fn(async () => {
+        if (execError) throw execError;
+        return "";
+      });
+      vi.doMock("../../src/lib/process.js", () => ({ execFileText }));
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => new Response(null, { status: 401 })),
+      );
+      const { fetchQuota } = await import("../../src/providers/claude.js");
+      const result = await fetchQuota({
+        allowKeychainPrompt,
+        refreshCredentials: false,
+      });
+      expect(result.state.status).not.toBe("auth_required");
+      expect(result.state.error).toBe(expectedError);
+      expect(result.source).toBe("cache");
+      expect(readCachedProvider("claude")).toMatchObject({
+        provider: "claude",
+        source: "oauth",
+      });
+    },
+  );
+
+  it("does not treat a denied Keychain plus sidecar 401 as signed-out or retire the cache", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-07-06T20:00:00.000Z"));
     usePlatform("darwin");
-    useTempHome();
+    const home = useTempHome();
+    writeClaudeCredential(home, {
+      accessToken: "expired-sidecar",
+      expiresAt: "2000-01-01T00:00:00.000Z",
+    });
     const { readCachedProvider, writeCachedProviders } =
       await import("../../src/cache.js");
     writeCachedProviders([cachedClaudeQuota(34)]);
     const execFileText = vi.fn(async () => {
-      throw Object.assign(new Error("not found"), { code: 44 });
+      throw Object.assign(new Error("auth failed"), { code: 51 });
     });
     vi.doMock("../../src/lib/process.js", () => ({ execFileText }));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(null, { status: 401 })),
+    );
     const { fetchQuota } = await import("../../src/providers/claude.js");
+    const { renderQuotaToon } = await import("../../src/render.js");
     const result = await fetchQuota({
       allowKeychainPrompt: true,
       refreshCredentials: false,
     });
+    const annotated = annotateQuotaAdvice({
+      generatedAt: "2026-07-06T20:00:00.000Z",
+      providers: [result],
+    });
+    const toon = renderQuotaToon(annotated, "quota-axi", false);
+
     expect(result.state.status).not.toBe("auth_required");
-    expect(result.state.error).toBe("keychain_unreachable");
+    expect(result.state.error).toBe("keychain_access_denied");
     expect(result.source).toBe("cache");
     expect(readCachedProvider("claude")).toMatchObject({
       provider: "claude",
       source: "oauth",
     });
+    expect(annotated.providers[0]?.state.remedyCommand).toBeUndefined();
+    expect(annotated.help?.join("\n") ?? "").not.toContain(
+      "--allow-keychain-prompt",
+    );
+    expect(toon).toContain("keychain_access_denied");
+    expect(toon).not.toContain("Claude sign-in required");
+    expect(toon).not.toContain("sign-in required");
   });
 
   it("says so when Keychain is denied and does not offer a prompt that cannot help", async () => {

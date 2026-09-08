@@ -8,7 +8,11 @@ export type ProviderId =
   | "zai"
   | "agy"
   | "alibaba"
-  | "opencode-go";
+  | "opencode-go"
+  | "minimax"
+  | "mimo"
+  | "deepseek"
+  | "openrouter";
 
 export const PROVIDER_IDS = [
   "claude",
@@ -21,6 +25,10 @@ export const PROVIDER_IDS = [
   "agy",
   "alibaba",
   "opencode-go",
+  "minimax",
+  "mimo",
+  "deepseek",
+  "openrouter",
 ] as const satisfies readonly ProviderId[];
 
 export type ProviderSource =
@@ -207,6 +215,19 @@ export type SourceAttempt = {
   status: "success" | "failed" | "skipped";
   error?: string;
   credentialPresent?: boolean;
+  /**
+   * Whether this credential source was not genuinely absent and failed to
+   * yield a reading. Left unset it is derived by `isDegradedSourceAttempt`; set it explicitly
+   * only to correct that derivation for an attempt that is not a credential
+   * problem.
+   */
+  degraded?: boolean;
+};
+
+/** A non-absent credential source that did not yield the reported reading. */
+export type DegradedSource = {
+  source: string;
+  error?: string;
 };
 
 export type ProviderQuota = {
@@ -244,6 +265,12 @@ export type ProviderQuota = {
     reason?: ProviderStateReason;
     remedyCommand?: string;
     untrustedWindowIds?: string[];
+    /**
+     * Sources that were superseded: a working source answered for this
+     * provider while these were broken or could not be read. Present only on a
+     * fresh reading, so the breakage behind a healthy row stays visible.
+     */
+    degradedSources?: DegradedSource[];
     /** Omitted from default `--json`; see `--full`. */
     sourcesTried?: string[];
   };
@@ -295,7 +322,7 @@ export type IntelligenceBucket = "high" | "medium" | "low";
 
 /** Native-provider model knowledge used by the `models` evidence join. */
 export type ModelCatalogEntry = {
-  provider: "claude" | "codex" | "grok" | "kimi";
+  provider: ProviderId;
   id: string;
   label: string;
   intelligence: IntelligenceBucket;
