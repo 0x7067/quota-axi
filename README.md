@@ -302,20 +302,32 @@ It is generated from `src/skill.ts`; update it with `pnpm run build:skill` and v
 
 ### Flags
 
-| Flag                                                                           | Description                                                        |
-| ------------------------------------------------------------------------------ | ------------------------------------------------------------------ |
-| `--provider claude,codex,cursor,copilot,grok,kimi,zai,agy,alibaba,opencode-go` | Scope providers                                                    |
-| `--json`                                                                       | Emit normalized JSON instead of TOON for quota, auth, or models    |
-| `--full`                                                                       | Include audit and derivation details                               |
-| `--tui`                                                                        | Render the live human terminal report instead of TOON (quota only) |
-| `--refresh 30s\|5m\|1h`                                                        | Live `--tui` refresh interval, default 5m (30s-24h)                |
-| `--once`                                                                       | Render one `--tui` frame and exit instead of staying live          |
-| `--allow-keychain-prompt`                                                      | Permit macOS provider Keychain access that could prompt            |
-| `--no-credential-refresh`                                                      | Never run a vendor CLI's own non-interactive credential refresh    |
-| `--intelligence high\|medium\|low`                                             | Filter `models` by editorial intelligence bucket                   |
-| `--sort runway`                                                                | Explicitly sort `models` by documented usable-runway evidence      |
-| `-h`, `--help`                                                                 | Print terse [AXI](https://axi.md) help                             |
-| `-v`, `-V`, `--version`                                                        | Print version                                                      |
+| Flag                                                                           | Description                                                               |
+| ------------------------------------------------------------------------------ | ------------------------------------------------------------------------- |
+| `--provider claude,codex,cursor,copilot,grok,kimi,zai,agy,alibaba,opencode-go` | Scope providers                                                           |
+| `--json`                                                                       | Emit normalized JSON instead of TOON for quota, auth, or models           |
+| `--full`                                                                       | Include audit and derivation details                                      |
+| `--tui`                                                                        | Render the live human terminal report instead of TOON (quota only)        |
+| `--refresh 30s\|5m\|1h`                                                        | Live `--tui` refresh interval, default 5m (30s-24h)                       |
+| `--once`                                                                       | Render one `--tui` frame and exit instead of staying live                 |
+| `--allow-keychain-prompt`                                                      | Permit macOS provider Keychain access that could prompt                   |
+| `--no-credential-refresh`                                                      | Never run a vendor CLI's own non-interactive credential refresh           |
+| `--profile-only`                                                               | Read one explicitly selected Claude or Codex credential file (quota only) |
+| `--intelligence high\|medium\|low`                                             | Filter `models` by editorial intelligence bucket                          |
+| `--sort runway`                                                                | Explicitly sort `models` by documented usable-runway evidence             |
+| `-h`, `--help`                                                                 | Print terse [AXI](https://axi.md) help                                    |
+| `-v`, `-V`, `--version`                                                        | Print version                                                             |
+
+### Profile-only quota reads
+
+Profile-only mode is accepted only by `quota`, requires exactly one `--provider` selector, and supports only Claude and Codex. Claude requires an explicit nonblank `CLAUDE_CONFIG_DIR`; Codex requires an explicit nonblank `CODEX_HOME`. There is no default-location fallback in this mode, and `--allow-keychain-prompt` is rejected rather than ignored.
+
+It reads only `$CLAUDE_CONFIG_DIR/.credentials.json` or `$CODEX_HOME/auth.json`. It never reads the macOS Keychain or Pi auth, invokes a CLI RPC or other credential fallback, delegates a refresh, or reads, writes, clears, or persists quota cache data. `--full --json` retains non-secret account identity, the top-level source, and source attempts for provenance. Tokens and credential-file contents remain excluded. Ordinary output remains redacted.
+
+```sh
+CLAUDE_CONFIG_DIR=/path/to/claude-profile quota-axi --provider claude --profile-only --full --json
+CODEX_HOME=/path/to/codex-profile quota-axi --provider codex --profile-only --full --json
+```
 
 ### Human terminal report (`--tui`)
 
@@ -631,6 +643,8 @@ Auth source entries can include `credentialPresent` when a source is not genuine
 | Alibaba        | The local `bl` CLI (`bl usage token-plan --output json`); quota-axi never reads Alibaba credential files or exchanges refresh data                                                                                                                                                                                                                                                                                             |
 | OpenCode Go    | `$XDG_DATA_HOME/opencode/auth.json` when set, `%LOCALAPPDATA%\opencode\auth.json` on Windows, otherwise `~/.local/share/opencode/auth.json`, for a literal `opencode-go` key with `opencode` fallback                                                                                                                                                                                                                          |
 
+The Claude and Codex rows describe default discovery; [`--profile-only`](#profile-only-quota-reads) narrows each to the one selected credential file.
+
 ### Provider notes
 
 **Claude**
@@ -746,7 +760,7 @@ The Claude and Grok delegated runs are bounded the same way:
 - Vendor output is discarded at the operating system, never read. A credential is never parsed out of a vendor's stdout; the refreshed value only ever comes from re-reading the vendor's own store.
 - It runs only for soft expiry: a stored-expired credential that carries a refresh token and was definitively rejected. Transient failures, missing or malformed stores, stored-valid credentials the server revoked, and relocated stores the vendor would not rewrite all stay read-only.
 - Claude adds a best-effort check before delegating: the process list must show no Claude Code process. Claude Code owns that session and refreshes it on its own schedule, so `claude doctor` alongside a live session is at best redundant and at worst a second holder racing a single-use refresh token. This also means a detached `claude doctor` that outlives quota-axi's wait is visible to the next read, which stays read-only instead of stacking another refresh on it. Not knowing counts as not safe: where the process list cannot be read (Windows, no effective uid, no `ps`), quota-axi stays read-only rather than guessing. The check and spawn are not atomic, so a Claude Code session starting after the check or another concurrent quota-axi read can still overlap the delegate. This narrows the common repeated five-minute `--tui` versus live-session collision and, together with never signaling the delegate, is strictly safer than force-killing without adding a failure mode beyond the pre-existing vendor-owned race.
-- `--no-credential-refresh` disables it entirely, and the read-only `auth` command never delegates a refresh.
+- `--no-credential-refresh` disables it entirely, the read-only `auth` command never delegates a refresh, and neither does [`--profile-only`](#profile-only-quota-reads).
 
 A Claude or Grok delegated run appears in `--full` output as its own attempt (`claude-cli-refresh`, `grok-cli-refresh`). Its `error` says what happened, so a report shows why no refresh took place:
 
