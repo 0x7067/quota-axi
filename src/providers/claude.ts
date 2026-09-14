@@ -13,6 +13,7 @@ import {
 import { providerFetch } from "../lib/http.js";
 import { execFileText } from "../lib/process.js";
 import { listRunningCommandLines } from "../lib/running-processes.js";
+import { redactSecret } from "../lib/secret.js";
 import { clampPercent, nowIso, retryAfterToIso } from "../lib/time.js";
 import type {
   AuthProviderReport,
@@ -183,6 +184,8 @@ type ClaudeQuotaPass =
 export async function fetchQuota(
   options: ProviderOptions,
 ): Promise<ProviderQuota> {
+  if (isProfileOnly(options)) return fetchProfileOnlyQuota();
+
   const attempts: SourceAttempt[] = [];
   const credentialContextId = claudeCredentialContextId();
 
@@ -213,6 +216,173 @@ export async function fetchQuota(
   }
 
   return failureReport(pass.failure, attempts, credentialContextId);
+}
+
+function isProfileOnly(options: ProviderOptions): boolean {
+  return (
+    (options as ProviderOptions & { credentialMode?: "profile-only" })
+      .credentialMode === "profile-only"
+  );
+}
+
+/**
+ * Read exactly the profile selected by CLAUDE_CONFIG_DIR. This path is kept
+ * separate from normal discovery so profile isolation can never reach the
+ * default home, Keychain, refresh delegate, or quota cache.
+ */
+async function fetchProfileOnlyQuota(): Promise<ProviderQuota> {
+  const credentialFile = profileOnlyCredentialFile();
+  if (!credentialFile) {
+    return profileOnlyFailure(
+      new ClaudeFailure("Claude profile selector missing", {
+        status: "unavailable",
+      }),
+      [
+        {
+          source: "oauth-file",
+          status: "skipped",
+          error: "profile_selector_missing",
+        },
+      ],
+    );
+  }
+
+  const raw = readJsonFileResult(credentialFile);
+  if (raw.status === "missing") {
+    return profileOnlyFailure(
+      new ClaudeFailure("Claude profile credentials missing", {
+        status: "unavailable",
+      }),
+      [
+        {
+          source: "oauth-file",
+          status: "skipped",
+          error: "credentials_missing",
+        },
+      ],
+    );
+  }
+  if (raw.status === "invalid") {
+    const reason =
+      raw.error === "file_read_error" ? "file_read_error" : "json_parse_error";
+    const error =
+      reason === "file_read_error"
+        ? "Claude credential file unreadable"
+        : "Claude credential file malformed";
+    return profileOnlyFailure(new ClaudeFailure(error, { status: "error" }), [
+      {
+        source: "oauth-file",
+        status: "skipped",
+        error: reason,
+        credentialPresent: true,
+      },
+    ]);
+  }
+
+  const state = extractCredentialState(raw, "oauth-file", credentialFile);
+  if (state.status === "invalid") {
+    return profileOnlyFailure(
+      new ClaudeFailure("Claude credential invalid", { status: "error" }),
+      [
+        {
+          source: "oauth-file",
+          status: "skipped",
+          error: "credentials_invalid",
+          credentialPresent: true,
+        },
+      ],
+    );
+  }
+  if (!("credentials" in state)) {
+    return profileOnlyFailure(
+      new ClaudeFailure("Claude credential invalid", { status: "error" }),
+      [
+        {
+          source: "oauth-file",
+          status: "skipped",
+          error: "credentials_invalid",
+          credentialPresent: true,
+        },
+      ],
+    );
+  }
+
+  const attempts: SourceAttempt[] = [
+    { source: "oauth-file", status: "failed" },
+  ];
+  try {
+    // Stored expiry is advisory here too: the selected bearer is always tested.
+    const quota = await fetchOauthUsage(state.credentials);
+    attempts[0] = { source: "oauth-file", status: "success" };
+    attempts.push(
+      quota.identityError
+        ? {
+            source: "oauth-profile",
+            status: "failed",
+            error: quota.identityError,
+            degraded: false,
+          }
+        : { source: "oauth-profile", status: "success" },
+    );
+    return successProvider({
+      provider: "claude",
+      label: "Claude",
+      source: "oauth",
+      plan: quota.plan,
+      account: quota.account,
+      windows: quota.windows,
+      refreshedAt: quota.refreshedAt,
+      sourcesTried: sourceNames(attempts),
+      attempts,
+    });
+  } catch (error) {
+    const failure = profileOnlyClaudeFailureFor(
+      error,
+      state.credentials.accessToken,
+    );
+    attempts[0] = {
+      source: "oauth-file",
+      status: "failed",
+      error: failure.code,
+    };
+    return profileOnlyFailure(failure, attempts);
+  }
+}
+
+/**
+ * Keep the real cause of a profile-only failure - a refused connection, a
+ * malformed response - so a single-account probe stays diagnosable, with the
+ * probed bearer stripped out of it.
+ */
+function profileOnlyClaudeFailureFor(
+  error: unknown,
+  accessToken: string,
+): ClaudeFailure {
+  if (error instanceof ClaudeFailure) return error;
+  return new ClaudeFailure(redactSecret(errorMessage(error), accessToken), {
+    status: "error",
+  });
+}
+
+function profileOnlyCredentialFile(): string | undefined {
+  const selector = process.env.CLAUDE_CONFIG_DIR;
+  if (!selector || !selector.trim()) return undefined;
+  return join(selector, ".credentials.json");
+}
+
+function profileOnlyFailure(
+  failure: ClaudeFailure,
+  attempts: SourceAttempt[],
+): ProviderQuota {
+  return failedProvider({
+    provider: "claude",
+    label: "Claude",
+    status: failure.status,
+    error: failure.code,
+    retryAfter: failure.retryAfter,
+    sourcesTried: sourceNames(attempts),
+    attempts,
+  });
 }
 
 /**
