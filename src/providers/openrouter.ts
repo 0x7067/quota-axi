@@ -1,8 +1,8 @@
 import { readJsonFileResult, type JsonFileReadResult } from "../lib/fs.js";
 import { providerFetch } from "../lib/http.js";
 import { classifyPiAuthEntry } from "../lib/pi-auth-store.js";
+import { resolvePiAuthFilePath } from "../lib/pi-agent-dir.js";
 import { usableLiteralSecret } from "../lib/secret.js";
-import { piAuthFilePath } from "./pi-auth.js";
 import type {
   AuthProviderReport,
   AuthSourceReport,
@@ -42,7 +42,7 @@ export type NormalizedOpenRouterPayload = {
 
 export function resolveOpenRouterCredentials(
   environment: Readonly<Record<string, string | undefined>> = process.env,
-  path = piAuthFilePath(),
+  path = resolvePiAuthFilePath(),
 ): CredentialResolution[] {
   const credentials: CredentialResolution[] = [];
   const envKey = usableLiteralSecret(environment.OPENROUTER_API_KEY);
@@ -227,7 +227,7 @@ async function inspectAuth(
               ? "error"
               : "invalid",
       ...(resolution.status === "error" || resolution.status === "invalid"
-        ? { error: "credential_resolution_failed" }
+        ? { error: credentialError(resolution) }
         : {}),
     }),
   );
@@ -284,17 +284,24 @@ async function requestUsage(
       signal: controller.signal,
     });
     if (response.status === 401 || response.status === 403)
-      throw new Error("provider_auth_rejected");
-    if (response.status === 429) throw new Error("provider_rate_limited");
-    if (!response.ok) throw new Error("provider_error:" + response.status);
+      throw new OpenRouterError("provider_auth_rejected");
+    if (response.status === 429)
+      throw new OpenRouterError("provider_rate_limited");
+    if (!response.ok)
+      throw new OpenRouterError("provider_error:" + response.status);
     const text = await response.text();
     let parsed: unknown;
     try {
       parsed = JSON.parse(text);
     } catch {
-      throw new Error("invalid_json");
+      throw new OpenRouterError("invalid_json");
     }
     return parsed;
+  } catch (error) {
+    if (controller.signal.aborted)
+      throw new OpenRouterError("provider_timeout");
+    if (error instanceof OpenRouterError) throw error;
+    throw new OpenRouterError("network_unavailable");
   } finally {
     clearTimeout(timeout);
   }
@@ -344,6 +351,8 @@ function asString(value: unknown): string | undefined {
 function clampPercent(value: number): number {
   return Math.max(0, Math.min(100, value));
 }
+
+class OpenRouterError extends Error {}
 
 function credentialError(resolution: CredentialResolution): string {
   if (resolution.status === "missing")

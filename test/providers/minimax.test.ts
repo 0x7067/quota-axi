@@ -10,7 +10,7 @@ import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
   createMiniMaxAdapter,
-  extractMiniMaxCliCredential,
+  extractMiniMaxCliCredentials,
   extractMiniMaxCredential,
   normalizeMiniMaxPayload,
   resolveMiniMaxCredentials,
@@ -240,6 +240,54 @@ describe("MiniMax provider", () => {
     expect(request).toHaveBeenCalledTimes(1);
   });
 
+  it("serves a stale snapshot for the failing credential's context on an application rate limit", async () => {
+    const cached = {
+      provider: "minimax",
+      label: "MiniMax",
+      source: "api",
+      windows: [
+        {
+          id: "model:minimax-m3:5h",
+          label: "MiniMax-M3 5h",
+          kind: "model",
+          percentRemaining: 40,
+        },
+      ],
+      state: {
+        status: "fresh",
+        stale: false,
+        refreshedAt: "2026-09-01T00:00:00.000Z",
+        sourcesTried: ["pi:minimax"],
+      },
+    };
+    const readCachedProvider = vi.fn((contextId: string) =>
+      /^[a-f0-9]{64}$/.test(contextId) ? cached : undefined,
+    );
+
+    const report = await createMiniMaxAdapter({
+      credential: () => ({
+        status: "available",
+        key: KEY,
+        source: "pi:minimax",
+        baseUrl: "https://api.minimax.io",
+      }),
+      fetch: async () =>
+        new Response(JSON.stringify({ base_resp: { status_code: 1002 } })),
+      readCachedProvider,
+    }).fetchQuota(OPTIONS);
+
+    expect(readCachedProvider).toHaveBeenCalledOnce();
+    expect(report).toMatchObject({
+      source: "cache",
+      windows: [{ id: "model:minimax-m3:5h", percentRemaining: 40 }],
+      state: {
+        status: "stale",
+        stale: true,
+        error: "provider_rate_limited",
+      },
+    });
+  });
+
   it("accepts the vendor's legacy remaining-count fallback only when no percentage exists", () => {
     expect(
       normalizeMiniMaxPayload({
@@ -467,15 +515,17 @@ describe("MiniMax provider", () => {
       key: KEY,
     });
     expect(
-      extractMiniMaxCliCredential(
+      extractMiniMaxCliCredentials(
         { api_key: KEY, region: "cn" },
         "/config.json",
       ),
-    ).toMatchObject({
-      status: "available",
-      key: KEY,
-      baseUrl: "https://api.minimaxi.com",
-    });
+    ).toEqual([
+      expect.objectContaining({
+        status: "available",
+        key: KEY,
+        baseUrl: "https://api.minimaxi.com",
+      }),
+    ]);
     expect(extractMiniMaxCredential({ minimax: KEY }, "/auth.json")).toEqual({
       status: "invalid",
       source: "pi:minimax",
@@ -548,7 +598,7 @@ describe("MiniMax provider", () => {
     const piDir = join(tempDir, "pi-agent");
     try {
       process.env.HOME = tempDir;
-      process.env.PI_CODING_AGENT_DIR = "~\\pi-agent";
+      process.env.PI_CODING_AGENT_DIR = "~/pi-agent";
       process.env.MMX_CONFIG_DIR = join(tempDir, "missing-mmx");
       delete process.env.MINIMAX_API_KEY;
       mkdirSync(piDir, { recursive: true });

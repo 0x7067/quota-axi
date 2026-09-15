@@ -1,16 +1,18 @@
+import { createHash } from "node:crypto";
 import { readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import {
   deleteCachedProvider as deleteCachedProviderFromDisk,
-  readCachedProvider as readCachedProviderFromDisk,
+  readCachedMiniMaxProvider as readCachedProviderFromDisk,
 } from "../cache.js";
 import type { JsonFileReadResult } from "../lib/fs.js";
 import { providerFetch } from "../lib/http.js";
+import { resolvePiAuthFilePath } from "../lib/pi-agent-dir.js";
 import { classifyPiAuthEntry } from "../lib/pi-auth-store.js";
 import { usableLiteralSecret } from "../lib/secret.js";
 import { clampPercent } from "../lib/time.js";
-import { piAuthFilePath } from "./pi-auth.js";
+import { publishMiniMaxReadingContextId } from "./minimax-cache-context.js";
 import type {
   AuthProviderReport,
   AuthSourceReport,
@@ -109,16 +111,7 @@ export function extractMiniMaxCredential(
   };
 }
 
-export function extractMiniMaxCliCredential(
-  value: unknown,
-  path: string,
-): MiniMaxCredentialResolution {
-  return (
-    extractMiniMaxCliCredentials(value, path)[0] ?? missingCliCredential(path)
-  );
-}
-
-function extractMiniMaxCliCredentials(
+export function extractMiniMaxCliCredentials(
   value: unknown,
   path: string,
 ): MiniMaxCredentialResolution[] {
@@ -185,7 +178,7 @@ export function resolveMiniMaxCredentials(): MiniMaxCredentialResolution[] {
     });
   }
 
-  const piPath = piAuthFilePath();
+  const piPath = resolvePiAuthFilePath();
   const piResult = readBoundedJsonFile(piPath);
   if (piResult.status === "success") {
     const resolution = extractMiniMaxCredential(piResult.value, piPath);
@@ -279,6 +272,7 @@ async function fetchQuotaWithDependencies(
         source: resolution.source,
         status: "success",
       });
+      publishMiniMaxReadingContextId(miniMaxCacheContextId(resolution));
       return successProvider({
         provider: "minimax",
         label: LABEL,
@@ -306,7 +300,9 @@ async function fetchQuotaWithDependencies(
       }
       if (failure.staleEligible) {
         try {
-          const cached = dependencies.readCachedProvider("minimax");
+          const cached = dependencies.readCachedProvider(
+            miniMaxCacheContextId(resolution),
+          );
           if (cached) {
             return staleFromCache(
               cached,
@@ -621,6 +617,7 @@ function rejectMiniMaxApplicationError(payload: unknown): void {
   if (statusCode === 1002) {
     throw new MiniMaxFailure("provider_rate_limited", {
       status: "rate_limited",
+      staleEligible: true,
     });
   }
   throw new MiniMaxFailure("provider_request_rejected", {
@@ -707,6 +704,19 @@ function replaceCredentialAttempt(
     }
   }
   attempts.push(attempt);
+}
+
+/**
+ * The cache identity a reading from this credential belongs to: the source
+ * that produced it plus the deployment host its resolution implies, so one
+ * account's snapshot can never serve another source's or host's stale read.
+ */
+function miniMaxCacheContextId(
+  resolution: Extract<MiniMaxCredentialResolution, { status: "available" }>,
+): string {
+  return createHash("sha256")
+    .update(`minimax-source:${resolution.source}\nbase:${resolution.baseUrl}`)
+    .digest("hex");
 }
 
 function credentialFailure(

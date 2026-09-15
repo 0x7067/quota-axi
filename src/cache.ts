@@ -6,6 +6,7 @@ import {
   readJsonFile,
 } from "./lib/fs.js";
 import { kimiReadingContextId } from "./providers/kimi-cache-context.js";
+import { miniMaxReadingContextId } from "./providers/minimax-cache-context.js";
 import type {
   ProviderId,
   ProviderQuota,
@@ -59,13 +60,15 @@ const CREDENTIAL_CONTEXT_ID = /^[a-f0-9]{64}$/;
  * and a Kimi reading need not come from that configuration in the first place,
  * because Pi brokers a credential for the default endpoint while naming no
  * deployment. Kimi therefore reports the identity of whatever actually produced
- * its reading.
+ * its reading. MiniMax publishes the same kind of stamp: the answering
+ * credential source plus the deployment host its resolution implies.
  */
 const CONTEXT_SCOPED_PROVIDERS: Partial<
   Record<ProviderId, () => string | undefined>
 > = {
   claude: claudeCredentialContextId,
   kimi: kimiReadingContextId,
+  minimax: miniMaxReadingContextId,
 };
 
 type CachedProvider = {
@@ -101,6 +104,17 @@ export function readCachedKimiProvider(
   contextId: string,
 ): ProviderQuota | undefined {
   return readCachedProviderInContext("kimi", contextId);
+}
+
+/**
+ * MiniMax stale quota may only be reused when the cache record proves it was
+ * captured from the same credential source and deployment host the caller is
+ * asking about.
+ */
+export function readCachedMiniMaxProvider(
+  contextId: string,
+): ProviderQuota | undefined {
+  return readCachedProviderInContext("minimax", contextId);
 }
 
 function readCachedProviderInContext(

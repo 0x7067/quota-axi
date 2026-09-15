@@ -1,8 +1,8 @@
 import { readJsonFileResult, type JsonFileReadResult } from "../lib/fs.js";
 import { providerFetch } from "../lib/http.js";
 import { classifyPiAuthEntry } from "../lib/pi-auth-store.js";
+import { resolvePiAuthFilePath } from "../lib/pi-agent-dir.js";
 import { usableLiteralSecret } from "../lib/secret.js";
-import { piAuthFilePath } from "./pi-auth.js";
 import type {
   AuthProviderReport,
   AuthSourceReport,
@@ -45,7 +45,7 @@ export type NormalizedDeepSeekPayload = {
 
 export function resolveDeepSeekCredentials(
   environment: Readonly<Record<string, string | undefined>> = process.env,
-  path = piAuthFilePath(),
+  path = resolvePiAuthFilePath(),
 ): CredentialResolution[] {
   const credentials: CredentialResolution[] = [];
   const envKey = usableLiteralSecret(environment.DEEPSEEK_API_KEY);
@@ -199,7 +199,7 @@ async function inspectAuth(
               ? "error"
               : "invalid",
       ...(resolution.status === "error" || resolution.status === "invalid"
-        ? { error: "credential_resolution_failed" }
+        ? { error: credentialError(resolution) }
         : {}),
     }),
   );
@@ -256,17 +256,23 @@ async function requestUsage(
       signal: controller.signal,
     });
     if (response.status === 401 || response.status === 403)
-      throw new Error("provider_auth_rejected");
-    if (response.status === 429) throw new Error("provider_rate_limited");
-    if (!response.ok) throw new Error("provider_error:" + response.status);
+      throw new DeepSeekError("provider_auth_rejected");
+    if (response.status === 429)
+      throw new DeepSeekError("provider_rate_limited");
+    if (!response.ok)
+      throw new DeepSeekError("provider_error:" + response.status);
     const text = await response.text();
     let parsed: unknown;
     try {
       parsed = JSON.parse(text);
     } catch {
-      throw new Error("invalid_json");
+      throw new DeepSeekError("invalid_json");
     }
     return parsed;
+  } catch (error) {
+    if (controller.signal.aborted) throw new DeepSeekError("provider_timeout");
+    if (error instanceof DeepSeekError) throw error;
+    throw new DeepSeekError("network_unavailable");
   } finally {
     clearTimeout(timeout);
   }
@@ -351,6 +357,8 @@ function decimalAmount(value: unknown): value is string {
     /^(?:0|[1-9]\d*)(?:\.\d+)?$/u.test(value)
   );
 }
+
+class DeepSeekError extends Error {}
 
 function credentialError(resolution: CredentialResolution): string {
   if (resolution.status === "missing") return "deepseek_credential_unavailable";
