@@ -486,6 +486,23 @@ describe("computeEffectiveRunway", () => {
     expect(["through_reset", "projected_exhaustion"]).toContain(runway.status);
   });
 
+  it("does not let unused 100% remaining with missing_cycle fail a live weekly bound", () => {
+    const unusedFiveHour = window({
+      id: "five_hour",
+      kind: "session",
+      percentUsed: 0,
+      percentRemaining: 100,
+      pace: { status: "unknown", reason: "missing_cycle" },
+    });
+    const sevenDay = pacedWindow("seven_day", 90, 0.5);
+    const runway = computeEffectiveRunway(
+      [unusedFiveHour, sevenDay],
+      GENERATED_AT,
+    );
+    expect(runway.status).not.toBe("unknown");
+    expect(runway.unmeasurableWindowIds).toBeUndefined();
+  });
+
   it("does not block established runway on a provably unopened future cycle", () => {
     const unopened = window({
       id: "model:fable",
@@ -890,6 +907,20 @@ describe("summarizeEffectiveSelection", () => {
         }),
       ]),
     ).toEqual({ status: "unknown", unmeasurableWindowIds: ["five_hour"] });
+  });
+
+  it("does not let an unused 100% window with unknown pace fail the scope", () => {
+    const unusedFiveHour = window({
+      id: "five_hour",
+      kind: "session",
+      percentUsed: 0,
+      percentRemaining: 100,
+      pace: { status: "unknown", reason: "missing_cycle" },
+    });
+    const weekly = bounded("weekly", 90, { timeRemainingPercent: 50 });
+    expect(summarizeEffectiveSelection([unusedFiveHour, weekly]).status).toBe(
+      "known",
+    );
   });
 
   it("treats a near-zero or absent remaining cycle as unmeasurable", () => {

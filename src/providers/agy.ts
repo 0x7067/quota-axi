@@ -36,10 +36,9 @@ const UNLEASH_PATH =
 const PROCESS_TIMEOUT_MS = 5_000;
 const PORT_TIMEOUT_MS = 2_000;
 const REQUEST_TIMEOUT_MS = 3_000;
+const CLI_QUOTA_TIMEOUT_MS = 15_000;
 const PROBE_BUDGET_MS = 10_000;
-const PRINT_TIMEOUT_MS = 15_000;
 const MAX_RESPONSE_BYTES = 1024 * 1024;
-const AGY_PRINT_ARGS = ["--print", "/usage", "--output-format", "json"];
 
 type AgyProcessSource = "agy" | "app";
 
@@ -92,13 +91,41 @@ export async function fetchQuota(
 export async function fetchQuotaWithRuntime(
   runtime: AgyProbeRuntime,
 ): Promise<ProviderQuota> {
-  const attempts: SourceAttempt[] = [{ source: "loopback", status: "failed" }];
+  const attempts: SourceAttempt[] = [{ source: "cli", status: "failed" }];
   let finalFailure: unknown;
 
   try {
+    const quota = await fetchCliQuota(runtime);
+    attempts[0] = { source: "cli", status: "success" };
+    const provider = successProvider({
+      provider: "agy",
+      label: "Antigravity",
+      source: "cli",
+      plan: quota.plan,
+      account: quota.account,
+      windows: quota.windows,
+      refreshedAt: quota.refreshedAt,
+      sourcesTried: sourceNames(attempts),
+      attempts,
+    });
+    return provider;
+  } catch (error) {
+    finalFailure = error;
+    const skipped =
+      error instanceof AgyUnavailableError || isMissingCommandError(error);
+    attempts[0] = {
+      source: "cli",
+      status: skipped ? "skipped" : "failed",
+      error: errorMessage(error),
+      degraded: false,
+    };
+  }
+
+  attempts.push({ source: "loopback", status: "failed", degraded: false });
+  try {
     const quota = await fetchLoopbackQuota(runtime);
-    attempts[0] = { source: "loopback", status: "success" };
-    return successProvider({
+    attempts[attempts.length - 1] = { source: "loopback", status: "success" };
+    const provider = successProvider({
       provider: "agy",
       label: "Antigravity",
       source: "cli-rpc",
@@ -109,35 +136,18 @@ export async function fetchQuotaWithRuntime(
       sourcesTried: sourceNames(attempts),
       attempts,
     });
+    return provider;
   } catch (error) {
-    finalFailure = error;
-    const finalError = errorMessage(error);
-    attempts[0] = {
+    const skipped =
+      error instanceof AgyUnavailableError || isMissingCommandError(error);
+    if (attempts[0].status === "skipped") {
+      finalFailure = error;
+    } else {
+      finalFailure = strongerFailure(finalFailure, error);
+    }
+    attempts[attempts.length - 1] = {
       source: "loopback",
-      status: error instanceof AgyUnavailableError ? "skipped" : "failed",
-      error: finalError,
-      degraded: false,
-    };
-  }
-
-  attempts.push({ source: "agy-print", status: "failed", degraded: false });
-  try {
-    const quota = await fetchPrintQuota(runtime);
-    attempts[1] = { source: "agy-print", status: "success" };
-    return successProvider({
-      provider: "agy",
-      label: "Antigravity",
-      source: "cli",
-      windows: quota.windows,
-      refreshedAt: quota.refreshedAt,
-      sourcesTried: sourceNames(attempts),
-      attempts,
-    });
-  } catch (error) {
-    finalFailure = strongerFailure(finalFailure, error);
-    attempts[1] = {
-      source: "agy-print",
-      status: error instanceof AgyUnavailableError ? "skipped" : "failed",
+      status: skipped ? "skipped" : "failed",
       error: errorMessage(error),
       degraded: false,
     };
@@ -209,6 +219,50 @@ export async function inspectAuthWithRuntime(
   }
 }
 
+async function fetchCliQuota(runtime: AgyProbeRuntime): Promise<{
+  plan?: string;
+  account?: ProviderQuota["account"];
+  windows: QuotaWindow[];
+  refreshedAt: string;
+}> {
+  let commandPath: string | undefined;
+  try {
+    commandPath = await runtime.findCommandPath("agy");
+  } catch {
+    throw new AgyUnavailableError("Antigravity CLI discovery failed");
+  }
+  if (!commandPath) {
+    throw new AgyUnavailableError("agy CLI is not installed");
+  }
+
+  let text: string;
+  try {
+    text = await runtime.execFileText(
+      commandPath,
+      ["-p", "/quota", "--output-format", "json"],
+      CLI_QUOTA_TIMEOUT_MS,
+    );
+  } catch (error) {
+    throw sanitizeCliError(error);
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    throw new AgyMalformedResponseError("agy /quota returned invalid JSON");
+  }
+  const summary = normalizeAgyPrintUsage(parsed);
+  if (!summary || summary.windows.length === 0) {
+    throw new AgyMalformedResponseError("agy /quota quota summary malformed");
+  }
+  return summary;
+}
+
+function isMissingCommandError(error: unknown): boolean {
+  const code = (error as NodeJS.ErrnoException | undefined)?.code;
+  return code === "ENOENT";
+}
+
 export function normalizeAgyQuotaSummary(raw: unknown):
   | {
       windows: QuotaWindow[];
@@ -233,43 +287,14 @@ export function normalizeAgyPrintUsage(raw: unknown):
   const root = objectValue(raw);
   const command = objectValue(root?.command);
   const name = stringValue(command?.name);
-  if (name !== "usage" && name !== "/usage") return undefined;
+  if (
+    name !== "usage" &&
+    name !== "/usage" &&
+    name !== "quota" &&
+    name !== "/quota"
+  )
+    return undefined;
   return normalizeAgyQuotaSummary(objectValue(command?.data));
-}
-
-async function fetchPrintQuota(runtime: AgyProbeRuntime): Promise<{
-  windows: QuotaWindow[];
-  refreshedAt: string;
-}> {
-  let commandPath: string | undefined;
-  try {
-    commandPath = await runtime.findCommandPath("agy");
-  } catch {
-    throw new AgyUnavailableError("Antigravity CLI discovery failed");
-  }
-  if (!commandPath)
-    throw new AgyUnavailableError("Antigravity CLI unavailable");
-
-  let output: string;
-  try {
-    output = await runtime.execFileText(
-      commandPath,
-      AGY_PRINT_ARGS,
-      PRINT_TIMEOUT_MS,
-    );
-  } catch (error) {
-    throw sanitizePrintError(error);
-  }
-
-  try {
-    const quota = normalizeAgyPrintUsage(JSON.parse(output) as unknown);
-    if (quota) return quota;
-  } catch {
-    // The CLI output is untrusted input; expose no part of it in diagnostics.
-  }
-  throw new AgyMalformedResponseError(
-    "Antigravity CLI /usage response malformed",
-  );
 }
 
 export function normalizeAgyUserStatus(raw: unknown):
@@ -1041,18 +1066,18 @@ function sanitizeTransportError(error: Error): Error {
   return new AgyUnavailableError("Antigravity loopback unavailable");
 }
 
-function sanitizePrintError(error: unknown): Error {
+function sanitizeCliError(error: unknown): Error {
   const details = objectValue(error);
   const code = stringValue(details?.code);
   if (details?.killed === true || code === "ETIMEDOUT")
-    return new AgyUnavailableError("Antigravity CLI /usage timed out");
+    return new AgyUnavailableError("Antigravity CLI /quota timed out");
   if (code === "ENOENT")
-    return new AgyUnavailableError("Antigravity CLI unavailable");
+    return new AgyUnavailableError("agy CLI is not installed");
   if (code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER")
     return new AgyMalformedResponseError(
-      "Antigravity CLI /usage response too large",
+      "Antigravity CLI /quota response too large",
     );
-  return new Error("Antigravity CLI /usage failed");
+  return new Error("Antigravity CLI /quota failed");
 }
 
 function strongerFailure(current: unknown, candidate: unknown): unknown {
@@ -1078,6 +1103,7 @@ function staleEligibleFailure(error: unknown): boolean {
 }
 
 function isDefinitiveAuthFailure(error: unknown): boolean {
+  if (error instanceof AgyCsrfError) return false;
   return statusForError(errorMessage(error)) === "auth_required";
 }
 
@@ -1133,13 +1159,14 @@ class AgyHttpError extends Error {
 function httpResponseError(status: number, body: string): Error {
   if ((status === 401 || status === 403) && isCsrfRejection(body)) {
     return new AgyCsrfError(
-      "Antigravity CLI quota unavailable because its runtime CSRF token is not exposed; use Antigravity /usage",
+      "Antigravity CLI quota unavailable because its runtime CSRF token is not exposed; use Antigravity /quota",
     );
   }
   return new AgyHttpError(status);
 }
 
 function isCsrfRejection(body: string): boolean {
+  if (/missing\s+CSRF\s+token/i.test(body)) return true;
   try {
     const payload = objectValue(JSON.parse(body) as unknown);
     const message = stringValue(payload?.message);
