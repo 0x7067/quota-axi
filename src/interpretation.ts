@@ -129,7 +129,11 @@ function semanticsFor(
     case "opencode-go":
       return opencodeGoSemantics(provider.windows, generatedAt);
     case "minimax":
-      return minimaxSemantics(provider.windows, generatedAt);
+      return minimaxSemantics(
+        provider.windows,
+        provider.state.untrustedWindowIds ?? [],
+        generatedAt,
+      );
     case "mimo":
       return unknownSemantics(
         provider.windows,
@@ -193,12 +197,16 @@ function opencodeGoSemantics(
 
 function minimaxSemantics(
   windows: QuotaWindow[],
+  untrustedWindowIds: string[],
   generatedAt: string,
 ): QuotaSemantics {
   const modelWindows = windows.filter(
     ({ id, kind }) => kind === "model" && id.startsWith("model:"),
   );
   const unresolved = windows.filter((window) => !modelWindows.includes(window));
+  const unresolvedWindowIds = [
+    ...new Set([...unresolved.map(({ id }) => id), ...untrustedWindowIds]),
+  ];
   const models = new Map<string, QuotaWindow[]>();
   for (const window of modelWindows) {
     const scope = minimaxModelScope(window.id);
@@ -207,21 +215,17 @@ function minimaxSemantics(
     models.set(scope, scoped);
   }
   const effectiveAvailability = [...models].map(([scope, scoped]) =>
-    unresolved.length > 0
-      ? unresolvedAvailability(
-          scope,
-          scoped,
-          unresolved.map(({ id }) => id),
-        )
+    unresolvedWindowIds.length > 0
+      ? unresolvedAvailability(scope, scoped, unresolvedWindowIds)
       : availability(scope, scoped, generatedAt),
   );
-  if (unresolved.length > 0) {
+  if (unresolvedWindowIds.length > 0) {
     return {
       status: "partial",
       description:
         "MiniMax reports quota rows for named models. Unrecognized rows are not assigned to a model, so effective model headroom remains unknown.",
       effectiveAvailability,
-      unresolvedWindowIds: unresolved.map(({ id }) => id),
+      unresolvedWindowIds,
     };
   }
   return knownSemantics(

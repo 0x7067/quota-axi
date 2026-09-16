@@ -1,3 +1,4 @@
+import { deleteCachedProvider as deleteCachedProviderFromDisk } from "../cache.js";
 import { readJsonFileResult, type JsonFileReadResult } from "../lib/fs.js";
 import { providerFetch } from "../lib/http.js";
 import { classifyPiAuthEntry } from "../lib/pi-auth-store.js";
@@ -28,6 +29,7 @@ type CredentialResolution =
 type Dependencies = {
   credential: () => CredentialResolution | CredentialResolution[];
   fetch: typeof providerFetch;
+  deleteCachedProvider: typeof deleteCachedProviderFromDisk;
   now: () => number;
   deadlineMs: number;
 };
@@ -95,6 +97,7 @@ export function createOpenRouterAdapter(
   const dependencies: Dependencies = {
     credential: () => resolveOpenRouterCredentials(),
     fetch: providerFetch,
+    deleteCachedProvider: deleteCachedProviderFromDisk,
     now: Date.now,
     deadlineMs: DEADLINE_MS,
     ...overrides,
@@ -200,6 +203,13 @@ async function fetchQuota(dependencies: Dependencies): Promise<ProviderQuota> {
     status: "auth_required" as const,
     error: "openrouter_credential_unavailable",
   };
+  if (failure.status === "auth_required") {
+    try {
+      dependencies.deleteCachedProvider("openrouter");
+    } catch {
+      // Preserve the current definitive auth result.
+    }
+  }
   return failedProvider({
     provider: "openrouter",
     label: LABEL,

@@ -13,7 +13,7 @@ const LABEL = "MiMo";
 
 type MimoCredentialResolution =
   | { status: "available"; key: string; source: string }
-  | { status: "missing" | "invalid"; source: string };
+  | { status: "missing"; source: string };
 
 type MimoDependencies = {
   credential: () => MimoCredentialResolution;

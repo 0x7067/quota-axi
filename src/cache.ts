@@ -467,7 +467,7 @@ function normalizeCachedCredits(
   if (!data) return undefined;
   const remaining = numberValue(data.remaining);
   const unlimited = booleanValue(data.unlimited);
-  const unit = literalValue(data.unit, ["usd", "credits"] as const);
+  const unit = literalValue(data.unit, ["usd", "cny", "credits"] as const);
   if (remaining === undefined && unlimited === undefined && unit === undefined)
     return undefined;
   return {

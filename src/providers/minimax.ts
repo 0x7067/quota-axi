@@ -49,14 +49,12 @@ export type MiniMaxCredentialResolution =
       source: string;
       path?: string;
       baseUrl: string;
-      attempts?: SourceAttempt[];
     }
   | {
       status: "missing" | "invalid" | "error";
       source: string;
       path?: string;
       error?: string;
-      attempts?: SourceAttempt[];
     };
 
 type MiniMaxDependencies = {
@@ -79,6 +77,7 @@ export type NormalizedMiniMaxPayload = {
   plan?: string;
   windows: QuotaWindow[];
   credits?: ProviderQuota["credits"];
+  untrustedWindowIds?: string[];
 };
 
 export function minimaxConfigPath(): string {
@@ -240,8 +239,8 @@ async function fetchQuotaWithDependencies(
 ): Promise<ProviderQuota> {
   const attempts: SourceAttempt[] = [];
   let finalFailure: MiniMaxFailure | undefined;
+  let finalResolution: MiniMaxCredentialResolution | undefined;
   for (const resolution of credentialCandidates(dependencies)) {
-    if (resolution.attempts) attempts.push(...resolution.attempts);
     if (resolution.status !== "available") {
       const failure = credentialFailure(resolution);
       replaceCredentialAttempt(attempts, resolution.source, {
@@ -249,7 +248,10 @@ async function fetchQuotaWithDependencies(
         status: resolution.status === "missing" ? "skipped" : "failed",
         error: failure.code,
       });
-      finalFailure = preferMiniMaxFailure(finalFailure, failure);
+      if (preferMiniMaxFailure(finalFailure, failure) === failure) {
+        finalFailure = failure;
+        finalResolution = resolution;
+      }
       continue;
     }
 
@@ -260,7 +262,7 @@ async function fetchQuotaWithDependencies(
         dependencies.fetch,
         dependencies.deadlineMs,
       );
-      const normalized = normalizeMiniMaxPayload(payload);
+      const normalized = normalizeMiniMaxPayload(payload, resolution.baseUrl);
       if (
         normalized.windows.length === 0 &&
         normalized.credits === undefined &&
@@ -272,8 +274,10 @@ async function fetchQuotaWithDependencies(
         source: resolution.source,
         status: "success",
       });
-      publishMiniMaxReadingContextId(miniMaxCacheContextId(resolution));
-      return successProvider({
+      publishMiniMaxReadingContextId(
+        miniMaxCacheContextId(resolution.source, resolution.baseUrl),
+      );
+      const report = successProvider({
         provider: "minimax",
         label: LABEL,
         source: "api",
@@ -284,6 +288,10 @@ async function fetchQuotaWithDependencies(
         sourcesTried: sourceNames(attempts),
         attempts,
       });
+      if (normalized.untrustedWindowIds) {
+        report.state.untrustedWindowIds = normalized.untrustedWindowIds;
+      }
+      return report;
     } catch (error) {
       const failure =
         error instanceof MiniMaxFailure
@@ -295,13 +303,16 @@ async function fetchQuotaWithDependencies(
         error: failure.code,
       });
       if (failure.definitiveAuth) {
-        finalFailure = preferMiniMaxFailure(finalFailure, failure);
+        if (preferMiniMaxFailure(finalFailure, failure) === failure) {
+          finalFailure = failure;
+          finalResolution = resolution;
+        }
         continue;
       }
       if (failure.staleEligible) {
         try {
           const cached = dependencies.readCachedProvider(
-            miniMaxCacheContextId(resolution),
+            miniMaxCacheContextId(resolution.source, resolution.baseUrl),
           );
           if (cached) {
             return staleFromCache(
@@ -339,6 +350,27 @@ async function fetchQuotaWithDependencies(
       dependencies.deleteCachedProvider("minimax");
     } catch {
       // Preserve the current definitive auth result.
+    }
+  } else if (failure.staleEligible && finalResolution) {
+    try {
+      const cached = dependencies.readCachedProvider(
+        miniMaxCacheContextId(
+          finalResolution.source,
+          finalResolution.status === "available"
+            ? finalResolution.baseUrl
+            : configuredBaseUrl(),
+        ),
+      );
+      if (cached) {
+        return staleFromCache(
+          cached,
+          failure.code,
+          sourceNames(attempts),
+          attempts,
+        );
+      }
+    } catch {
+      // Cache I/O cannot replace the bounded provider failure.
     }
   }
   return failedProvider({
@@ -379,21 +411,51 @@ async function inspectAuthWithDependencies(
 
 export function normalizeMiniMaxPayload(
   raw: unknown,
+  baseUrl?: string,
 ): NormalizedMiniMaxPayload {
   const root = objectValue(raw);
   if (!root) return { windows: [] };
   const balanceRoot = objectValue(root.data) ?? root;
   const balance = numberValue(balanceRoot.available_amount);
   if (balance !== undefined) {
-    return { windows: [], credits: { remaining: balance, unit: "usd" } };
+    // The China deployment denominates balances in CNY; the response carries
+    // no currency field, so the answering host is the only unit evidence.
+    const unit = miniMaxBalanceUnit(baseUrl);
+    return { windows: [], credits: { remaining: balance, unit } };
   }
 
   const data = objectValue(root.data) ?? root;
   const rows =
     data && Array.isArray(data.model_remains) ? data.model_remains : [];
-  const windows = rows.flatMap(normalizeModelRemain);
+  const windows: QuotaWindow[] = [];
+  const untrustedWindowIds: string[] = [];
+  for (const [offset, row] of rows.entries()) {
+    const recognized = normalizeModelRemain(row);
+    if (recognized.length > 0 || isNoAllocationModelRemain(row)) {
+      windows.push(...recognized);
+      continue;
+    }
+    const id = `limit:${offset + 1}`;
+    windows.push({ id, label: `limit ${offset + 1}`, kind: "unknown" });
+    untrustedWindowIds.push(id);
+  }
   const plan = firstString(data, ["plan", "plan_name", "planName"]);
-  return { windows, ...(plan ? { plan } : {}) };
+  return {
+    windows,
+    ...(plan ? { plan } : {}),
+    ...(untrustedWindowIds.length > 0 ? { untrustedWindowIds } : {}),
+  };
+}
+
+function miniMaxBalanceUnit(baseUrl: string | undefined): "usd" | "cny" {
+  try {
+    return new URL(baseUrl ?? MINIMAX_GLOBAL_BASE_URL).hostname ===
+      new URL(MINIMAX_CHINA_BASE_URL).hostname
+      ? "cny"
+      : "usd";
+  } catch {
+    return "usd";
+  }
 }
 
 function normalizeModelRemain(raw: unknown): QuotaWindow[] {
@@ -710,12 +772,12 @@ function replaceCredentialAttempt(
  * The cache identity a reading from this credential belongs to: the source
  * that produced it plus the deployment host its resolution implies, so one
  * account's snapshot can never serve another source's or host's stale read.
+ * A resolution that could not produce a credential still names the source and
+ * the deployment the environment implies, which is all a stale read can ask.
  */
-function miniMaxCacheContextId(
-  resolution: Extract<MiniMaxCredentialResolution, { status: "available" }>,
-): string {
+function miniMaxCacheContextId(source: string, baseUrl: string): string {
   return createHash("sha256")
-    .update(`minimax-source:${resolution.source}\nbase:${resolution.baseUrl}`)
+    .update(`minimax-source:${source}\nbase:${baseUrl}`)
     .digest("hex");
 }
 
@@ -762,10 +824,7 @@ function safeBaseUrl(value: string | undefined): string | undefined {
       parsed.hostname !== "api.minimaxi.com"
     )
       return undefined;
-    parsed.pathname = parsed.pathname.replace(/\/+$/, "");
-    parsed.search = "";
-    parsed.hash = "";
-    return parsed.toString().replace(/\/$/, "");
+    return parsed.origin;
   } catch {
     return undefined;
   }

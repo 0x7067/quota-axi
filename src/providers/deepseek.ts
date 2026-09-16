@@ -35,7 +35,6 @@ type Dependencies = {
 };
 
 export type NormalizedDeepSeekPayload = {
-  available: boolean;
   metrics: {
     id: "usd-total" | "cny-total";
     value: string;
@@ -312,7 +311,7 @@ export function normalizeDeepSeekPayload(
     });
   }
 
-  return { available: root.is_available, metrics };
+  return { metrics };
 }
 
 function computeCredits(

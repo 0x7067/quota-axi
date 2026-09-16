@@ -194,13 +194,16 @@ describe("OpenRouter provider", () => {
 
   it("reports unusable local credentials as auth_required", async () => {
     const request = vi.fn();
+    const deleteCachedProvider = vi.fn();
     const missing = await createOpenRouterAdapter({
       credential: () => ({ status: "missing", source: "pi:openrouter" }),
       fetch: request,
+      deleteCachedProvider,
     }).fetchQuota(OPTIONS);
     const invalid = await createOpenRouterAdapter({
       credential: () => ({ status: "invalid", source: "pi:openrouter" }),
       fetch: request,
+      deleteCachedProvider,
     }).fetchQuota(OPTIONS);
     expect(missing).toMatchObject({
       provider: "openrouter",
@@ -219,6 +222,7 @@ describe("OpenRouter provider", () => {
       },
     });
     expect(request).not.toHaveBeenCalled();
+    expect(deleteCachedProvider).toHaveBeenCalledWith("openrouter");
   });
 
   it("extracts a Pi auth.json openrouter entry", () => {

@@ -9,7 +9,7 @@ import type { ModelCatalog } from "./types.js";
  * or redistributing any third-party scores.
  */
 export const MODEL_CATALOG: ModelCatalog = {
-  version: "2026-08-05",
+  version: "2026-09-15",
   provenance:
     "Curated editorial intelligence buckets informed by public provider materials and leaderboards, including Artificial Analysis (https://artificialanalysis.ai/). No third-party scores are reproduced.",
   entries: [

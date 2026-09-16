@@ -309,8 +309,77 @@ describe("MiniMax provider", () => {
         percentUsed: 75,
       }),
     ]);
-    expect(normalizeMiniMaxPayload({ model_remains: [{}] })).toEqual({
+    const unrecognized = normalizeMiniMaxPayload({ model_remains: [{}] });
+    expect(unrecognized.windows).toEqual([
+      expect.objectContaining({ id: "limit:1", kind: "unknown" }),
+    ]);
+    expect(unrecognized.untrustedWindowIds).toEqual(["limit:1"]);
+  });
+
+  it("reports a China-deployment balance as CNY", async () => {
+    const request = vi.fn(async (input: RequestInfo | URL) => {
+      expect(String(input)).toBe(
+        "https://api.minimaxi.com/account/query_balance",
+      );
+      return new Response(JSON.stringify(fixture("balance")));
+    });
+    const report = await createMiniMaxAdapter({
+      credential: () => ({
+        status: "available",
+        key: "sk-api-synthetic",
+        source: "minimax:config.json",
+        baseUrl: "https://api.minimaxi.com",
+      }),
+      fetch: request,
+    }).fetchQuota(OPTIONS);
+    expect(report).toMatchObject({
       windows: [],
+      credits: { remaining: 12.5, unit: "cny" },
+      state: { status: "fresh" },
+    });
+  });
+
+  it("marks a named row with no recognized windows as untrusted", async () => {
+    const report = await createMiniMaxAdapter({
+      credential: () => ({
+        status: "available",
+        key: KEY,
+        source: "pi:minimax",
+        baseUrl: "https://api.minimax.io",
+      }),
+      fetch: async () =>
+        new Response(
+          JSON.stringify({
+            model_remains: [
+              {
+                model_name: "MiniMax-M3",
+                current_interval_remaining_percent: 90,
+              },
+              { model_name: "MiniMax-M4", daily_limit: 100, daily_used: 40 },
+            ],
+          }),
+        ),
+    }).fetchQuota(OPTIONS);
+
+    expect(report.state.status).toBe("fresh");
+    expect(report.state.untrustedWindowIds).toEqual(["limit:2"]);
+    expect(report.windows).toEqual([
+      expect.objectContaining({
+        id: "model:minimax-m3:window:current_interval",
+        kind: "model",
+      }),
+      expect.objectContaining({ id: "limit:2", kind: "unknown" }),
+    ]);
+    const interpreted = withQuotaSemantics(report, "2026-09-01T00:00:00.000Z");
+    expect(interpreted.quotaSemantics).toMatchObject({
+      status: "partial",
+      unresolvedWindowIds: ["limit:2"],
+      effectiveAvailability: [
+        expect.objectContaining({
+          scope: "model:minimax-m3",
+          status: "unknown",
+        }),
+      ],
     });
   });
 
@@ -710,14 +779,40 @@ describe("MiniMax provider", () => {
       );
       writeFileSync(mmxFile, "not a directory");
       const deleteCachedProvider = vi.fn();
+      const cached = {
+        provider: "minimax" as const,
+        label: "MiniMax",
+        source: "api" as const,
+        windows: [
+          {
+            id: "model:minimax-m3:5h",
+            label: "MiniMax-M3 5h",
+            kind: "model" as const,
+            percentRemaining: 40,
+          },
+        ],
+        state: {
+          status: "fresh" as const,
+          stale: false,
+          refreshedAt: "2026-09-01T00:00:00.000Z",
+          sourcesTried: ["minimax:config.json"],
+        },
+      };
+      const readCachedProvider = vi
+        .fn()
+        .mockReturnValueOnce(undefined)
+        .mockImplementation((contextId: string) =>
+          /^[a-f0-9]{64}$/.test(contextId) ? cached : undefined,
+        );
 
-      const report = await createMiniMaxAdapter({
+      const unresolved = await createMiniMaxAdapter({
         credential: resolveMiniMaxCredentials,
         fetch: vi.fn() as typeof globalThis.fetch,
+        readCachedProvider,
         deleteCachedProvider,
       }).fetchQuota(OPTIONS);
 
-      expect(report).toMatchObject({
+      expect(unresolved).toMatchObject({
         state: { status: "error", error: "credential_resolution_failed" },
         attempts: [
           {
@@ -731,6 +826,25 @@ describe("MiniMax provider", () => {
             error: "credential_resolution_failed",
           },
         ],
+      });
+      expect(deleteCachedProvider).not.toHaveBeenCalled();
+      expect(readCachedProvider).toHaveBeenCalledOnce();
+
+      const stale = await createMiniMaxAdapter({
+        credential: resolveMiniMaxCredentials,
+        fetch: vi.fn() as typeof globalThis.fetch,
+        readCachedProvider,
+        deleteCachedProvider,
+      }).fetchQuota(OPTIONS);
+
+      expect(stale).toMatchObject({
+        source: "cache",
+        windows: [{ id: "model:minimax-m3:5h", percentRemaining: 40 }],
+        state: {
+          status: "stale",
+          stale: true,
+          error: "credential_resolution_failed",
+        },
       });
       expect(deleteCachedProvider).not.toHaveBeenCalled();
     } finally {

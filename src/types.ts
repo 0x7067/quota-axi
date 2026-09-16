@@ -273,7 +273,7 @@ export type ProviderQuota = {
   credits?: {
     remaining?: number;
     unlimited?: boolean;
-    unit?: "usd" | "credits";
+    unit?: "usd" | "cny" | "credits";
   };
   state: {
     status: ProviderStatus;
