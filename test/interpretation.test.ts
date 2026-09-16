@@ -844,14 +844,84 @@ describe("quota semantics", () => {
     const agy = withQuotaSemantics(
       provider("agy", [
         window("gemini_5h", "session", 100),
-        window("gemini_weekly", "weekly", 98),
+        window("gemini_weekly", "weekly", 0),
+        window("claude_gpt_5h", "session", 100),
+        window("claude_gpt_weekly", "weekly", 90),
       ]),
       GENERATED_AT,
     );
     expect(agy.quotaSemantics).toMatchObject({
-      status: "unknown",
-      effectiveAvailability: [],
-      unresolvedWindowIds: ["gemini_5h", "gemini_weekly"],
+      status: "known",
+      effectiveAvailability: [
+        expect.objectContaining({
+          scope: "gemini",
+          status: "known",
+          effectivePercentRemaining: 0,
+          boundedBy: ["gemini_5h", "gemini_weekly"],
+          limitingWindowIds: ["gemini_weekly"],
+        }),
+        expect.objectContaining({
+          scope: "claude_gpt",
+          status: "known",
+          effectivePercentRemaining: 90,
+          boundedBy: ["claude_gpt_5h", "claude_gpt_weekly"],
+          limitingWindowIds: ["claude_gpt_weekly"],
+        }),
+      ],
+    });
+    expect(agy.quotaSemantics?.unresolvedWindowIds).toBeUndefined();
+
+    const agyWeeklyOnly = withQuotaSemantics(
+      provider("agy", [window("gemini_weekly", "weekly", 40)]),
+      GENERATED_AT,
+    );
+    expect(agyWeeklyOnly.quotaSemantics).toMatchObject({
+      status: "known",
+      effectiveAvailability: [
+        expect.objectContaining({
+          scope: "gemini",
+          effectivePercentRemaining: 40,
+          boundedBy: ["gemini_weekly"],
+        }),
+      ],
+    });
+
+    const agyUnfamiliar = withQuotaSemantics(
+      provider("agy", [
+        window("gemini_weekly", "weekly", 40),
+        window("limit:extra", "unknown", 80),
+      ]),
+      GENERATED_AT,
+    );
+    expect(agyUnfamiliar.quotaSemantics).toMatchObject({
+      status: "partial",
+      unresolvedWindowIds: ["limit:extra"],
+      effectiveAvailability: [
+        expect.objectContaining({
+          scope: "gemini",
+          effectivePercentRemaining: 40,
+        }),
+      ],
+    });
+
+    const agyUnknownKind = withQuotaSemantics(
+      provider("agy", [
+        window("gemini_5h", "session", 100),
+        window("gemini_weekly", "weekly", 70),
+        window("gemini_unknown", "unknown", 10),
+      ]),
+      GENERATED_AT,
+    );
+    expect(agyUnknownKind.quotaSemantics).toMatchObject({
+      status: "partial",
+      unresolvedWindowIds: ["gemini_unknown"],
+      effectiveAvailability: [
+        expect.objectContaining({
+          scope: "gemini",
+          effectivePercentRemaining: 70,
+          boundedBy: ["gemini_5h", "gemini_weekly"],
+        }),
+      ],
     });
 
     const kimi = withQuotaSemantics(
@@ -1205,5 +1275,23 @@ describe("per-scope selection signal", () => {
       withQuotaSemantics(missingCycle, GENERATED_AT).quotaSemantics
         ?.effectiveAvailability[0]?.selection,
     ).toEqual({ status: "unknown", unmeasurableWindowIds: ["seven_day"] });
+  });
+
+  it("marks agy reading stale when its resetsAt is in the past relative to generatedAt", () => {
+    const agy = provider("agy", [
+      window("gemini_5h", "session", 90, {
+        windowSeconds: FIVE_HOURS_SECONDS,
+        resetsAt: new Date(Date.parse(GENERATED_AT) - 1_000).toISOString(),
+      }),
+      window("gemini_weekly", "weekly", 80, {
+        windowSeconds: WEEK_SECONDS,
+        resetsAt: after(3 * DAY_SECONDS),
+      }),
+    ]);
+
+    const result = withQuotaSemantics(agy, GENERATED_AT);
+    expect(result.state.status).toBe("stale");
+    expect(result.state.stale).toBe(true);
+    expect(result.quotaSemantics?.status).toBe("unknown");
   });
 });
