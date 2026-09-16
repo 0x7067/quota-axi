@@ -196,6 +196,7 @@ describe("Antigravity quota parsing", () => {
       104 codex --prompt "antigravity-cli mcp-server.cjs language_server"
       105 /usr/bin/node /opt/runner.cjs --prompt "/opt/antigravity-cli/mcp-server.cjs"
       106 /usr/bin/codex --prompt "/Applications/Antigravity.app/Contents/bin/language_server --csrf_token fake"
+      108 /usr/bin/node /Applications/Antigravity IDE.app/Contents/bin/language_server_macos_arm --csrf_token fake
     `);
 
     expect(processes).toMatchObject([
@@ -215,6 +216,21 @@ agy 101 test 8u IPv4 0x1 0t0 TCP 127.0.0.1:64440 (LISTEN)
 agy 101 test 9u IPv4 0x2 0t0 TCP 127.0.0.1:64441 (LISTEN)
 `),
     ).toEqual([64440, 64441]);
+  });
+
+  it("recognizes the Antigravity IDE app bundle when its name contains spaces", () => {
+    const processes = processInfosFromPs(`
+      107 /Applications/Antigravity IDE.app/Contents/Resources/app/extensions/antigravity/bin/language_server_macos_arm --csrf_token ide-token --extension_server_port 56512
+    `);
+
+    expect(processes).toMatchObject([
+      {
+        pid: 107,
+        source: "app",
+        csrfToken: "ide-token",
+        extensionPort: 56512,
+      },
+    ]);
   });
 });
 
