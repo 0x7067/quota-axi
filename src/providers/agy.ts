@@ -840,9 +840,10 @@ function isAgyMcpScript(token: string | undefined): boolean {
 
 function isAgyAppExecutable(command: string): boolean {
   const normalized = normalizedPath(command);
+  const executablePath = normalized.split(/\s+--/, 1)[0];
   if (
-    /^\/applications\/[^\n]*antigravity\.app\/contents\/[^\n]*\/language[-_]server(?:_[a-z0-9_]+)?(?=\s+--|$)/.test(
-      normalized,
+    /^\/applications\/(?:[^/\n]+\/)*[^/\n]*antigravity[^/\n]*\.app\/contents\/[^\n]*\/language[-_]server(?:_[a-z0-9_]+)?$/.test(
+      executablePath,
     )
   )
     return true;
