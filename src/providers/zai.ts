@@ -72,7 +72,7 @@ export type ZaiCredentialInspection =
   | { status: "available"; path: string }
   | { status: "missing"; path: string }
   | { status: "invalid"; path: string; error: string }
-  | { status: "error"; path: string; error: string };
+  | { status: "error"; path?: string; error: string };
 
 export type ZaiCredentialSource = {
   resolve(): Promise<ZaiCredentialResolution>;
@@ -178,10 +178,21 @@ export function createZaiAdapter(
       return acquisition;
     },
     async inspectAuth(_options: ProviderOptions): Promise<AuthProviderReport> {
-      const [piInspection, opencodeInspection] = await Promise.all([
-        dependencies.piBroker.inspect(),
-        dependencies.opencodeSource.inspect(),
-      ]);
+      let piInspection: PiZaiCredentialInspection;
+      try {
+        piInspection = await dependencies.piBroker.inspect();
+      } catch {
+        piInspection = "error";
+      }
+      let opencodeInspection: ZaiCredentialInspection;
+      try {
+        opencodeInspection = await dependencies.opencodeSource.inspect();
+      } catch {
+        opencodeInspection = {
+          status: "error",
+          error: "credential_resolution_failed",
+        };
+      }
       const sources: AuthSourceReport[] = [
         zaiAuthSourceReport(PI_ZAI_CREDENTIAL_SOURCE, piInspection),
         zaiAuthSourceReport(OPENCODE_AUTH_SOURCE, opencodeInspection),

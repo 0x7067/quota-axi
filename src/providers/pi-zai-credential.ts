@@ -3,10 +3,16 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { usableLiteralSecret } from "../lib/secret.js";
 
-const ZAI_PROVIDER_IDS = ["zai", "zhipu"];
 const AUTH_FILE_LIMIT_BYTES = 64 * 1024;
 const ZAI_HOST = "api.z.ai";
 const ZHIPU_HOST = "open.bigmodel.cn";
+// Pi's own Z.AI logins are `zai` (Global) and `zai-coding-cn` (China);
+// `zhipu` covers a custom provider a user named by hand.
+const ZAI_PROVIDER_HOSTS: Readonly<Record<string, string>> = {
+  zai: ZAI_HOST,
+  "zai-coding-cn": ZHIPU_HOST,
+  zhipu: ZHIPU_HOST,
+};
 
 export type PiZaiCredentialResolution =
   | {
@@ -83,16 +89,15 @@ async function resolveCredential(
   const root = objectValue(parsed);
   if (!root) return { status: "missing" };
 
-  // Pi stores a `zai` (or `zhipu`) login as either a literal API key or the
-  // OAuth record it received from the vendor. Both are read in place: an
-  // expired OAuth record is reported as expired rather than refreshed,
-  // because refreshing would mutate Pi's auth state. The first matching
-  // provider id wins; an unusable `zai` key is reported as missing rather
-  // than silently falling through to `zhipu`.
-  for (const providerId of ZAI_PROVIDER_IDS) {
+  // Each login is either a literal API key or the OAuth record Pi received
+  // from the vendor. Both are read in place: an expired OAuth record is
+  // reported as expired rather than refreshed, because refreshing would
+  // mutate Pi's auth state. The first matching provider id wins; an
+  // unusable `zai` entry is reported as missing rather than silently
+  // falling through to the next id.
+  for (const [providerId, host] of Object.entries(ZAI_PROVIDER_HOSTS)) {
     const entry = objectValue(root[providerId]);
     if (!entry) continue;
-    const host = providerId === "zhipu" ? ZHIPU_HOST : ZAI_HOST;
     const credential = resolveEntry(entry, dependencies);
     if (credential.status === "available") {
       return { ...credential, host };
