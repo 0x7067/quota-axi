@@ -684,6 +684,35 @@ describe("quota semantics", () => {
     ]);
   });
 
+  it("bounds Kimi by its account windows and never by the monthly code share", () => {
+    const monthCode: QuotaWindow = {
+      id: "month_code",
+      label: "code month",
+      kind: "monthly",
+      percentUsed: 25,
+    };
+    const result = withQuotaSemantics(
+      provider("kimi", [
+        window("five_hour", "session", 50),
+        window("month_total", "monthly", 60),
+        monthCode,
+      ]),
+      GENERATED_AT,
+    );
+
+    expect(result.quotaSemantics?.status).toBe("known");
+    expect(result.quotaSemantics?.unresolvedWindowIds).toBeUndefined();
+    expect(result.quotaSemantics?.effectiveAvailability).toEqual([
+      expect.objectContaining({
+        scope: "all_models",
+        status: "known",
+        effectivePercentRemaining: 50,
+        boundedBy: ["five_hour", "month_total"],
+        limitingWindowIds: ["five_hour"],
+      }),
+    ]);
+  });
+
   it("keeps valid Kimi bounds while marking unparsed limits partial", () => {
     const kimi = provider("kimi", [window("weekly", "weekly", 59)]);
     kimi.state.untrustedWindowIds = ["limit:2"];
@@ -693,7 +722,7 @@ describe("quota semantics", () => {
     expect(result.quotaSemantics).toEqual({
       status: "partial",
       description:
-        "Kimi's valid weekly and five-hour account windows are known bounds, but unrecognized or unparsed limits may add bounds, so effective remaining is unknown.",
+        "Kimi's valid weekly, five-hour, and monthly-total account windows are known bounds, but unrecognized or unparsed limits may add bounds, so effective remaining is unknown. The monthly code window is the code-typed share of that monthly total rather than a separate allowance, so it adds no bound.",
       effectiveAvailability: [
         {
           scope: "all_models",
