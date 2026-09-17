@@ -4,6 +4,7 @@ import { providerFetch } from "../lib/http.js";
 import { classifyPiAuthEntry } from "../lib/pi-auth-store.js";
 import { resolvePiAuthFilePath } from "../lib/pi-agent-dir.js";
 import { usableLiteralSecret } from "../lib/secret.js";
+import { retryAfterToIso } from "../lib/time.js";
 import type {
   AuthProviderReport,
   AuthSourceReport,
@@ -21,6 +22,7 @@ export const OPENROUTER_ENV_SOURCE = "env:OPENROUTER_API_KEY";
 
 const LABEL = "OpenRouter";
 const DEADLINE_MS = 15_000;
+const RESPONSE_LIMIT_BYTES = 262_144;
 
 type CredentialResolution =
   | { status: "available"; key: string; source: string; path?: string }
@@ -192,7 +194,9 @@ async function fetchQuota(dependencies: Dependencies): Promise<ProviderQuota> {
         label: LABEL,
         status: statusFromError(code),
         error: code,
-        source: "api",
+        source: "unavailable",
+        retryAfter:
+          error instanceof OpenRouterError ? error.retryAfter : undefined,
         sourcesTried: sourceNames(attempts),
         attempts,
       });
@@ -215,7 +219,7 @@ async function fetchQuota(dependencies: Dependencies): Promise<ProviderQuota> {
     label: LABEL,
     status: failure.status,
     error: failure.error,
-    source: "api",
+    source: "unavailable",
     sourcesTried: sourceNames(attempts),
     attempts,
   });
@@ -296,13 +300,18 @@ async function requestUsage(
     if (response.status === 401 || response.status === 403)
       throw new OpenRouterError("provider_auth_rejected");
     if (response.status === 429)
-      throw new OpenRouterError("provider_rate_limited");
+      throw new OpenRouterError(
+        "provider_rate_limited",
+        retryAfterToIso(response.headers.get("retry-after")),
+      );
     if (!response.ok)
       throw new OpenRouterError("provider_error:" + response.status);
-    const text = await response.text();
+    const body = await readResponseBody(response, controller.signal);
     let parsed: unknown;
     try {
-      parsed = JSON.parse(text);
+      parsed = JSON.parse(
+        new TextDecoder("utf-8", { fatal: true }).decode(body),
+      );
     } catch {
       throw new OpenRouterError("invalid_json");
     }
@@ -362,7 +371,54 @@ function clampPercent(value: number): number {
   return Math.max(0, Math.min(100, value));
 }
 
-class OpenRouterError extends Error {}
+async function readResponseBody(
+  response: Response,
+  signal: AbortSignal,
+): Promise<Uint8Array> {
+  const declared = response.headers.get("content-length")?.trim();
+  if (
+    declared &&
+    /^\d+$/.test(declared) &&
+    Number(declared) > RESPONSE_LIMIT_BYTES
+  ) {
+    await response.body?.cancel().catch(() => undefined);
+    throw new OpenRouterError("response_too_large");
+  }
+  if (!response.body) throw new OpenRouterError("response_size_unverifiable");
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let length = 0;
+  try {
+    while (true) {
+      if (signal.aborted) throw new OpenRouterError("provider_timeout");
+      const result = await reader.read();
+      if (result.done) break;
+      length += result.value.byteLength;
+      if (length > RESPONSE_LIMIT_BYTES)
+        throw new OpenRouterError("response_too_large");
+      chunks.push(result.value);
+    }
+  } finally {
+    void reader.cancel().catch(() => undefined);
+    reader.releaseLock();
+  }
+  const bytes = new Uint8Array(length);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return bytes;
+}
+
+class OpenRouterError extends Error {
+  readonly retryAfter?: string;
+
+  constructor(code: string, retryAfter?: string) {
+    super(code);
+    this.retryAfter = retryAfter;
+  }
+}
 
 function credentialError(resolution: CredentialResolution): string {
   if (resolution.status === "missing")

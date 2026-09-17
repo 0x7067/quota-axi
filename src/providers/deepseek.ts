@@ -3,6 +3,7 @@ import { providerFetch } from "../lib/http.js";
 import { classifyPiAuthEntry } from "../lib/pi-auth-store.js";
 import { resolvePiAuthFilePath } from "../lib/pi-agent-dir.js";
 import { usableLiteralSecret } from "../lib/secret.js";
+import { retryAfterToIso } from "../lib/time.js";
 import type {
   AuthProviderReport,
   AuthSourceReport,
@@ -19,6 +20,7 @@ export const DEEPSEEK_ENV_SOURCE = "env:DEEPSEEK_API_KEY";
 
 const LABEL = "DeepSeek";
 const DEADLINE_MS = 15_000;
+const RESPONSE_LIMIT_BYTES = 262_144;
 
 const CURRENCIES = ["USD", "CNY"] as const;
 type DeepSeekCurrency = (typeof CURRENCIES)[number];
@@ -160,7 +162,9 @@ async function fetchQuota(dependencies: Dependencies): Promise<ProviderQuota> {
         label: LABEL,
         status: statusFromError(code),
         error: code,
-        source: "api",
+        source: "unavailable",
+        retryAfter:
+          error instanceof DeepSeekError ? error.retryAfter : undefined,
         sourcesTried: sourceNames(attempts),
         attempts,
       });
@@ -176,7 +180,7 @@ async function fetchQuota(dependencies: Dependencies): Promise<ProviderQuota> {
     label: LABEL,
     status: failure.status,
     error: failure.error,
-    source: "api",
+    source: "unavailable",
     sourcesTried: sourceNames(attempts),
     attempts,
   });
@@ -257,13 +261,18 @@ async function requestUsage(
     if (response.status === 401 || response.status === 403)
       throw new DeepSeekError("provider_auth_rejected");
     if (response.status === 429)
-      throw new DeepSeekError("provider_rate_limited");
+      throw new DeepSeekError(
+        "provider_rate_limited",
+        retryAfterToIso(response.headers.get("retry-after")),
+      );
     if (!response.ok)
       throw new DeepSeekError("provider_error:" + response.status);
-    const text = await response.text();
+    const body = await readResponseBody(response, controller.signal);
     let parsed: unknown;
     try {
-      parsed = JSON.parse(text);
+      parsed = JSON.parse(
+        new TextDecoder("utf-8", { fatal: true }).decode(body),
+      );
     } catch {
       throw new DeepSeekError("invalid_json");
     }
@@ -357,7 +366,54 @@ function decimalAmount(value: unknown): value is string {
   );
 }
 
-class DeepSeekError extends Error {}
+async function readResponseBody(
+  response: Response,
+  signal: AbortSignal,
+): Promise<Uint8Array> {
+  const declared = response.headers.get("content-length")?.trim();
+  if (
+    declared &&
+    /^\d+$/.test(declared) &&
+    Number(declared) > RESPONSE_LIMIT_BYTES
+  ) {
+    await response.body?.cancel().catch(() => undefined);
+    throw new DeepSeekError("response_too_large");
+  }
+  if (!response.body) throw new DeepSeekError("response_size_unverifiable");
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let length = 0;
+  try {
+    while (true) {
+      if (signal.aborted) throw new DeepSeekError("provider_timeout");
+      const result = await reader.read();
+      if (result.done) break;
+      length += result.value.byteLength;
+      if (length > RESPONSE_LIMIT_BYTES)
+        throw new DeepSeekError("response_too_large");
+      chunks.push(result.value);
+    }
+  } finally {
+    void reader.cancel().catch(() => undefined);
+    reader.releaseLock();
+  }
+  const bytes = new Uint8Array(length);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return bytes;
+}
+
+class DeepSeekError extends Error {
+  readonly retryAfter?: string;
+
+  constructor(code: string, retryAfter?: string) {
+    super(code);
+    this.retryAfter = retryAfter;
+  }
+}
 
 function credentialError(resolution: CredentialResolution): string {
   if (resolution.status === "missing") return "deepseek_credential_unavailable";

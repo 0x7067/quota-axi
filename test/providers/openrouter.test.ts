@@ -207,7 +207,7 @@ describe("OpenRouter provider", () => {
     }).fetchQuota(OPTIONS);
     expect(missing).toMatchObject({
       provider: "openrouter",
-      source: "api",
+      source: "unavailable",
       state: {
         status: "auth_required",
         error: "openrouter_credential_unavailable",
@@ -215,7 +215,7 @@ describe("OpenRouter provider", () => {
     });
     expect(invalid).toMatchObject({
       provider: "openrouter",
-      source: "api",
+      source: "unavailable",
       state: {
         status: "auth_required",
         error: "openrouter_credential_invalid",
@@ -259,7 +259,7 @@ describe("OpenRouter provider", () => {
     });
   });
 
-  it("reports 429 as rate_limited", async () => {
+  it("reports 429 as rate_limited with the Retry-After hint", async () => {
     const report = await createOpenRouterAdapter({
       credential: () => ({
         status: "available",
@@ -269,10 +269,31 @@ describe("OpenRouter provider", () => {
       fetch: async () =>
         new Response(JSON.stringify({ error: "rate limited" }), {
           status: 429,
+          headers: { "retry-after": "30" },
         }),
     }).fetchQuota(OPTIONS);
     expect(report).toMatchObject({
+      source: "unavailable",
       state: { status: "rate_limited", error: "provider_rate_limited" },
+    });
+    expect(report.state.retryAfter).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+  });
+
+  it("rejects a response body larger than the bounded limit", async () => {
+    const report = await createOpenRouterAdapter({
+      credential: () => ({
+        status: "available",
+        key: KEY,
+        source: "env:OPENROUTER_API_KEY",
+      }),
+      fetch: async () =>
+        new Response("{}", {
+          headers: { "content-length": "999999999" },
+        }),
+    }).fetchQuota(OPTIONS);
+    expect(report).toMatchObject({
+      source: "unavailable",
+      state: { status: "error", error: "response_too_large" },
     });
   });
 });
