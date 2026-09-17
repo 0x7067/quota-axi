@@ -77,7 +77,8 @@ const DURATION_MULTIPLIERS: Record<string, number> = {
 export type KimiDiagnostic =
   | { code: "limits_missing" }
   | { code: "limits_invalid" }
-  | { code: "detail_invalid"; index: number };
+  | { code: "detail_invalid"; index: number }
+  | { code: "usage_detail_invalid"; key: string };
 
 export type NormalizedKimiPayload = {
   windows: QuotaWindow[];
@@ -553,6 +554,17 @@ function unavailableCandidate(
   return { status: "unavailable", failure, attemptStatus, credentialPresent };
 }
 
+function untrustedWindowId(diagnostic: KimiDiagnostic): string {
+  switch (diagnostic.code) {
+    case "detail_invalid":
+      return `limit:${diagnostic.index}`;
+    case "usage_detail_invalid":
+      return `usages:${diagnostic.key}`;
+    default:
+      return "limits";
+  }
+}
+
 async function readKimiQuota(
   credential: string,
   quotaUrl: string,
@@ -569,11 +581,7 @@ async function readKimiQuota(
     dependencies.now,
   );
   const normalized = normalizeKimiPayload(payload);
-  const untrustedWindowIds = normalized.diagnostics.map((diagnostic) =>
-    diagnostic.code === "detail_invalid"
-      ? `limit:${diagnostic.index}`
-      : "limits",
-  );
+  const untrustedWindowIds = normalized.diagnostics.map(untrustedWindowId);
   const refreshedAt = new Date(dependencies.now()).toISOString();
   attempts[attempts.length - 1] = { source, status: "success" };
   return {
@@ -1074,10 +1082,54 @@ function createResponseBodyLifetime(response: Response): ResponseBodyLifetime {
   };
 }
 
+const KIMI_USAGES_WINDOWS: ReadonlyArray<{
+  key: string;
+  id: string;
+  label: string;
+  kind: QuotaWindow["kind"];
+  windowSeconds?: number;
+  shareOfTotal?: true;
+}> = [
+  {
+    key: "limit_5h",
+    id: "five_hour",
+    label: "session",
+    kind: "session",
+    windowSeconds: FIVE_HOURS_SECONDS,
+  },
+  {
+    key: "limit_7d",
+    id: "weekly",
+    label: "week",
+    kind: "weekly",
+    windowSeconds: WEEK_SECONDS,
+  },
+  {
+    key: "limit_month_total",
+    id: "month_total",
+    label: "month",
+    kind: "monthly",
+  },
+  {
+    key: "limit_month_code",
+    id: "month_code",
+    label: "code month",
+    kind: "monthly",
+    shareOfTotal: true,
+  },
+];
+
 export function normalizeKimiPayload(payload: unknown): NormalizedKimiPayload {
   const root = objectValue(payload);
-  const principal = normalizeDetail(root?.usage);
-  if (!root || !principal) {
+  if (!root) {
+    throw new KimiFailure("schema_invalid", { staleEligible: true });
+  }
+
+  const fromUsages = normalizeUsagesMap(root.usages);
+  if (fromUsages && fromUsages.windows.length > 0) return fromUsages;
+
+  const principal = normalizeDetail(root.usage);
+  if (!principal) {
     throw new KimiFailure("schema_invalid", { staleEligible: true });
   }
 
@@ -1092,7 +1144,7 @@ export function normalizeKimiPayload(payload: unknown): NormalizedKimiPayload {
       ...(principal.resetsAt ? { resetsAt: principal.resetsAt } : {}),
     },
   ];
-  const diagnostics: KimiDiagnostic[] = [];
+  const diagnostics: KimiDiagnostic[] = [...(fromUsages?.diagnostics ?? [])];
   const limitsValue = root.limits;
   if (limitsValue === undefined || limitsValue === null) {
     diagnostics.push({ code: "limits_missing" });
@@ -1130,6 +1182,52 @@ export function normalizeKimiPayload(payload: unknown): NormalizedKimiPayload {
   }
 
   return { windows, diagnostics };
+}
+
+function normalizeUsagesMap(value: unknown): NormalizedKimiPayload | undefined {
+  const usages = objectValue(value);
+  if (!usages) return undefined;
+
+  const windows: QuotaWindow[] = [];
+  const diagnostics: KimiDiagnostic[] = [];
+  for (const spec of KIMI_USAGES_WINDOWS) {
+    if (!Object.hasOwn(usages, spec.key)) continue;
+    const detail = normalizeRatioDetail(usages[spec.key]);
+    if (!detail) {
+      diagnostics.push({ code: "usage_detail_invalid", key: spec.key });
+      continue;
+    }
+    windows.push({
+      id: spec.id,
+      label: spec.label,
+      kind: spec.kind,
+      percentUsed: detail.percentUsed,
+      ...(spec.shareOfTotal
+        ? {}
+        : { percentRemaining: detail.percentRemaining }),
+      ...(typeof spec.windowSeconds === "number"
+        ? { windowSeconds: spec.windowSeconds }
+        : {}),
+      ...(detail.resetsAt ? { resetsAt: detail.resetsAt } : {}),
+    });
+  }
+  return { windows, diagnostics };
+}
+
+function normalizeRatioDetail(value: unknown): NormalizedDetail | undefined {
+  const detail = objectValue(value);
+  if (!detail) return undefined;
+  const ratio = nonnegativeScalar(detail.used_ratio);
+  if (ratio === undefined) return undefined;
+  // Both percents are rounded to 10 decimals so float ratios such as 0.57 or
+  // 0.873 publish 57 / 12.7 rather than IEEE-754 tails; fractions are kept.
+  const percentUsed = clampPercent(Number((ratio * 100).toFixed(10)));
+  const resetsAt = normalizedReset(detail);
+  return {
+    percentUsed,
+    percentRemaining: clampPercent(Number((100 - percentUsed).toFixed(10))),
+    ...(resetsAt ? { resetsAt } : {}),
+  };
 }
 
 function normalizeDetail(value: unknown): NormalizedDetail | undefined {
