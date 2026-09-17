@@ -50,13 +50,11 @@ export function resolveDeepSeekCredentials(
 ): CredentialResolution[] {
   const credentials: CredentialResolution[] = [];
   const envKey = usableLiteralSecret(environment.DEEPSEEK_API_KEY);
-  if (envKey) {
-    credentials.push({
-      status: "available",
-      key: envKey,
-      source: DEEPSEEK_ENV_SOURCE,
-    });
-  }
+  credentials.push(
+    envKey
+      ? { status: "available", key: envKey, source: DEEPSEEK_ENV_SOURCE }
+      : { status: "missing", source: DEEPSEEK_ENV_SOURCE },
+  );
   const result: JsonFileReadResult = readJsonFileResult(path);
   if (result.status === "missing") {
     credentials.push({ status: "missing", source: DEEPSEEK_PI_SOURCE, path });

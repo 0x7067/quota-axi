@@ -216,6 +216,55 @@ describe("MiniMax provider", () => {
     },
   );
 
+  it("reports an empirical auth rejection over an earlier missing source", async () => {
+    const deleteCachedProvider = vi.fn();
+    const report = await createMiniMaxAdapter({
+      credential: () => [
+        { status: "missing", source: "env:MINIMAX_API_KEY" },
+        {
+          status: "available",
+          key: "stale-pi-key",
+          source: "pi:minimax",
+          baseUrl: "https://api.minimax.io",
+        },
+        { status: "missing", source: "minimax:config.json" },
+      ],
+      fetch: async () => new Response(null, { status: 401 }),
+      deleteCachedProvider,
+    }).fetchQuota(OPTIONS);
+
+    expect(report).toMatchObject({
+      source: "unavailable",
+      state: { status: "auth_required", error: "provider_auth_rejected" },
+    });
+    expect(deleteCachedProvider).toHaveBeenCalledWith("minimax");
+  });
+
+  it("keeps a resolution error ahead of a later auth rejection", async () => {
+    const report = await createMiniMaxAdapter({
+      credential: () => [
+        {
+          status: "error",
+          source: "pi:minimax",
+          error: "file_too_large",
+        },
+        {
+          status: "available",
+          key: "stale-cli-key",
+          source: "minimax:config.json",
+          baseUrl: "https://api.minimax.io",
+        },
+      ],
+      fetch: async () => new Response(null, { status: 401 }),
+      readCachedProvider: () => undefined,
+    }).fetchQuota(OPTIONS);
+
+    expect(report).toMatchObject({
+      source: "unavailable",
+      state: { status: "error", error: "credential_resolution_failed" },
+    });
+  });
+
   it("reports MiniMax application rate limits", async () => {
     const request = vi.fn(
       async () =>

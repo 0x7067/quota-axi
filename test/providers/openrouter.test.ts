@@ -3,6 +3,7 @@ import {
   createOpenRouterAdapter,
   extractOpenRouterCredential,
   normalizeOpenRouterPayload,
+  resolveOpenRouterCredentials,
 } from "../../src/providers/openrouter.js";
 
 const OPTIONS = { allowKeychainPrompt: false, refreshCredentials: false };
@@ -223,6 +224,17 @@ describe("OpenRouter provider", () => {
     });
     expect(request).not.toHaveBeenCalled();
     expect(deleteCachedProvider).toHaveBeenCalledWith("openrouter");
+  });
+
+  it("enumerates the environment source even when unset", () => {
+    expect(resolveOpenRouterCredentials({}, "/missing/auth.json")).toEqual([
+      { status: "missing", source: "env:OPENROUTER_API_KEY" },
+      {
+        status: "missing",
+        source: "pi:openrouter",
+        path: "/missing/auth.json",
+      },
+    ]);
   });
 
   it("extracts a Pi auth.json openrouter entry", () => {

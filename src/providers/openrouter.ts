@@ -50,13 +50,11 @@ export function resolveOpenRouterCredentials(
 ): CredentialResolution[] {
   const credentials: CredentialResolution[] = [];
   const envKey = usableLiteralSecret(environment.OPENROUTER_API_KEY);
-  if (envKey) {
-    credentials.push({
-      status: "available",
-      key: envKey,
-      source: OPENROUTER_ENV_SOURCE,
-    });
-  }
+  credentials.push(
+    envKey
+      ? { status: "available", key: envKey, source: OPENROUTER_ENV_SOURCE }
+      : { status: "missing", source: OPENROUTER_ENV_SOURCE },
+  );
   const result: JsonFileReadResult = readJsonFileResult(path);
   if (result.status === "missing") {
     credentials.push({ status: "missing", source: OPENROUTER_PI_SOURCE, path });

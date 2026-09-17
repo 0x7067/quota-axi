@@ -3,6 +3,7 @@ import {
   createDeepSeekAdapter,
   extractDeepSeekCredential,
   normalizeDeepSeekPayload,
+  resolveDeepSeekCredentials,
 } from "../../src/providers/deepseek.js";
 
 const OPTIONS = { allowKeychainPrompt: false, refreshCredentials: false };
@@ -147,6 +148,17 @@ describe("DeepSeek provider", () => {
       },
     });
     expect(request).not.toHaveBeenCalled();
+  });
+
+  it("enumerates the environment source even when unset", () => {
+    expect(resolveDeepSeekCredentials({}, "/missing/auth.json")).toEqual([
+      { status: "missing", source: "env:DEEPSEEK_API_KEY" },
+      {
+        status: "missing",
+        source: "pi:deepseek",
+        path: "/missing/auth.json",
+      },
+    ]);
   });
 
   it("extracts a Pi auth.json deepseek entry", () => {

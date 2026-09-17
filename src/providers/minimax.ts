@@ -307,7 +307,7 @@ async function fetchQuotaWithDependencies(
         error: failure.code,
       });
       if (failure.definitiveAuth) {
-        if (preferMiniMaxFailure(finalFailure, failure) === failure) {
+        if (preferMiniMaxAuthFailure(finalFailure, failure) === failure) {
           finalFailure = failure;
           finalResolution = resolution;
         }
@@ -756,6 +756,16 @@ function preferMiniMaxFailure(
 ): MiniMaxFailure {
   if (!current || (current.definitiveAuth && !next.definitiveAuth)) return next;
   return current;
+}
+
+// An empirical provider rejection outweighs a local absent/invalid
+// diagnostic, but never an error-status resolution failure.
+function preferMiniMaxAuthFailure(
+  current: MiniMaxFailure | undefined,
+  next: MiniMaxFailure,
+): MiniMaxFailure {
+  if (current && !current.definitiveAuth) return current;
+  return next;
 }
 
 function replaceCredentialAttempt(
