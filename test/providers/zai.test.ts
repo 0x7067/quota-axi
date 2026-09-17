@@ -1342,7 +1342,7 @@ describe("Z.AI multi-source credentials", () => {
     ],
     ["an environment reference", { zai: { type: "api_key", key: "$ZAI_KEY" } }],
     ["a non-object entry", { zai: "literal-key" }],
-    ["an unsupported type", { zai: { type: "oauth", access: SYNTHETIC_KEY } }],
+    ["an unsupported type", { zai: { type: "session", key: SYNTHETIC_KEY } }],
   ])(
     "reports a Pi entry holding %s as invalid, not missing",
     (_label, auth) => {
@@ -1362,7 +1362,7 @@ describe("Z.AI multi-source credentials", () => {
     },
   );
 
-  it("reads only Pi's zai entry, ignoring other Z.AI spellings", () => {
+  it("prefers Pi's zai entry over the China-scoped entries", () => {
     const directory = mkdtempSync(join(tmpdir(), "quota-axi-zai-pi-"));
     try {
       const authFile = join(directory, "auth.json");
@@ -1381,6 +1381,142 @@ describe("Z.AI multi-source credentials", () => {
         host: "api.z.ai",
         path: authFile,
       });
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it.each([
+    ["zai-coding-cn", "open.bigmodel.cn"],
+    ["zhipu", "open.bigmodel.cn"],
+  ])("reads Pi's %s entry on its assigned host", (providerId, host) => {
+    const directory = mkdtempSync(join(tmpdir(), "quota-axi-zai-pi-"));
+    try {
+      const authFile = join(directory, "auth.json");
+      writeFileSync(
+        authFile,
+        JSON.stringify({
+          [providerId]: { type: "api_key", key: SYNTHETIC_KEY },
+        }),
+      );
+      expect(createPiAuthCredentialSource(() => authFile).resolve()).toEqual({
+        status: "available",
+        apiKey: SYNTHETIC_KEY,
+        host,
+        path: authFile,
+      });
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("does not skip a present invalid Pi id for a later Pi id", () => {
+    const directory = mkdtempSync(join(tmpdir(), "quota-axi-zai-pi-"));
+    try {
+      const authFile = join(directory, "auth.json");
+      writeFileSync(
+        authFile,
+        JSON.stringify({
+          zai: { type: "api_key", key: "$ZAI_KEY" },
+          zhipu: { type: "api_key", key: SYNTHETIC_KEY },
+        }),
+      );
+      expect(createPiAuthCredentialSource(() => authFile).resolve()).toEqual({
+        status: "invalid",
+        path: authFile,
+        error: "invalid_credential",
+      });
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("uses an unexpired Pi OAuth access token without reading its refresh value", () => {
+    const directory = mkdtempSync(join(tmpdir(), "quota-axi-zai-pi-"));
+    try {
+      const authFile = join(directory, "auth.json");
+      writeFileSync(
+        authFile,
+        JSON.stringify({
+          zai: {
+            type: "oauth",
+            access: SYNTHETIC_KEY,
+            refresh: "synthetic-refresh-secret",
+            expires: NOW + 60_000,
+          },
+        }),
+      );
+      const source = createPiAuthCredentialSource(
+        () => authFile,
+        () => NOW,
+      );
+      expect(source.resolve()).toEqual({
+        status: "available",
+        apiKey: SYNTHETIC_KEY,
+        host: "api.z.ai",
+        path: authFile,
+      });
+      expect(source.inspect()).toEqual({ status: "available", path: authFile });
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("probes a stored-expired Pi OAuth token and preserves a refreshable rejection", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "quota-axi-zai-pi-"));
+    try {
+      const authFile = join(directory, "auth.json");
+      writeFileSync(
+        authFile,
+        JSON.stringify({
+          zai: {
+            type: "oauth",
+            access: SYNTHETIC_KEY,
+            refresh: "synthetic-refresh-secret",
+            expires: NOW - 60_000,
+          },
+        }),
+      );
+      const source = createPiAuthCredentialSource(
+        () => authFile,
+        () => NOW,
+      );
+      expect(source.inspect()).toEqual({ status: "expired", path: authFile });
+      const request = vi.fn(async () => new Response("", { status: 401 }));
+      const remove = vi.fn();
+      const report = await createZaiAdapter({
+        credentialSources: [
+          { name: "pi:zai", source },
+          {
+            name: "opencode:auth.json",
+            source: credentialSource({
+              status: "missing",
+              path: "/home/user/.local/share/opencode/auth.json",
+            }),
+          },
+        ],
+        fetch: request as unknown as typeof fetch,
+        readCachedProvider: () => undefined,
+        deleteCachedProvider: remove,
+        now: () => NOW,
+      }).fetchQuota(OPTIONS);
+      expect(request).toHaveBeenCalledTimes(1);
+      expect(report.state).toMatchObject({
+        status: "unavailable",
+        error: "zai_credential_expired",
+      });
+      expect(remove).not.toHaveBeenCalled();
+      expect(JSON.stringify(report)).not.toContain("synthetic-refresh-secret");
+
+      const live = await createZaiAdapter({
+        credentialSources: [{ name: "pi:zai", source }],
+        fetch: vi.fn(async () => jsonResponse(QUOTA_PAYLOAD)),
+        readCachedProvider: () => undefined,
+        deleteCachedProvider: remove,
+        now: () => NOW,
+      }).fetchQuota(OPTIONS);
+      expect(live.state.status).toBe("fresh");
+      expect(live.attempts).toEqual([{ source: "pi:zai", status: "success" }]);
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }

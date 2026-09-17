@@ -36,7 +36,11 @@ const ZAI_HOST = "api.z.ai";
 const ZHIPU_HOST = "open.bigmodel.cn";
 const OPENCODE_AUTH_SOURCE = "opencode:auth.json";
 const PI_ZAI_SOURCE = "pi:zai";
-const PI_ZAI_PROVIDER_ID = "zai";
+const PI_PROVIDER_HOSTS = [
+  ["zai", ZAI_HOST],
+  ["zai-coding-cn", ZHIPU_HOST],
+  ["zhipu", ZHIPU_HOST],
+] as const;
 const USER_AGENT = `quota-axi/${VERSION}`;
 
 const zaiProviderFetch: typeof globalThis.fetch = (input, init) =>
@@ -65,12 +69,20 @@ export type NormalizedZaiPayload = {
 
 export type ZaiCredentialResolution =
   | { status: "available"; apiKey: string; host: string; path: string }
+  | {
+      status: "expired";
+      apiKey: string;
+      host: string;
+      path: string;
+      refreshable: boolean;
+    }
   | { status: "missing"; path: string }
   | { status: "invalid"; path: string; error: string }
   | { status: "error"; path: string; error: string };
 
 export type ZaiCredentialInspection =
   | { status: "available"; path: string }
+  | { status: "expired"; path: string }
   | { status: "missing"; path: string }
   | { status: "invalid"; path: string; error: string }
   | { status: "error"; path: string; error: string };
@@ -135,16 +147,40 @@ export function extractZaiCredential(
 function extractPiZaiCredential(
   value: unknown,
   path: string,
+  now: number,
 ): ZaiCredentialResolution {
-  const classified = classifyPiAuthEntry(value, PI_ZAI_PROVIDER_ID);
-  if (classified.status === "missing") return { status: "missing", path };
-  const key =
-    classified.status === "present" && classified.entry.type === "api_key"
-      ? usableLiteralSecret(classified.entry.key)
-      : undefined;
-  return key
-    ? { status: "available", apiKey: key, host: ZAI_HOST, path }
-    : { status: "invalid", path, error: "invalid_credential" };
+  for (const [providerId, host] of PI_PROVIDER_HOSTS) {
+    const classified = classifyPiAuthEntry(value, providerId);
+    if (classified.status === "missing") continue;
+    if (classified.status !== "present")
+      return { status: "invalid", path, error: "invalid_credential" };
+    const { entry } = classified;
+    if (entry.type === "api_key") {
+      const apiKey = usableLiteralSecret(entry.key);
+      return apiKey
+        ? { status: "available", apiKey, host, path }
+        : { status: "invalid", path, error: "invalid_credential" };
+    }
+    if (entry.type === "oauth") {
+      const apiKey = usableLiteralSecret(entry.access);
+      const expires = Object.hasOwn(entry, "expires")
+        ? timestampMs(entry.expires)
+        : undefined;
+      if (!apiKey || (Object.hasOwn(entry, "expires") && expires === undefined))
+        return { status: "invalid", path, error: "invalid_credential" };
+      return expires !== undefined && expires <= now
+        ? {
+            status: "expired",
+            apiKey,
+            host,
+            path,
+            refreshable: Object.hasOwn(entry, "refresh"),
+          }
+        : { status: "available", apiKey, host, path };
+    }
+    return { status: "invalid", path, error: "invalid_credential" };
+  }
+  return { status: "missing", path };
 }
 
 export function createOpencodeAuthCredentialSource(
@@ -155,8 +191,11 @@ export function createOpencodeAuthCredentialSource(
 
 export function createPiAuthCredentialSource(
   filePath: () => string = resolvePiAuthFilePath,
+  now: () => number = Date.now,
 ): ZaiCredentialSource {
-  return createJsonAuthCredentialSource(filePath, extractPiZaiCredential);
+  return createJsonAuthCredentialSource(filePath, (value, path) =>
+    extractPiZaiCredential(value, path, now()),
+  );
 }
 
 function createJsonAuthCredentialSource(
@@ -179,6 +218,8 @@ function createJsonAuthCredentialSource(
       const resolution = resolve();
       if (resolution.status === "available")
         return { status: "available", path: resolution.path };
+      if (resolution.status === "expired")
+        return { status: "expired", path: resolution.path };
       return resolution;
     },
   };
@@ -254,7 +295,10 @@ async function acquireZaiQuota(
   try {
     for (const { name, source } of dependencies.credentialSources) {
       const resolution = source.resolve();
-      if (resolution.status !== "available") {
+      if (
+        resolution.status !== "available" &&
+        resolution.status !== "expired"
+      ) {
         const failure = credentialFailureFor(resolution);
         attempts.push({
           source: name,
@@ -299,19 +343,32 @@ async function acquireZaiQuota(
           attempts,
         };
       } catch (error) {
-        const failure =
+        let failure =
           error instanceof ZaiFailure
             ? error
             : new ZaiFailure("credential_resolution_failed", {
                 staleEligible: true,
               });
+        if (
+          resolution.status === "expired" &&
+          resolution.refreshable &&
+          failure.definitiveAuth
+        ) {
+          failure = new ZaiFailure("zai_credential_expired", {
+            status: "unavailable",
+            staleEligible: true,
+          });
+        }
         attempts[attempts.length - 1] = {
           source: name,
           status: "failed",
           error: failure.code,
         };
         lastFailure = preferCredentialFailure(lastFailure, failure);
-        if (failure.definitiveAuth) {
+        if (
+          failure.definitiveAuth ||
+          failure.code === "zai_credential_expired"
+        ) {
           continue;
         }
         return failureReport(failure, attempts, dependencies);
@@ -354,7 +411,10 @@ async function acquireZaiQuota(
 }
 
 function credentialFailureFor(
-  resolution: Exclude<ZaiCredentialResolution, { status: "available" }>,
+  resolution: Extract<
+    ZaiCredentialResolution,
+    { status: "missing" | "invalid" | "error" }
+  >,
 ): ZaiFailure {
   if (resolution.status === "missing") {
     return new ZaiFailure("zai_credential_unavailable", {
@@ -961,4 +1021,17 @@ class ZaiFailure extends Error {
     this.definitiveAuth = options.definitiveAuth ?? false;
     this.retryAfter = options.retryAfter;
   }
+}
+
+function timestampMs(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value))
+    return value < 1_000_000_000_000 ? value * 1000 : value;
+  if (typeof value === "string" && value.trim() !== "") {
+    const asNumber = Number(value);
+    if (Number.isFinite(asNumber))
+      return asNumber < 1_000_000_000_000 ? asNumber * 1000 : asNumber;
+    const parsed = Date.parse(value);
+    return Number.isNaN(parsed) ? undefined : parsed;
+  }
+  return undefined;
 }
