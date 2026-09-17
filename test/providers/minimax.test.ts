@@ -677,11 +677,13 @@ describe("MiniMax provider", () => {
       );
 
       expect(resolveMiniMaxCredentials()).toMatchObject([
+        { status: "missing", source: "env:MINIMAX_API_KEY" },
         {
           status: "available",
           key: KEY,
           source: "pi:minimax",
         },
+        { status: "missing", source: "minimax:config.json" },
       ]);
     } finally {
       if (originalHome === undefined) delete process.env.HOME;
@@ -734,9 +736,18 @@ describe("MiniMax provider", () => {
       expect(report).toMatchObject({
         state: {
           status: "fresh",
-          sourcesTried: ["pi:minimax", "minimax:config.json"],
+          sourcesTried: [
+            "env:MINIMAX_API_KEY",
+            "pi:minimax",
+            "minimax:config.json",
+          ],
         },
         attempts: [
+          {
+            source: "env:MINIMAX_API_KEY",
+            status: "skipped",
+            error: "minimax_credential_unavailable",
+          },
           {
             source: "pi:minimax",
             status: "failed",
@@ -816,6 +827,11 @@ describe("MiniMax provider", () => {
         state: { status: "error", error: "credential_resolution_failed" },
         attempts: [
           {
+            source: "env:MINIMAX_API_KEY",
+            status: "skipped",
+            error: "minimax_credential_unavailable",
+          },
+          {
             source: "pi:minimax",
             status: "failed",
             error: "minimax_credential_invalid",
@@ -888,6 +904,11 @@ describe("MiniMax provider", () => {
         state: { status: "fresh" },
         attempts: [
           {
+            source: "env:MINIMAX_API_KEY",
+            status: "skipped",
+            error: "minimax_credential_unavailable",
+          },
+          {
             source: "pi:minimax",
             status: "failed",
             error: "credential_resolution_failed",
@@ -896,6 +917,84 @@ describe("MiniMax provider", () => {
         ],
       });
       expect(request).toHaveBeenCalledOnce();
+    } finally {
+      if (originalPiDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
+      else process.env.PI_CODING_AGENT_DIR = originalPiDir;
+      if (originalMmxDir === undefined) delete process.env.MMX_CONFIG_DIR;
+      else process.env.MMX_CONFIG_DIR = originalMmxDir;
+      if (originalApiKey === undefined) delete process.env.MINIMAX_API_KEY;
+      else process.env.MINIMAX_API_KEY = originalApiKey;
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("treats an oversized credential file as a read failure, not bad content", async () => {
+    const originalPiDir = process.env.PI_CODING_AGENT_DIR;
+    const originalMmxDir = process.env.MMX_CONFIG_DIR;
+    const originalApiKey = process.env.MINIMAX_API_KEY;
+    const tempDir = mkdtempSync(join(tmpdir(), "quota-axi-minimax-"));
+    const piDir = join(tempDir, "pi-agent");
+    try {
+      process.env.PI_CODING_AGENT_DIR = piDir;
+      process.env.MMX_CONFIG_DIR = join(tempDir, "missing-mmx");
+      delete process.env.MINIMAX_API_KEY;
+      mkdirSync(piDir, { recursive: true });
+      writeFileSync(
+        join(piDir, "auth.json"),
+        JSON.stringify({
+          minimax: { api_key: KEY },
+          padding: "x".repeat(70 * 1024),
+        }),
+      );
+      const deleteCachedProvider = vi.fn();
+      const readCachedProvider = vi.fn(() => undefined);
+      const adapter = createMiniMaxAdapter({
+        credential: resolveMiniMaxCredentials,
+        fetch: vi.fn() as typeof globalThis.fetch,
+        readCachedProvider,
+        deleteCachedProvider,
+      });
+
+      const report = await adapter.fetchQuota(OPTIONS);
+      const auth = await adapter.inspectAuth(OPTIONS);
+
+      expect(report).toMatchObject({
+        state: { status: "error", error: "credential_resolution_failed" },
+        attempts: [
+          {
+            source: "env:MINIMAX_API_KEY",
+            status: "skipped",
+            error: "minimax_credential_unavailable",
+          },
+          {
+            source: "pi:minimax",
+            status: "failed",
+            error: "credential_resolution_failed",
+          },
+          {
+            source: "minimax:config.json",
+            status: "skipped",
+            error: "minimax_credential_unavailable",
+          },
+        ],
+      });
+      expect(deleteCachedProvider).not.toHaveBeenCalled();
+      expect(readCachedProvider).toHaveBeenCalledOnce();
+      expect(auth.sources).toEqual([
+        expect.objectContaining({
+          source: "env:MINIMAX_API_KEY",
+          status: "missing",
+        }),
+        expect.objectContaining({
+          source: "pi:minimax",
+          status: "error",
+          error: "file_too_large",
+        }),
+        expect.objectContaining({
+          source: "minimax:config.json",
+          status: "missing",
+        }),
+      ]);
     } finally {
       if (originalPiDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
       else process.env.PI_CODING_AGENT_DIR = originalPiDir;

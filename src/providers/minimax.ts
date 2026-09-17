@@ -11,7 +11,7 @@ import { providerFetch } from "../lib/http.js";
 import { resolvePiAuthFilePath } from "../lib/pi-agent-dir.js";
 import { classifyPiAuthEntry } from "../lib/pi-auth-store.js";
 import { usableLiteralSecret } from "../lib/secret.js";
-import { clampPercent } from "../lib/time.js";
+import { clampPercent, retryAfterToIso } from "../lib/time.js";
 import { publishMiniMaxReadingContextId } from "./minimax-cache-context.js";
 import type {
   AuthProviderReport,
@@ -168,48 +168,52 @@ function missingCliCredential(path: string): MiniMaxCredentialResolution {
 export function resolveMiniMaxCredentials(): MiniMaxCredentialResolution[] {
   const credentials: MiniMaxCredentialResolution[] = [];
   const envKey = usableLiteralSecret(process.env.MINIMAX_API_KEY);
-  if (envKey) {
-    credentials.push({
-      status: "available",
-      key: envKey,
-      source: MINIMAX_ENV_SOURCE,
-      baseUrl: configuredBaseUrl(),
-    });
-  }
+  credentials.push(
+    envKey
+      ? {
+          status: "available",
+          key: envKey,
+          source: MINIMAX_ENV_SOURCE,
+          baseUrl: configuredBaseUrl(),
+        }
+      : { status: "missing", source: MINIMAX_ENV_SOURCE },
+  );
 
   const piPath = resolvePiAuthFilePath();
   const piResult = readBoundedJsonFile(piPath);
   if (piResult.status === "success") {
-    const resolution = extractMiniMaxCredential(piResult.value, piPath);
-    if (resolution.status !== "missing") credentials.push(resolution);
+    credentials.push(extractMiniMaxCredential(piResult.value, piPath));
   } else if (piResult.status === "invalid") {
     credentials.push({
-      status: piResult.error === "file_read_error" ? "error" : "invalid",
+      status: piResult.error === "json_parse_error" ? "invalid" : "error",
       source: MINIMAX_PI_SOURCE,
       path: piPath,
       error: piResult.error,
+    });
+  } else {
+    credentials.push({
+      status: "missing",
+      source: MINIMAX_PI_SOURCE,
+      path: piPath,
     });
   }
 
   const cliPath = minimaxConfigPath();
   const cliResult = readBoundedJsonFile(cliPath);
   if (cliResult.status === "success") {
-    const resolutions = extractMiniMaxCliCredentials(cliResult.value, cliPath);
-    credentials.push(
-      ...resolutions.filter((resolution) => resolution.status !== "missing"),
-    );
+    credentials.push(...extractMiniMaxCliCredentials(cliResult.value, cliPath));
   } else if (cliResult.status === "invalid") {
     credentials.push({
-      status: cliResult.error === "file_read_error" ? "error" : "invalid",
+      status: cliResult.error === "json_parse_error" ? "invalid" : "error",
       source: MINIMAX_CLI_SOURCE,
       path: cliPath,
       error: cliResult.error,
     });
+  } else {
+    credentials.push(missingCliCredential(cliPath));
   }
 
-  return credentials.length > 0
-    ? credentials
-    : [{ status: "missing", source: MINIMAX_CLI_SOURCE, path: cliPath }];
+  return credentials;
 }
 
 export function createMiniMaxAdapter(
@@ -639,7 +643,7 @@ async function requestMiniMax(
         throw new MiniMaxFailure("provider_rate_limited", {
           status: "rate_limited",
           staleEligible: true,
-          retryAfter: normalizeRetryAfter(response.headers.get("retry-after")),
+          retryAfter: retryAfterToIso(response.headers.get("retry-after")),
         });
       throw new MiniMaxFailure("provider_request_rejected", {
         staleEligible: true,
@@ -873,21 +877,6 @@ function parseEpoch(value: unknown): string | undefined {
   const numeric = Number(value);
   if (Number.isFinite(numeric)) return parseEpoch(numeric);
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
-}
-
-function normalizeRetryAfter(value: string | null): string | undefined {
-  const raw = value?.trim();
-  if (!raw) return undefined;
-  if (/^\d+$/.test(raw)) {
-    return isoFromTimestamp(Date.now() + Number(raw) * 1000);
-  }
-  return isoFromTimestamp(Date.parse(raw));
-}
-
-function isoFromTimestamp(timestamp: number): string | undefined {
-  if (!Number.isFinite(timestamp)) return undefined;
-  const date = new Date(timestamp);
   return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
 }
 

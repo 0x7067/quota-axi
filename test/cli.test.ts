@@ -1043,9 +1043,17 @@ describe("new provider public quota output", () => {
         provider: "minimax",
         sources: [
           expect.objectContaining({
+            source: "env:MINIMAX_API_KEY",
+            status: "missing",
+          }),
+          expect.objectContaining({
             source: "pi:minimax",
             status: "invalid",
             error: "credential_missing",
+          }),
+          expect.objectContaining({
+            source: "minimax:config.json",
+            status: "missing",
           }),
         ],
       }),
