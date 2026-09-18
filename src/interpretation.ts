@@ -157,6 +157,12 @@ function semanticsFor(
       return alibabaSemantics(provider.windows, generatedAt);
     case "opencode-go":
       return opencodeGoSemantics(provider.windows, generatedAt);
+    case "commandcode":
+      return commandCodeSemantics(
+        provider.windows,
+        provider.state.untrustedWindowIds ?? [],
+        generatedAt,
+      );
     case "minimax":
       return minimaxSemantics(
         provider.windows,
@@ -265,6 +271,52 @@ function minimaxSemantics(
 
 function minimaxModelScope(id: string): string {
   return id.replace(/:(?:5h|7d|window:[^:]+)$/, "");
+}
+
+function commandCodeSemantics(
+  windows: QuotaWindow[],
+  untrustedWindowIds: string[],
+  generatedAt: string,
+): QuotaSemantics {
+  const expected = windows.filter(
+    ({ id }) => id === "five_hour" || id === "weekly",
+  );
+  const jointBound =
+    expected.some(({ id }) => id === "five_hour") &&
+    expected.some(({ id }) => id === "weekly");
+  const recognized = new Set(expected);
+  const unresolved = windows.filter((window) => !recognized.has(window));
+  const unresolvedWindowIds = [
+    ...new Set([...unresolved.map(({ id }) => id), ...untrustedWindowIds]),
+  ];
+  const description =
+    "Command Code's five-hour and weekly windows jointly pace included monthly credits. Extra pay-as-you-go credits can bypass those windows, so they are not an all-model bound.";
+  if (unresolvedWindowIds.length > 0) {
+    return {
+      status: "partial",
+      description,
+      effectiveAvailability: jointBound
+        ? [
+            unresolvedAvailability(
+              "included_credits",
+              expected,
+              unresolvedWindowIds,
+            ),
+          ]
+        : [],
+      unresolvedWindowIds,
+    };
+  }
+  if (!jointBound) {
+    return knownSemantics(
+      [],
+      "Command Code reported no rolling included-credit windows, so no effective remaining percentage can be computed.",
+    );
+  }
+  return knownSemantics(
+    [availability("included_credits", expected, generatedAt)],
+    description,
+  );
 }
 
 function alibabaSemantics(

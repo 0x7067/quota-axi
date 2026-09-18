@@ -31,6 +31,7 @@ const originalZaiProvider = PROVIDERS.zai;
 const originalAgyProvider = PROVIDERS.agy;
 const originalAlibabaProvider = PROVIDERS.alibaba;
 const originalOpenCodeGoProvider = PROVIDERS["opencode-go"];
+const originalCommandCodeProvider = PROVIDERS.commandcode;
 const originalMinimaxProvider = PROVIDERS.minimax;
 const originalMimoProvider = PROVIDERS.mimo;
 const originalDeepSeekProvider = PROVIDERS.deepseek;
@@ -57,6 +58,7 @@ afterEach(() => {
   PROVIDERS.agy = originalAgyProvider;
   PROVIDERS.alibaba = originalAlibabaProvider;
   PROVIDERS["opencode-go"] = originalOpenCodeGoProvider;
+  PROVIDERS.commandcode = originalCommandCodeProvider;
   PROVIDERS.minimax = originalMinimaxProvider;
   PROVIDERS.mimo = originalMimoProvider;
   PROVIDERS.deepseek = originalDeepSeekProvider;
@@ -91,6 +93,7 @@ describe("CLI flag parsing", () => {
       "agy",
       "alibaba",
       "opencode-go",
+      "commandcode",
       "minimax",
       "mimo",
       "deepseek",
@@ -132,6 +135,7 @@ describe("CLI flag parsing", () => {
           "agy",
           "alibaba",
           "opencode-go",
+          "commandcode",
           "minimax",
           "mimo",
           "deepseek",
@@ -1208,6 +1212,7 @@ describe("default TOON decision blocks", () => {
     PROVIDERS.agy = providerWithQuota(unavailableAgyQuota());
     PROVIDERS.alibaba = providerWithQuota(freshAlibabaQuota());
     PROVIDERS["opencode-go"] = providerWithQuota(freshOpenCodeGoQuota());
+    PROVIDERS.commandcode = providerWithQuota(freshCommandCodeQuota());
     PROVIDERS.minimax = providerWithQuota(
       emptyFreshQuota("minimax", "MiniMax"),
     );
@@ -1230,6 +1235,7 @@ describe("default TOON decision blocks", () => {
       "alibaba",
       "claude",
       "codex",
+      "commandcode",
       "copilot",
       "cursor",
       "deepseek",
@@ -1283,6 +1289,36 @@ describe("default TOON decision blocks", () => {
     expect(declaredPriority).not.toEqual(
       [...declaredPriority].sort((a, b) => b - a),
     );
+  });
+
+  it("states a raw credit balance instead of contradicting it with no_quota", async () => {
+    useTempCache();
+    PROVIDERS.commandcode = providerWithQuota({
+      provider: "commandcode",
+      label: "Command Code",
+      source: "api",
+      windows: [],
+      credits: { remaining: 12.5, unit: "credits" },
+      state: {
+        status: "fresh",
+        stale: false,
+        refreshedAt: "2026-07-06T18:10:00Z",
+        authStatus: "usable",
+        sourcesTried: ["pi:commandcode"],
+      },
+    });
+
+    const output = await capture(["--provider", "commandcode"]);
+
+    expect(toonRows(output, "attention")).toEqual([
+      [
+        "commandcode",
+        "all",
+        "credits",
+        "remaining 12.5 credits (auth usable)",
+        "none",
+      ],
+    ]);
   });
 
   it("renders an unmeasurable spendPriority as `unknown`, never as 0", async () => {
@@ -1461,6 +1497,26 @@ describe("default TOON decision blocks", () => {
       expect(output).not.toContain("projectionBasis");
     }
   });
+
+  it("gives an unexpanded provider the default account key beside an expanded one", async () => {
+    useTempCache();
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-15T12:00:00.000Z"));
+    PROVIDERS.claude = providerWithQuota(pacedProvider("claude", 90, 10));
+    PROVIDERS.codex = providerWithAccounts([
+      ["openai-codex", pacedProvider("codex", 20, 80)],
+      ["openai-codex-work", pacedProvider("codex", 40, 60)],
+    ]);
+
+    const output = await capture(["--provider", "claude,codex"]);
+
+    expect(output).toContain("quota[3]{provider,accountKey,");
+    expect(toonRows(output, "quota").map((row) => row.slice(0, 2))).toEqual([
+      ["claude", "default"],
+      ["codex", "openai-codex"],
+      ["codex", "openai-codex-work"],
+    ]);
+  });
 });
 
 describe("--json tiering", () => {
@@ -1596,6 +1652,7 @@ describe("CLI plumbing via the axi SDK", () => {
     PROVIDERS.agy = providerWithAuth("agy", "Antigravity");
     PROVIDERS.alibaba = providerWithAuth("alibaba", "Alibaba Coding Plan");
     PROVIDERS["opencode-go"] = providerWithAuth("opencode-go", "OpenCode Go");
+    PROVIDERS.commandcode = providerWithAuth("commandcode", "Command Code");
     PROVIDERS.minimax = providerWithAuth("minimax", "MiniMax");
     PROVIDERS.mimo = providerWithAuth("mimo", "MiMo");
     PROVIDERS.deepseek = providerWithAuth("deepseek", "DeepSeek");
@@ -1752,6 +1809,26 @@ function providerWithQuota(quota: ProviderQuota): ProviderAdapter {
     },
     async inspectAuth() {
       return { provider: quota.provider, sources: [] };
+    },
+  };
+}
+
+/** Expands into one lane per account, the way an adapter's discovery does. */
+function providerWithAccounts(
+  lanes: [string, ProviderQuota][],
+): ProviderAdapter {
+  return {
+    ...providerWithQuota(lanes[0][1]),
+    async discoverAccounts() {
+      return lanes.map(([accountKey, quota]) => ({
+        accountKey,
+        async fetchQuota() {
+          return quota;
+        },
+        async inspectAuth() {
+          return { provider: quota.provider, sources: [] };
+        },
+      }));
     },
   };
 }
@@ -2178,6 +2255,31 @@ function freshOpenCodeGoQuota(): ProviderQuota {
       stale: false,
       refreshedAt: "2026-07-06T18:10:00Z",
       sourcesTried: ["opencode:auth.json"],
+    },
+  };
+}
+
+function freshCommandCodeQuota(): ProviderQuota {
+  return {
+    provider: "commandcode",
+    label: "Command Code",
+    source: "api",
+    plan: "Command Code",
+    windows: [
+      {
+        id: "weekly",
+        label: "weekly",
+        kind: "weekly",
+        percentUsed: 12,
+        percentRemaining: 88,
+        windowSeconds: 604800,
+      },
+    ],
+    state: {
+      status: "fresh",
+      stale: false,
+      refreshedAt: "2026-07-06T18:10:00Z",
+      sourcesTried: ["pi:commandcode"],
     },
   };
 }
