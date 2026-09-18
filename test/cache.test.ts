@@ -16,7 +16,9 @@ import {
   readCachedProvider,
   writeCachedProviders,
 } from "../src/cache.js";
+import { annotateQuotaAdvice } from "../src/advice.js";
 import { cacheFilePath, claudeCredentialContextId } from "../src/lib/fs.js";
+import { staleFromCache } from "../src/providers/common.js";
 import { createKimiCodeCliCredentialSource } from "../src/providers/kimi-code-cli-credential.js";
 import type { ProviderId, ProviderQuota } from "../src/types.js";
 
@@ -113,6 +115,60 @@ describe("quota cache", () => {
     });
   });
 
+  it("isolates Codex Pi sibling snapshots by account key", () => {
+    useTempCache();
+    const personal = quota("codex", 20);
+    personal.accountKey = "openai-codex";
+    personal.source = "pi:openai-codex";
+    personal.state.sourcesTried = ["pi:openai-codex"];
+    const work = quota("codex", 80);
+    work.accountKey = "openai-codex-work";
+    work.source = "pi:openai-codex-work";
+    work.state.sourcesTried = ["pi:openai-codex-work"];
+
+    writeCachedProviders([personal, work]);
+
+    expect(readCachedProvider("codex")).toBeUndefined();
+    expect(readCachedProvider("codex", "openai-codex")).toMatchObject({
+      accountKey: "openai-codex",
+      source: "pi:openai-codex",
+      windows: [{ percentUsed: 20 }],
+    });
+    expect(readCachedProvider("codex", "openai-codex-work")).toMatchObject({
+      accountKey: "openai-codex-work",
+      source: "pi:openai-codex-work",
+      windows: [{ percentUsed: 80 }],
+    });
+    const payload = JSON.parse(readFileSync(cacheFilePath(), "utf8")) as {
+      schemaVersion: number;
+    };
+    expect(payload.schemaVersion).toBe(3);
+  });
+
+  it("keeps an expanded report's filler key out of a later unexpanded report", () => {
+    useTempCache();
+    const work = quota("codex", 20);
+    work.accountKey = "openai-codex-work";
+    const expanded = annotateQuotaAdvice({
+      generatedAt: "2026-07-06T18:10:00Z",
+      providers: [work, quota("copilot", 40)],
+    });
+    expect(expanded.schemaVersion).toBe(6);
+    expect(expanded.providers[1]?.accountKey).toBe("default");
+
+    writeCachedProviders(expanded.providers);
+    const cached = readCachedProvider("copilot");
+    expect(cached).toMatchObject({ windows: [{ percentUsed: 40 }] });
+    expect(cached?.accountKey).toBeUndefined();
+
+    const later = annotateQuotaAdvice({
+      generatedAt: "2026-07-06T19:10:00Z",
+      providers: [staleFromCache(cached!, "fetch failed", ["api"], [])],
+    });
+    expect(later.schemaVersion).toBe(5);
+    expect(later.providers[0]?.accountKey).toBeUndefined();
+  });
+
   it("retains exact known and unfamiliar Codex cache identities", () => {
     useTempCache();
     const codex = quota("codex", 20);
@@ -204,10 +260,26 @@ describe("quota cache", () => {
       providers: Array<{ credentialContext?: string }>;
     };
     const contextId = payload.providers[0]?.credentialContext;
-    expect(payload.schemaVersion).toBe(2);
+    expect(payload.schemaVersion).toBe(3);
     expect(contextId).toMatch(/^[a-f0-9]{64}$/);
     expect(JSON.stringify(payload)).not.toContain(contextDir);
     expect(readCachedClaudeProvider(claudeCredentialContextId())).toBeDefined();
+  });
+
+  it("keeps one Claude snapshot when the credential context changes", () => {
+    useTempCache();
+    process.env.CLAUDE_CONFIG_DIR = join(tempDir!, "claude-context-a");
+    writeCachedProviders([quota("claude", 10)]);
+    process.env.CLAUDE_CONFIG_DIR = join(tempDir!, "claude-context-b");
+    writeCachedProviders([quota("claude", 20)]);
+
+    const payload = JSON.parse(readFileSync(cacheFilePath(), "utf8")) as {
+      providers: Array<{ snapshot: ProviderQuota }>;
+    };
+    expect(payload.providers).toHaveLength(1);
+
+    writeCachedProviders([quotaWithoutWindows("claude")]);
+    expect(readCachedProvider("claude")).toBeUndefined();
   });
 
   it("refuses Kimi cache captured under another Kimi Code environment", async () => {

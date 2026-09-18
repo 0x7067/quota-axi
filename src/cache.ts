@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { chmodSync, renameSync, writeFileSync } from "node:fs";
 import {
   cacheFilePath,
@@ -6,6 +7,7 @@ import {
   readJsonFile,
 } from "./lib/fs.js";
 import { kimiReadingContextId } from "./providers/kimi-cache-context.js";
+import { isPiCodexSource } from "./providers/pi-codex-credential.js";
 import type {
   ProviderId,
   ProviderQuota,
@@ -41,17 +43,25 @@ const WINDOW_KINDS = [
   "credits",
   "unknown",
 ] as const satisfies readonly QuotaWindow["kind"][];
-const CACHE_SCHEMA_VERSION = 2;
+const CACHE_SCHEMA_VERSION = 3;
+/**
+ * The filler an expanded report stamps on providers that selected one account.
+ * It describes that report, not the snapshot, so it is never persisted: a stale
+ * reading carrying it back would expand a report in which nothing expanded.
+ */
+const DEFAULT_ACCOUNT_KEY = "default";
 const CREDENTIAL_CONTEXT_ID = /^[a-f0-9]{64}$/;
 
 /**
- * Providers whose local configuration decides which account a reading belongs
- * to: a Claude profile selects the credential store, and a Kimi Code
- * `config.toml` selects the deployment. A snapshot from one such context says
- * nothing about another, so each is stamped on write and required to match on
- * stale reuse.
+ * Providers whose snapshots record which account they belong to, because the
+ * cache slot alone does not say: a Claude profile selects the credential store,
+ * a Kimi Code `config.toml` selects the deployment, and a Codex slot can be
+ * signed in to another ChatGPT account. A snapshot from one such context says
+ * nothing about another, so each is stamped on write and checked on stale
+ * reuse - strictly for Claude and Kimi, whose identity a reading always has,
+ * and on proven mismatch for Codex, whose stored account id is optional.
  *
- * How that stamp is obtained is not the same question for both. A Claude
+ * How that stamp is obtained is not the same question for each. A Claude
  * profile is fixed by this process's own environment, so deriving it here reads
  * the same selection the reading used. Kimi's is not derivable here at all.
  * Kimi Code rewrites `config.toml` on login, so a read taken after the quota
@@ -59,14 +69,53 @@ const CREDENTIAL_CONTEXT_ID = /^[a-f0-9]{64}$/;
  * and a Kimi reading need not come from that configuration in the first place,
  * because Pi brokers a credential for the default endpoint while naming no
  * deployment. Kimi therefore reports the identity of whatever actually produced
- * its reading.
+ * its reading. Codex's slot is not local configuration either: a failed probe
+ * can only name the accounts the credentials still store, so the stamp is the
+ * stored id of the one credential that answered (not the vendor's response id,
+ * which can differ while the token is the same) hashed because the cache holds
+ * no account identity in the clear.
  */
 const CONTEXT_SCOPED_PROVIDERS: Partial<
-  Record<ProviderId, () => string | undefined>
+  Record<ProviderId, (provider: ProviderQuota) => string | undefined>
 > = {
   claude: claudeCredentialContextId,
   kimi: kimiReadingContextId,
+  codex: codexStampContextId,
 };
+
+/**
+ * The stored ChatGPT account id the credential that produced this report named.
+ * A symbol key so it survives the object copies the quota command makes between
+ * the adapter and this writer, while staying off every serialized surface:
+ * `JSON.stringify`, `Object.keys` and the TOON encoder all skip symbol keys.
+ */
+const CODEX_STORED_ACCOUNT_ID = Symbol("codexStoredAccountId");
+
+type CodexStampedQuota = ProviderQuota & {
+  [CODEX_STORED_ACCOUNT_ID]?: string;
+};
+
+export function stampCodexStoredAccountId(
+  provider: ProviderQuota,
+  accountId: string | undefined,
+): void {
+  if (accountId)
+    (provider as CodexStampedQuota)[CODEX_STORED_ACCOUNT_ID] = accountId;
+}
+
+function codexStampContextId(provider: ProviderQuota): string | undefined {
+  return codexAccountContextId(
+    (provider as CodexStampedQuota)[CODEX_STORED_ACCOUNT_ID],
+  );
+}
+
+function codexAccountContextId(accountId?: string): string | undefined {
+  return accountId
+    ? createHash("sha256")
+        .update(JSON.stringify(["codex-account-v1", accountId]))
+        .digest("hex")
+    : undefined;
+}
 
 type CachedProvider = {
   snapshot: ProviderQuota;
@@ -75,10 +124,47 @@ type CachedProvider = {
 
 export function readCachedProvider(
   provider: ProviderId,
+  accountKey?: string,
 ): ProviderQuota | undefined {
+  return readCachedRecord(provider, accountKey)?.snapshot;
+}
+
+function readCachedRecord(
+  provider: ProviderId,
+  accountKey?: string,
+): CachedProvider | undefined {
   return readCacheProviders().find(
-    (item) => item.snapshot.provider === provider,
-  )?.snapshot;
+    (item) =>
+      item.snapshot.provider === provider &&
+      (item.snapshot.accountKey ?? DEFAULT_ACCOUNT_KEY) ===
+        (accountKey ?? DEFAULT_ACCOUNT_KEY),
+  );
+}
+
+/**
+ * Codex stale quota, withheld when the snapshot was stamped with a stored
+ * ChatGPT account id none of the failed reading's tried credentials name. A
+ * Codex slot is not tied to one account by its name: the keyless slot is shared
+ * by a sole discovered lane and the single-account path, and a stable Pi entry
+ * key can be signed in to a different account, so the slot alone cannot say
+ * whose windows it holds.
+ *
+ * The stamp is the stored id, not the vendor response id: those can differ
+ * while the same token is live, and a later failed probe only has the store.
+ * An unstamped snapshot, or a reading whose tried credentials name no account,
+ * proves nothing either way and is served as before.
+ */
+export function readCachedCodexProvider(
+  accountKey: string | undefined,
+  accountIds: readonly string[],
+): ProviderQuota | undefined {
+  const record = readCachedRecord("codex", accountKey);
+  if (!record) return undefined;
+  const contextId = record.credentialContextId;
+  if (!contextId || accountIds.length === 0) return record.snapshot;
+  return accountIds.some((id) => codexAccountContextId(id) === contextId)
+    ? record.snapshot
+    : undefined;
 }
 
 /**
@@ -122,39 +208,54 @@ export function writeCachedProviders(providers: ProviderQuota[]): void {
         (provider) =>
           provider.state.status === "fresh" && provider.windows.length === 0,
       )
-      .map((provider) => provider.provider),
+      .map(cacheIdentity),
   );
   const cacheable = providers
     .map(toCacheProvider)
     .filter((provider): provider is CachedProvider => Boolean(provider));
 
   const file = cacheFilePath();
-  const byProvider = new Map<ProviderId, CachedProvider>();
+  const byProvider = new Map<string, CachedProvider>();
   let clearedExisting = false;
   for (const provider of readCacheProviders()) {
-    if (clearProviders.has(provider.snapshot.provider)) {
+    if (clearProviders.has(cacheIdentity(provider.snapshot))) {
       clearedExisting = true;
       continue;
     }
-    byProvider.set(provider.snapshot.provider, provider);
+    byProvider.set(cacheIdentity(provider.snapshot), provider);
   }
   if (cacheable.length === 0 && !clearedExisting) return;
   for (const provider of cacheable)
-    byProvider.set(provider.snapshot.provider, provider);
-  const merged = PROVIDER_IDS.map((provider) =>
-    byProvider.get(provider),
-  ).filter((provider): provider is CachedProvider => Boolean(provider));
+    byProvider.set(cacheIdentity(provider.snapshot), provider);
+  const merged = [...byProvider.values()].sort(
+    (a, b) =>
+      PROVIDER_IDS.indexOf(a.snapshot.provider) -
+        PROVIDER_IDS.indexOf(b.snapshot.provider) ||
+      (a.snapshot.accountKey ?? DEFAULT_ACCOUNT_KEY).localeCompare(
+        b.snapshot.accountKey ?? DEFAULT_ACCOUNT_KEY,
+      ),
+  );
 
   writeCacheFile(file, merged);
 }
 
-export function deleteCachedProvider(provider: ProviderId): void {
+function cacheIdentity(provider: ProviderQuota): string {
+  return `${provider.provider}/${provider.accountKey ?? DEFAULT_ACCOUNT_KEY}`;
+}
+
+export function deleteCachedProvider(
+  provider: ProviderId,
+  accountKey?: string,
+): void {
   const existing = readCacheProviders();
-  if (!existing.some((item) => item.snapshot.provider === provider)) return;
-  writeCacheFile(
-    cacheFilePath(),
-    existing.filter((item) => item.snapshot.provider !== provider),
+  const remaining = existing.filter((item) =>
+    item.snapshot.provider !== provider
+      ? true
+      : accountKey !== undefined &&
+        (item.snapshot.accountKey ?? DEFAULT_ACCOUNT_KEY) !== accountKey,
   );
+  if (remaining.length === existing.length) return;
+  writeCacheFile(cacheFilePath(), remaining);
 }
 
 function writeCacheFile(file: string, providers: CachedProvider[]): void {
@@ -184,7 +285,9 @@ function readCacheProviders(): CachedProvider[] {
   const schemaVersion = numberValue(payload?.schemaVersion);
   if (
     !payload ||
-    (schemaVersion !== 1 && schemaVersion !== CACHE_SCHEMA_VERSION) ||
+    (schemaVersion !== 1 &&
+      schemaVersion !== 2 &&
+      schemaVersion !== CACHE_SCHEMA_VERSION) ||
     !Array.isArray(payload.providers)
   )
     return [];
@@ -199,6 +302,10 @@ function toCacheProvider(provider: ProviderQuota): CachedProvider | undefined {
   const snapshot = normalizeCachedProvider(
     {
       provider: provider.provider,
+      accountKey:
+        provider.accountKey === DEFAULT_ACCOUNT_KEY
+          ? undefined
+          : provider.accountKey,
       label: provider.label,
       source: provider.source,
       plan: provider.plan,
@@ -215,7 +322,7 @@ function toCacheProvider(provider: ProviderQuota): CachedProvider | undefined {
     CACHE_SCHEMA_VERSION,
   )?.snapshot;
   if (!snapshot) return undefined;
-  const contextId = CONTEXT_SCOPED_PROVIDERS[provider.provider]?.();
+  const contextId = CONTEXT_SCOPED_PROVIDERS[provider.provider]?.(provider);
   return {
     snapshot,
     ...(contextId ? { credentialContextId: contextId } : {}),
@@ -241,7 +348,7 @@ function normalizeCachedProvider(
   if (!data) return undefined;
   const provider = literalValue(data.provider, PROVIDER_IDS);
   const label = stringValue(data.label);
-  const source = literalValue(data.source, PROVIDER_SOURCES);
+  const source = cachedSource(data.source);
   const state = objectValue(data.state);
   const status = literalValue(state?.status, PROVIDER_STATUSES);
   const sourcesTried = stringArrayValue(state?.sourcesTried);
@@ -262,8 +369,17 @@ function normalizeCachedProvider(
   )
     return undefined;
 
+  const accountKey = stringValue(data.accountKey);
+  if (
+    data.accountKey !== undefined &&
+    (schemaVersion < 3 ||
+      !accountKey ||
+      !/^[a-z0-9][a-z0-9:_-]{0,95}$/.test(accountKey))
+  )
+    return undefined;
   const snapshot: ProviderQuota = {
     provider,
+    ...(accountKey ? { accountKey } : {}),
     label,
     source,
     windows,
@@ -285,7 +401,7 @@ function normalizeCachedProvider(
   const credentialContext = stringValue(data.credentialContext);
   return {
     snapshot,
-    ...(schemaVersion === CACHE_SCHEMA_VERSION &&
+    ...(schemaVersion >= 2 &&
     snapshot.provider in CONTEXT_SCOPED_PROVIDERS &&
     credentialContext &&
     CREDENTIAL_CONTEXT_ID.test(credentialContext)
@@ -505,6 +621,15 @@ function stringArrayValue(value: unknown): string[] | undefined {
   return Array.isArray(value) && value.every((item) => typeof item === "string")
     ? value
     : undefined;
+}
+
+function cachedSource(value: unknown): ProviderSource | undefined {
+  const source = stringValue(value);
+  if (!source) return undefined;
+  if ((PROVIDER_SOURCES as readonly string[]).includes(source)) {
+    return source as ProviderSource;
+  }
+  return isPiCodexSource(source) ? (source as ProviderSource) : undefined;
 }
 
 function literalValue<const T extends readonly string[]>(
