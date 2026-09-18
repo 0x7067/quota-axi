@@ -1,0 +1,16 @@
+src/providers/openrouter.ts
+  h_29be57c0addd47 133,233,253-260
+test/providers/openrouter.test.ts
+  h_29be57c0addd47 161-187
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "91e428792b27d5cfad17a72c0b045a2bc5937678",
+  "prompts": {},
+  "humans": {
+    "h_29be57c0addd47": {
+      "author": "Pedro Guimarães <21346846+0x7067@users.noreply.github.com>"
+    }
+  }
+}
