@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.1.47](https://github.com/kunchenguid/quota-axi/compare/quota-axi-v0.1.46...quota-axi-v0.1.47) (2026-09-18)
+
+
+### Features
+
+* **providers:** add read-only Command Code quota provider ([#181](https://github.com/kunchenguid/quota-axi/issues/181)) ([96d7242](https://github.com/kunchenguid/quota-axi/commit/96d724202455f9a2a0c444fc5292b02f7fdf9997))
+* **providers:** report each Pi openai-codex account separately ([#206](https://github.com/kunchenguid/quota-axi/issues/206)) ([36093f4](https://github.com/kunchenguid/quota-axi/commit/36093f483409c286a0c80941bb9d57d1c4a51514))
+
+
+### Bug Fixes
+
+* **lib:** pair the proxy dispatcher with its own undici fetch ([#198](https://github.com/kunchenguid/quota-axi/issues/198)) ([9e7163d](https://github.com/kunchenguid/quota-axi/commit/9e7163dcf15e9bceb16213ff5dacfadd0a6823a9))
+* **providers:** confirm Claude token expiry after rate-limited usage reads ([#197](https://github.com/kunchenguid/quota-axi/issues/197)) ([08d3185](https://github.com/kunchenguid/quota-axi/commit/08d3185616de59cc79431e3cf7b3855488039d9d))
+
 ## [0.1.46](https://github.com/kunchenguid/quota-axi/compare/quota-axi-v0.1.45...quota-axi-v0.1.46) (2026-09-17)
 
 
