@@ -259,6 +259,17 @@ function providerStateRows(
     primary.detail += suffix;
     return rows;
   }
+  const credits = creditBalance(provider);
+  if (credits) {
+    rows.unshift({
+      provider: provider.provider,
+      scope: "all",
+      kind: "credits",
+      detail: `${credits}${suffix}`,
+      remedy: provider.state.remedyCommand ?? NONE,
+    });
+    return rows;
+  }
   // No status row to carry the auth fact. Emit one when there is an auth
   // status to state, or when nothing else would name this provider at all.
   if (suffix === "" && rows.length + scopeRows > 0) return rows;
@@ -270,6 +281,20 @@ function providerStateRows(
     remedy: provider.state.remedyCommand ?? NONE,
   });
   return rows;
+}
+
+/**
+ * A provider that reports a raw credit balance but no measurable scope has a
+ * real number to state. Naming it keeps the default report from contradicting
+ * the same run's `credits` with a bare `no_quota`, without inventing a
+ * percentage or a routing bound from a balance that has no cap.
+ */
+function creditBalance(provider: ProviderQuota): string | undefined {
+  const credits = provider.credits;
+  if (!credits) return undefined;
+  if (credits.unlimited) return "credits unlimited";
+  if (credits.remaining === undefined) return undefined;
+  return `remaining ${credits.remaining} ${credits.unit ?? "credits"}`;
 }
 
 function primaryProviderRow(provider: ProviderQuota): AttentionRow | undefined {

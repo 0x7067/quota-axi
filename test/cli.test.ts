@@ -24,6 +24,7 @@ const originalZaiProvider = PROVIDERS.zai;
 const originalAgyProvider = PROVIDERS.agy;
 const originalAlibabaProvider = PROVIDERS.alibaba;
 const originalOpenCodeGoProvider = PROVIDERS["opencode-go"];
+const originalCommandCodeProvider = PROVIDERS.commandcode;
 const originalXdgCacheHome = process.env.XDG_CACHE_HOME;
 const originalClaudeConfigDir = process.env.CLAUDE_CONFIG_DIR;
 const originalCodexHome = process.env.CODEX_HOME;
@@ -40,6 +41,7 @@ afterEach(() => {
   PROVIDERS.agy = originalAgyProvider;
   PROVIDERS.alibaba = originalAlibabaProvider;
   PROVIDERS["opencode-go"] = originalOpenCodeGoProvider;
+  PROVIDERS.commandcode = originalCommandCodeProvider;
   if (originalXdgCacheHome === undefined) delete process.env.XDG_CACHE_HOME;
   else process.env.XDG_CACHE_HOME = originalXdgCacheHome;
   if (originalClaudeConfigDir === undefined)
@@ -66,6 +68,7 @@ describe("CLI flag parsing", () => {
       "agy",
       "alibaba",
       "opencode-go",
+      "commandcode",
     ]);
   });
 
@@ -103,6 +106,7 @@ describe("CLI flag parsing", () => {
           "agy",
           "alibaba",
           "opencode-go",
+          "commandcode",
         ],
         json: true,
         full: true,
@@ -884,6 +888,7 @@ describe("default TOON decision blocks", () => {
     PROVIDERS.agy = providerWithQuota(unavailableAgyQuota());
     PROVIDERS.alibaba = providerWithQuota(freshAlibabaQuota());
     PROVIDERS["opencode-go"] = providerWithQuota(freshOpenCodeGoQuota());
+    PROVIDERS.commandcode = providerWithQuota(freshCommandCodeQuota());
 
     const output = await capture([]);
     const named = new Set([
@@ -896,6 +901,7 @@ describe("default TOON decision blocks", () => {
       "alibaba",
       "claude",
       "codex",
+      "commandcode",
       "copilot",
       "cursor",
       "grok",
@@ -945,6 +951,36 @@ describe("default TOON decision blocks", () => {
     expect(declaredPriority).not.toEqual(
       [...declaredPriority].sort((a, b) => b - a),
     );
+  });
+
+  it("states a raw credit balance instead of contradicting it with no_quota", async () => {
+    useTempCache();
+    PROVIDERS.commandcode = providerWithQuota({
+      provider: "commandcode",
+      label: "Command Code",
+      source: "api",
+      windows: [],
+      credits: { remaining: 12.5, unit: "credits" },
+      state: {
+        status: "fresh",
+        stale: false,
+        refreshedAt: "2026-07-06T18:10:00Z",
+        authStatus: "usable",
+        sourcesTried: ["pi:commandcode"],
+      },
+    });
+
+    const output = await capture(["--provider", "commandcode"]);
+
+    expect(toonRows(output, "attention")).toEqual([
+      [
+        "commandcode",
+        "all",
+        "credits",
+        "remaining 12.5 credits (auth usable)",
+        "none",
+      ],
+    ]);
   });
 
   it("renders an unmeasurable spendPriority as `unknown`, never as 0", async () => {
@@ -1278,6 +1314,7 @@ describe("CLI plumbing via the axi SDK", () => {
     PROVIDERS.agy = providerWithAuth("agy", "Antigravity");
     PROVIDERS.alibaba = providerWithAuth("alibaba", "Alibaba Coding Plan");
     PROVIDERS["opencode-go"] = providerWithAuth("opencode-go", "OpenCode Go");
+    PROVIDERS.commandcode = providerWithAuth("commandcode", "Command Code");
 
     const output = await capture(["--allow-keychain-prompt", "auth"]);
     expect(output).toContain(
@@ -1856,6 +1893,31 @@ function freshOpenCodeGoQuota(): ProviderQuota {
       stale: false,
       refreshedAt: "2026-07-06T18:10:00Z",
       sourcesTried: ["opencode:auth.json"],
+    },
+  };
+}
+
+function freshCommandCodeQuota(): ProviderQuota {
+  return {
+    provider: "commandcode",
+    label: "Command Code",
+    source: "api",
+    plan: "Command Code",
+    windows: [
+      {
+        id: "weekly",
+        label: "weekly",
+        kind: "weekly",
+        percentUsed: 12,
+        percentRemaining: 88,
+        windowSeconds: 604800,
+      },
+    ],
+    state: {
+      status: "fresh",
+      stale: false,
+      refreshedAt: "2026-07-06T18:10:00Z",
+      sourcesTried: ["pi:commandcode"],
     },
   };
 }

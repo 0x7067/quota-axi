@@ -710,6 +710,41 @@ describe("cards for providers with no combinable bound", () => {
     );
   });
 
+  it("states a windowless provider's raw credit balance instead of an empty bar", () => {
+    const creditsOnly = withQuotaSemantics(
+      {
+        provider: "commandcode",
+        label: "Command Code",
+        source: "api",
+        windows: [],
+        credits: { remaining: 12.5, unit: "credits" },
+        state: {
+          status: "fresh",
+          stale: false,
+          refreshedAt: GENERATED_AT,
+          authStatus: "usable",
+          sourcesTried: ["pi:commandcode"],
+        },
+      },
+      GENERATED_AT,
+    );
+    const lines = renderQuotaTui(
+      {
+        generatedAt: GENERATED_AT,
+        schemaVersion: 5,
+        providers: [creditsOnly],
+      },
+      { timeZone: "America/Los_Angeles" },
+    ).split("\n");
+
+    expect(findLine(lines, "12.5 credits remaining")).toBeDefined();
+    expect(lines.join("\n")).not.toContain("effective unknown");
+    const emptyTrack = lines
+      .map((line) => stripAnsi(line))
+      .filter((line) => /^│\s+─{10,}\s+│$/.test(line));
+    expect(emptyTrack).toHaveLength(0);
+  });
+
   it("renders Cursor's jointly bounded card with its effective bar", () => {
     const cursor = withQuotaSemantics(
       {

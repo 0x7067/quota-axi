@@ -75,6 +75,7 @@ const ACCENTS: Record<ProviderId, StyleSpec> = {
   agy: { rgb: [232, 184, 109], ansi16: "93", bold: true },
   alibaba: { rgb: [255, 155, 120], ansi16: "91", bold: true },
   "opencode-go": { rgb: [160, 210, 255], ansi16: "96", bold: true },
+  commandcode: { rgb: [110, 210, 168], ansi16: "92", bold: true },
 };
 
 const STYLES: Record<Exclude<StyleName, `accent:${ProviderId}`>, StyleSpec> = {
@@ -222,7 +223,10 @@ function buildLiveCard(provider: ProviderQuota, generatedAtMs: number): Card {
   ];
 
   const headline = pickHeadlineAvailability(provider);
-  if (hasWhollyUnknownWindowRelationships(provider)) {
+  const creditsLine = creditsOnlyHeadline(provider, stale);
+  if (creditsLine) {
+    lines.push(...creditsLine);
+  } else if (hasWhollyUnknownWindowRelationships(provider)) {
     lines.push(...windowsOnlyHeadline(stale));
   } else {
     lines.push(...effectiveHeadline(provider, headline, stale));
@@ -313,6 +317,40 @@ function effectiveHeadline(
     ),
   );
   return lines;
+}
+
+/**
+ * A windowless reading that reports a raw credit balance has no combined bound
+ * and no percentage to draw, so its card states the balance instead of an empty
+ * effective bar whose zero fill would read as a failure. The balance is shown
+ * exactly as the vendor reports it, never converted into a percentage.
+ */
+function creditsOnlyHeadline(
+  provider: ProviderQuota,
+  stale: boolean | undefined,
+): Line[] | undefined {
+  if (provider.windows.length > 0) return undefined;
+  const credits = provider.credits;
+  if (!credits) return undefined;
+  const amount =
+    credits.unlimited === true
+      ? "unlimited"
+      : credits.remaining === undefined
+        ? undefined
+        : `${credits.remaining} ${credits.unit ?? "credits"} remaining`;
+  if (amount === undefined) return undefined;
+  return [
+    interior(
+      [
+        { text: "   " },
+        {
+          text: stale ? `stale · ${amount}` : amount,
+          style: "dimBold",
+        },
+      ],
+      "border",
+    ),
+  ];
 }
 
 /**

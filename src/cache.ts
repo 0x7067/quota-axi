@@ -7,6 +7,7 @@ import {
   readJsonFile,
 } from "./lib/fs.js";
 import { kimiReadingContextId } from "./providers/kimi-cache-context.js";
+import { commandCodeReadingContextId } from "./providers/commandcode-cache-context.js";
 import { isPiCodexSource } from "./providers/pi-codex-credential.js";
 import type {
   ProviderId,
@@ -55,11 +56,13 @@ const CREDENTIAL_CONTEXT_ID = /^[a-f0-9]{64}$/;
 /**
  * Providers whose snapshots record which account they belong to, because the
  * cache slot alone does not say: a Claude profile selects the credential store,
- * a Kimi Code `config.toml` selects the deployment, and a Codex slot can be
- * signed in to another ChatGPT account. A snapshot from one such context says
- * nothing about another, so each is stamped on write and checked on stale
- * reuse - strictly for Claude and Kimi, whose identity a reading always has,
- * and on proven mismatch for Codex, whose stored account id is optional.
+ * a Kimi Code `config.toml` selects the deployment, Command Code's `whoami`
+ * identifies the source-plus-account pair, and a Codex slot can be signed in to
+ * another ChatGPT account. A snapshot from one such context says nothing about
+ * another, so each is stamped on write and checked on stale reuse - strictly
+ * for Claude, Kimi, and Command Code, whose identity a reading always has (and
+ * which skip write and clear when that identity is missing), and on proven
+ * mismatch for Codex, whose stored account id is optional.
  *
  * How that stamp is obtained is not the same question for each. A Claude
  * profile is fixed by this process's own environment, so deriving it here reads
@@ -69,7 +72,8 @@ const CREDENTIAL_CONTEXT_ID = /^[a-f0-9]{64}$/;
  * and a Kimi reading need not come from that configuration in the first place,
  * because Pi brokers a credential for the default endpoint while naming no
  * deployment. Kimi therefore reports the identity of whatever actually produced
- * its reading. Codex's slot is not local configuration either: a failed probe
+ * its reading. Command Code likewise publishes the source-plus-account identity
+ * `whoami` established, rather than deriving one here. Codex's slot is not local configuration either: a failed probe
  * can only name the accounts the credentials still store, so the stamp is the
  * stored id of the one credential that answered (not the vendor's response id,
  * which can differ while the token is the same) hashed because the cache holds
@@ -80,6 +84,7 @@ const CONTEXT_SCOPED_PROVIDERS: Partial<
 > = {
   claude: claudeCredentialContextId,
   kimi: kimiReadingContextId,
+  commandcode: commandCodeReadingContextId,
   codex: codexStampContextId,
 };
 
@@ -189,6 +194,16 @@ export function readCachedKimiProvider(
   return readCachedProviderInContext("kimi", contextId);
 }
 
+/**
+ * Command Code stale quota may only be reused when the cache record proves it
+ * was captured for the same source and account the current `whoami` identified.
+ */
+export function readCachedCommandCodeProvider(
+  contextId: string,
+): ProviderQuota | undefined {
+  return readCachedProviderInContext("commandcode", contextId);
+}
+
 function readCachedProviderInContext(
   provider: ProviderId,
   contextId: string,
@@ -206,7 +221,9 @@ export function writeCachedProviders(providers: ProviderQuota[]): void {
     providers
       .filter(
         (provider) =>
-          provider.state.status === "fresh" && provider.windows.length === 0,
+          provider.state.status === "fresh" &&
+          provider.windows.length === 0 &&
+          !missingRequiredContext(provider.provider),
       )
       .map(cacheIdentity),
   );
@@ -323,10 +340,28 @@ function toCacheProvider(provider: ProviderQuota): CachedProvider | undefined {
   )?.snapshot;
   if (!snapshot) return undefined;
   const contextId = CONTEXT_SCOPED_PROVIDERS[provider.provider]?.(provider);
+  // Claude, Kimi, and Command Code require a published identity; Codex stamps
+  // are optional and withheld only on proven mismatch at read time.
+  if (
+    provider.provider !== "codex" &&
+    CONTEXT_SCOPED_PROVIDERS[provider.provider] &&
+    !contextId
+  )
+    return undefined;
   return {
     snapshot,
     ...(contextId ? { credentialContextId: contextId } : {}),
   };
+}
+
+function missingRequiredContext(provider: ProviderId): boolean {
+  // Codex stamps are optional; Claude, Kimi, and Command Code must not clear
+  // when the current reading has no published context identity.
+  if (provider === "codex") return false;
+  const scope = CONTEXT_SCOPED_PROVIDERS[provider];
+  return (
+    scope !== undefined && !scope({ provider } as ProviderQuota)
+  );
 }
 
 function serializeCachedProvider(
