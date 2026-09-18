@@ -1,0 +1,16 @@
+AGENTS.md
+  h_29be57c0addd47 49
+README.md
+  h_29be57c0addd47 199,218-222
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "44062ea81601b89a7260b88f2fb1319a9f72e0b8",
+  "prompts": {},
+  "humans": {
+    "h_29be57c0addd47": {
+      "author": "Pedro Guimarães <21346846+0x7067@users.noreply.github.com>"
+    }
+  }
+}
