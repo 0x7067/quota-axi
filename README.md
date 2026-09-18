@@ -788,7 +788,7 @@ The Claude and Codex rows describe default discovery; [`--profile-only`](#profil
 **OpenRouter**
 
 - It reads only a literal `OPENROUTER_API_KEY` or the literal `openrouter` entry in Pi's `$PI_CODING_AGENT_DIR/auth.json` (default `~/.pi/agent/auth.json`). Environment, template, and command references are rejected rather than resolved.
-- It sends one redirect-disabled `GET` per attempted credential to OpenRouter's first-party `/api/v1/key` endpoint with a bearer token, trying the environment key before Pi under the [credential handover rules](#provider-state). Key-cap representation is documented under [Provider windows](#provider-windows); reset text comes only from the endpoint.
+- It sends one redirect-disabled `GET` per attempted credential to OpenRouter's first-party `/api/v1/key` endpoint with a bearer token, trying the environment key before Pi under the [credential handover rules](#provider-state). Key-cap representation is documented under [Provider windows](#provider-windows); reset text comes only from the endpoint. The endpoint's `data.label` is a per-key nickname rather than an account identifier, so it is exposed as `account.accountId` with `identityStatus` `unverified` in `--full` output.
 - It never launches OpenRouter tooling, refreshes or writes credentials, sends cookies, or retains raw responses.
 
 **Antigravity**

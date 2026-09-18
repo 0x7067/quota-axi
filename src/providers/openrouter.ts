@@ -1,20 +1,29 @@
 import { deleteCachedProvider as deleteCachedProviderFromDisk } from "../cache.js";
-import { readJsonFileResult, type JsonFileReadResult } from "../lib/fs.js";
 import { providerFetch } from "../lib/http.js";
-import { classifyPiAuthEntry } from "../lib/pi-auth-store.js";
-import { resolvePiAuthFilePath } from "../lib/pi-agent-dir.js";
-import { usableLiteralSecret } from "../lib/secret.js";
-import { retryAfterToIso } from "../lib/time.js";
 import type {
   AuthProviderReport,
-  AuthSourceReport,
   ProviderAdapter,
   ProviderQuota,
-  ProviderStatus,
   QuotaWindow,
   SourceAttempt,
 } from "../types.js";
 import { failedProvider, sourceNames, successProvider } from "./common.js";
+import {
+  credentialCandidates,
+  type EnvPiCredentialResolution,
+  type EnvPiCredentialSources,
+  errorCode,
+  extractPiKeyCredential,
+  inspectEnvPiAuth,
+  KeyEndpointError,
+  type KeyCredentialFailure,
+  keyCredentialFailure,
+  preferCredentialFailure,
+  preferRemoteAuthFailure,
+  requestKeyEndpoint,
+  resolveEnvPiCredentials,
+  statusFromRequestError,
+} from "./env-pi-credential.js";
 
 export const OPENROUTER_KEY_URL = "https://openrouter.ai/api/v1/key";
 export const OPENROUTER_PI_SOURCE = "pi:openrouter";
@@ -22,14 +31,16 @@ export const OPENROUTER_ENV_SOURCE = "env:OPENROUTER_API_KEY";
 
 const LABEL = "OpenRouter";
 const DEADLINE_MS = 15_000;
-const RESPONSE_LIMIT_BYTES = 262_144;
 
-type CredentialResolution =
-  | { status: "available"; key: string; source: string; path?: string }
-  | { status: "missing" | "invalid" | "error"; source: string; path?: string };
+const OPENROUTER_SOURCES: EnvPiCredentialSources = {
+  envVar: "OPENROUTER_API_KEY",
+  envSource: OPENROUTER_ENV_SOURCE,
+  piProviderId: "openrouter",
+  piSource: OPENROUTER_PI_SOURCE,
+};
 
 type Dependencies = {
-  credential: () => CredentialResolution | CredentialResolution[];
+  credential: () => EnvPiCredentialResolution | EnvPiCredentialResolution[];
   fetch: typeof providerFetch;
   deleteCachedProvider: typeof deleteCachedProviderFromDisk;
   now: () => number;
@@ -46,49 +57,21 @@ export type NormalizedOpenRouterPayload = {
 
 export function resolveOpenRouterCredentials(
   environment: Readonly<Record<string, string | undefined>> = process.env,
-  path = resolvePiAuthFilePath(),
-): CredentialResolution[] {
-  const credentials: CredentialResolution[] = [];
-  const envKey = usableLiteralSecret(environment.OPENROUTER_API_KEY);
-  credentials.push(
-    envKey
-      ? { status: "available", key: envKey, source: OPENROUTER_ENV_SOURCE }
-      : { status: "missing", source: OPENROUTER_ENV_SOURCE },
-  );
-  const result: JsonFileReadResult = readJsonFileResult(path);
-  if (result.status === "missing") {
-    credentials.push({ status: "missing", source: OPENROUTER_PI_SOURCE, path });
-  } else if (result.status === "invalid") {
-    credentials.push({
-      status: result.error === "file_read_error" ? "error" : "invalid",
-      source: OPENROUTER_PI_SOURCE,
-      path,
-    });
-  } else {
-    credentials.push(extractOpenRouterCredential(result.value, path));
-  }
-  return credentials;
+  path?: string,
+): EnvPiCredentialResolution[] {
+  return resolveEnvPiCredentials(OPENROUTER_SOURCES, environment, path);
 }
 
 export function extractOpenRouterCredential(
   value: unknown,
   path: string,
-): CredentialResolution {
-  const classified = classifyPiAuthEntry(value, "openrouter");
-  if (classified.status !== "present")
-    return { status: classified.status, source: OPENROUTER_PI_SOURCE, path };
-  const key = [
-    classified.entry.key,
-    classified.entry.apiKey,
-    classified.entry.api_key,
-    classified.entry.access,
-    classified.entry.token,
-  ]
-    .map(usableLiteralSecret)
-    .find((candidate): candidate is string => candidate !== undefined);
-  if (key)
-    return { status: "available", key, source: OPENROUTER_PI_SOURCE, path };
-  return { status: "invalid", source: OPENROUTER_PI_SOURCE, path };
+): EnvPiCredentialResolution {
+  return extractPiKeyCredential(
+    value,
+    "openrouter",
+    OPENROUTER_PI_SOURCE,
+    path,
+  );
 }
 
 export function createOpenRouterAdapter(
@@ -114,20 +97,22 @@ export const openrouterAdapter = createOpenRouterAdapter();
 
 async function fetchQuota(dependencies: Dependencies): Promise<ProviderQuota> {
   const attempts: SourceAttempt[] = [];
-  let finalFailure: { status: ProviderStatus; error: string } | undefined;
-  for (const resolution of credentialCandidates(dependencies)) {
+  let finalFailure: KeyCredentialFailure | undefined;
+  for (const resolution of credentialCandidates(dependencies.credential)) {
     if (resolution.status !== "available") {
+      const failure = keyCredentialFailure("openrouter", resolution);
       attempts.push({
         source: resolution.source,
         status: resolution.status === "missing" ? "skipped" : "failed",
-        error: credentialError(resolution),
+        error: failure.error,
       });
-      finalFailure = preferCredentialFailure(finalFailure, resolution);
+      finalFailure = preferCredentialFailure(finalFailure, failure);
       continue;
     }
 
     try {
-      const payload = await requestUsage(
+      const payload = await requestKeyEndpoint(
+        OPENROUTER_KEY_URL,
         resolution.key,
         dependencies.fetch,
         dependencies.deadlineMs,
@@ -165,7 +150,9 @@ async function fetchQuota(dependencies: Dependencies): Promise<ProviderQuota> {
         provider: "openrouter",
         label: LABEL,
         source: "api",
-        account: normalized.label ? { accountId: normalized.label } : undefined,
+        account: normalized.label
+          ? { accountId: normalized.label, identityStatus: "unverified" }
+          : undefined,
         windows,
         ...(normalized.unlimited
           ? { credits: { unlimited: true, unit: "usd" } }
@@ -190,11 +177,11 @@ async function fetchQuota(dependencies: Dependencies): Promise<ProviderQuota> {
       return failedProvider({
         provider: "openrouter",
         label: LABEL,
-        status: statusFromError(code),
+        status: statusFromRequestError(code),
         error: code,
         source: "unavailable",
         retryAfter:
-          error instanceof OpenRouterError ? error.retryAfter : undefined,
+          error instanceof KeyEndpointError ? error.retryAfter : undefined,
         sourcesTried: sourceNames(attempts),
         attempts,
       });
@@ -226,102 +213,10 @@ async function fetchQuota(dependencies: Dependencies): Promise<ProviderQuota> {
 async function inspectAuth(
   dependencies: Dependencies,
 ): Promise<AuthProviderReport> {
-  const sources: AuthSourceReport[] = credentialCandidates(dependencies).map(
-    (resolution) => ({
-      source: resolution.source,
-      path: resolution.path,
-      status:
-        resolution.status === "available"
-          ? "available"
-          : resolution.status === "missing"
-            ? "missing"
-            : resolution.status === "error"
-              ? "error"
-              : "invalid",
-      ...(resolution.status === "error" || resolution.status === "invalid"
-        ? { error: credentialError(resolution) }
-        : {}),
-    }),
+  return inspectEnvPiAuth(
+    "openrouter",
+    credentialCandidates(dependencies.credential),
   );
-  return { provider: "openrouter", sources };
-}
-
-function credentialCandidates(
-  dependencies: Dependencies,
-): CredentialResolution[] {
-  const credentials = dependencies.credential();
-  return Array.isArray(credentials) ? credentials : [credentials];
-}
-
-function preferCredentialFailure(
-  current: { status: ProviderStatus; error: string } | undefined,
-  resolution: Exclude<CredentialResolution, { status: "available" }>,
-): { status: ProviderStatus; error: string } {
-  const next = {
-    status: resolution.status === "error" ? "error" : "auth_required",
-    error: credentialError(resolution),
-  } as { status: ProviderStatus; error: string };
-  if (
-    !current ||
-    (current.status === "auth_required" && next.status === "error")
-  )
-    return next;
-  return current;
-}
-
-function preferRemoteAuthFailure(
-  current: { status: ProviderStatus; error: string } | undefined,
-  error: string,
-): { status: ProviderStatus; error: string } {
-  if (current?.status === "error") return current;
-  return { status: "auth_required", error };
-}
-
-async function requestUsage(
-  key: string,
-  fetchImplementation: typeof providerFetch,
-  deadlineMs: number,
-): Promise<unknown> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), deadlineMs);
-  try {
-    const response = await fetchImplementation(OPENROUTER_KEY_URL, {
-      method: "GET",
-      headers: {
-        Authorization: "Bearer " + key,
-        Accept: "application/json",
-      },
-      credentials: "omit",
-      redirect: "manual",
-      signal: controller.signal,
-    });
-    if (response.status === 401 || response.status === 403)
-      throw new OpenRouterError("provider_auth_rejected");
-    if (response.status === 429)
-      throw new OpenRouterError(
-        "provider_rate_limited",
-        retryAfterToIso(response.headers.get("retry-after")),
-      );
-    if (!response.ok)
-      throw new OpenRouterError("provider_error:" + response.status);
-    const body = await readResponseBody(response, controller.signal);
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(
-        new TextDecoder("utf-8", { fatal: true }).decode(body),
-      );
-    } catch {
-      throw new OpenRouterError("invalid_json");
-    }
-    return parsed;
-  } catch (error) {
-    if (controller.signal.aborted)
-      throw new OpenRouterError("provider_timeout");
-    if (error instanceof OpenRouterError) throw error;
-    throw new OpenRouterError("network_unavailable");
-  } finally {
-    clearTimeout(timeout);
-  }
 }
 
 export function normalizeOpenRouterPayload(
@@ -367,71 +262,4 @@ function asString(value: unknown): string | undefined {
 
 function clampPercent(value: number): number {
   return Math.max(0, Math.min(100, value));
-}
-
-async function readResponseBody(
-  response: Response,
-  signal: AbortSignal,
-): Promise<Uint8Array> {
-  const declared = response.headers.get("content-length")?.trim();
-  if (
-    declared &&
-    /^\d+$/.test(declared) &&
-    Number(declared) > RESPONSE_LIMIT_BYTES
-  ) {
-    await response.body?.cancel().catch(() => undefined);
-    throw new OpenRouterError("response_too_large");
-  }
-  if (!response.body) throw new OpenRouterError("response_size_unverifiable");
-  const reader = response.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let length = 0;
-  try {
-    while (true) {
-      if (signal.aborted) throw new OpenRouterError("provider_timeout");
-      const result = await reader.read();
-      if (result.done) break;
-      length += result.value.byteLength;
-      if (length > RESPONSE_LIMIT_BYTES)
-        throw new OpenRouterError("response_too_large");
-      chunks.push(result.value);
-    }
-  } finally {
-    void reader.cancel().catch(() => undefined);
-    reader.releaseLock();
-  }
-  const bytes = new Uint8Array(length);
-  let offset = 0;
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return bytes;
-}
-
-class OpenRouterError extends Error {
-  readonly retryAfter?: string;
-
-  constructor(code: string, retryAfter?: string) {
-    super(code);
-    this.retryAfter = retryAfter;
-  }
-}
-
-function credentialError(resolution: CredentialResolution): string {
-  if (resolution.status === "missing")
-    return "openrouter_credential_unavailable";
-  if (resolution.status === "invalid") return "openrouter_credential_invalid";
-  return "openrouter_credential_resolution_failed";
-}
-
-function errorCode(error: unknown): string {
-  if (error instanceof Error) return error.message;
-  return String(error);
-}
-
-function statusFromError(error: string): ProviderStatus {
-  if (error === "provider_auth_rejected") return "auth_required";
-  if (error === "provider_rate_limited") return "rate_limited";
-  return "error";
 }

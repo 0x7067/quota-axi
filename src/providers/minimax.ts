@@ -7,7 +7,7 @@ import {
   readCachedMiniMaxProvider as readCachedProviderFromDisk,
 } from "../cache.js";
 import type { JsonFileReadResult } from "../lib/fs.js";
-import { providerFetch } from "../lib/http.js";
+import { providerFetch, readBoundedResponseBody } from "../lib/http.js";
 import { resolvePiAuthFilePath } from "../lib/pi-agent-dir.js";
 import { classifyPiAuthEntry } from "../lib/pi-auth-store.js";
 import { usableLiteralSecret } from "../lib/secret.js";
@@ -39,7 +39,6 @@ export const MINIMAX_ENV_SOURCE = "env:MINIMAX_API_KEY";
 
 const LABEL = "MiniMax";
 const CONFIG_FILE_LIMIT_BYTES = 64 * 1024;
-const RESPONSE_LIMIT_BYTES = 262_144;
 const DEADLINE_MS = 15_000;
 
 export type MiniMaxCredentialResolution =
@@ -649,7 +648,11 @@ async function requestMiniMax(
         staleEligible: true,
       });
     }
-    const body = await readResponseBody(response, controller.signal);
+    const body = await readBoundedResponseBody(
+      response,
+      controller.signal,
+      (code) => new MiniMaxFailure(code, { staleEligible: true }),
+    );
     try {
       const parsed = JSON.parse(
         new TextDecoder("utf-8", { fatal: true }).decode(body),
@@ -689,50 +692,6 @@ function rejectMiniMaxApplicationError(payload: unknown): void {
   throw new MiniMaxFailure("provider_request_rejected", {
     staleEligible: true,
   });
-}
-
-async function readResponseBody(
-  response: Response,
-  signal: AbortSignal,
-): Promise<Uint8Array> {
-  const declared = response.headers.get("content-length")?.trim();
-  if (
-    declared &&
-    /^\d+$/.test(declared) &&
-    Number(declared) > RESPONSE_LIMIT_BYTES
-  ) {
-    await cancelBody(response);
-    throw new MiniMaxFailure("response_too_large", { staleEligible: true });
-  }
-  if (!response.body)
-    throw new MiniMaxFailure("response_size_unverifiable", {
-      staleEligible: true,
-    });
-  const reader = response.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let length = 0;
-  try {
-    while (true) {
-      if (signal.aborted)
-        throw new MiniMaxFailure("provider_timeout", { staleEligible: true });
-      const result = await reader.read();
-      if (result.done) break;
-      length += result.value.byteLength;
-      if (length > RESPONSE_LIMIT_BYTES)
-        throw new MiniMaxFailure("response_too_large", { staleEligible: true });
-      chunks.push(result.value);
-    }
-  } finally {
-    void reader.cancel().catch(() => undefined);
-    reader.releaseLock();
-  }
-  const bytes = new Uint8Array(length);
-  let offset = 0;
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return bytes;
 }
 
 async function cancelBody(response: Response): Promise<void> {

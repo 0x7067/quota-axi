@@ -1,18 +1,27 @@
-import { readJsonFileResult, type JsonFileReadResult } from "../lib/fs.js";
 import { providerFetch } from "../lib/http.js";
-import { classifyPiAuthEntry } from "../lib/pi-auth-store.js";
-import { resolvePiAuthFilePath } from "../lib/pi-agent-dir.js";
-import { usableLiteralSecret } from "../lib/secret.js";
-import { retryAfterToIso } from "../lib/time.js";
 import type {
   AuthProviderReport,
-  AuthSourceReport,
   ProviderAdapter,
   ProviderQuota,
-  ProviderStatus,
   SourceAttempt,
 } from "../types.js";
 import { failedProvider, sourceNames, successProvider } from "./common.js";
+import {
+  credentialCandidates,
+  type EnvPiCredentialResolution,
+  type EnvPiCredentialSources,
+  errorCode,
+  extractPiKeyCredential,
+  inspectEnvPiAuth,
+  KeyEndpointError,
+  type KeyCredentialFailure,
+  keyCredentialFailure,
+  preferCredentialFailure,
+  preferRemoteAuthFailure,
+  requestKeyEndpoint,
+  resolveEnvPiCredentials,
+  statusFromRequestError,
+} from "./env-pi-credential.js";
 
 export const DEEPSEEK_BALANCE_URL = "https://api.deepseek.com/user/balance";
 export const DEEPSEEK_PI_SOURCE = "pi:deepseek";
@@ -20,17 +29,19 @@ export const DEEPSEEK_ENV_SOURCE = "env:DEEPSEEK_API_KEY";
 
 const LABEL = "DeepSeek";
 const DEADLINE_MS = 15_000;
-const RESPONSE_LIMIT_BYTES = 262_144;
+
+const DEEPSEEK_SOURCES: EnvPiCredentialSources = {
+  envVar: "DEEPSEEK_API_KEY",
+  envSource: DEEPSEEK_ENV_SOURCE,
+  piProviderId: "deepseek",
+  piSource: DEEPSEEK_PI_SOURCE,
+};
 
 const CURRENCIES = ["USD", "CNY"] as const;
 type DeepSeekCurrency = (typeof CURRENCIES)[number];
 
-type CredentialResolution =
-  | { status: "available"; key: string; source: string; path?: string }
-  | { status: "missing" | "invalid" | "error"; source: string; path?: string };
-
 type Dependencies = {
-  credential: () => CredentialResolution | CredentialResolution[];
+  credential: () => EnvPiCredentialResolution | EnvPiCredentialResolution[];
   fetch: typeof providerFetch;
   now: () => number;
   deadlineMs: number;
@@ -46,49 +57,16 @@ export type NormalizedDeepSeekPayload = {
 
 export function resolveDeepSeekCredentials(
   environment: Readonly<Record<string, string | undefined>> = process.env,
-  path = resolvePiAuthFilePath(),
-): CredentialResolution[] {
-  const credentials: CredentialResolution[] = [];
-  const envKey = usableLiteralSecret(environment.DEEPSEEK_API_KEY);
-  credentials.push(
-    envKey
-      ? { status: "available", key: envKey, source: DEEPSEEK_ENV_SOURCE }
-      : { status: "missing", source: DEEPSEEK_ENV_SOURCE },
-  );
-  const result: JsonFileReadResult = readJsonFileResult(path);
-  if (result.status === "missing") {
-    credentials.push({ status: "missing", source: DEEPSEEK_PI_SOURCE, path });
-  } else if (result.status === "invalid") {
-    credentials.push({
-      status: result.error === "file_read_error" ? "error" : "invalid",
-      source: DEEPSEEK_PI_SOURCE,
-      path,
-    });
-  } else {
-    credentials.push(extractDeepSeekCredential(result.value, path));
-  }
-  return credentials;
+  path?: string,
+): EnvPiCredentialResolution[] {
+  return resolveEnvPiCredentials(DEEPSEEK_SOURCES, environment, path);
 }
 
 export function extractDeepSeekCredential(
   value: unknown,
   path: string,
-): CredentialResolution {
-  const classified = classifyPiAuthEntry(value, "deepseek");
-  if (classified.status !== "present")
-    return { status: classified.status, source: DEEPSEEK_PI_SOURCE, path };
-  const key = [
-    classified.entry.key,
-    classified.entry.apiKey,
-    classified.entry.api_key,
-    classified.entry.access,
-    classified.entry.token,
-  ]
-    .map(usableLiteralSecret)
-    .find((candidate): candidate is string => candidate !== undefined);
-  if (key)
-    return { status: "available", key, source: DEEPSEEK_PI_SOURCE, path };
-  return { status: "invalid", source: DEEPSEEK_PI_SOURCE, path };
+): EnvPiCredentialResolution {
+  return extractPiKeyCredential(value, "deepseek", DEEPSEEK_PI_SOURCE, path);
 }
 
 export function createDeepSeekAdapter(
@@ -113,20 +91,22 @@ export const deepseekAdapter = createDeepSeekAdapter();
 
 async function fetchQuota(dependencies: Dependencies): Promise<ProviderQuota> {
   const attempts: SourceAttempt[] = [];
-  let finalFailure: { status: ProviderStatus; error: string } | undefined;
-  for (const resolution of credentialCandidates(dependencies)) {
+  let finalFailure: KeyCredentialFailure | undefined;
+  for (const resolution of credentialCandidates(dependencies.credential)) {
     if (resolution.status !== "available") {
+      const failure = keyCredentialFailure("deepseek", resolution);
       attempts.push({
         source: resolution.source,
         status: resolution.status === "missing" ? "skipped" : "failed",
-        error: credentialError(resolution),
+        error: failure.error,
       });
-      finalFailure = preferCredentialFailure(finalFailure, resolution);
+      finalFailure = preferCredentialFailure(finalFailure, failure);
       continue;
     }
 
     try {
-      const payload = await requestUsage(
+      const payload = await requestKeyEndpoint(
+        DEEPSEEK_BALANCE_URL,
         resolution.key,
         dependencies.fetch,
         dependencies.deadlineMs,
@@ -158,11 +138,11 @@ async function fetchQuota(dependencies: Dependencies): Promise<ProviderQuota> {
       return failedProvider({
         provider: "deepseek",
         label: LABEL,
-        status: statusFromError(code),
+        status: statusFromRequestError(code),
         error: code,
         source: "unavailable",
         retryAfter:
-          error instanceof DeepSeekError ? error.retryAfter : undefined,
+          error instanceof KeyEndpointError ? error.retryAfter : undefined,
         sourcesTried: sourceNames(attempts),
         attempts,
       });
@@ -187,101 +167,10 @@ async function fetchQuota(dependencies: Dependencies): Promise<ProviderQuota> {
 async function inspectAuth(
   dependencies: Dependencies,
 ): Promise<AuthProviderReport> {
-  const sources: AuthSourceReport[] = credentialCandidates(dependencies).map(
-    (resolution) => ({
-      source: resolution.source,
-      path: resolution.path,
-      status:
-        resolution.status === "available"
-          ? "available"
-          : resolution.status === "missing"
-            ? "missing"
-            : resolution.status === "error"
-              ? "error"
-              : "invalid",
-      ...(resolution.status === "error" || resolution.status === "invalid"
-        ? { error: credentialError(resolution) }
-        : {}),
-    }),
+  return inspectEnvPiAuth(
+    "deepseek",
+    credentialCandidates(dependencies.credential),
   );
-  return { provider: "deepseek", sources };
-}
-
-function credentialCandidates(
-  dependencies: Dependencies,
-): CredentialResolution[] {
-  const credentials = dependencies.credential();
-  return Array.isArray(credentials) ? credentials : [credentials];
-}
-
-function preferCredentialFailure(
-  current: { status: ProviderStatus; error: string } | undefined,
-  resolution: Exclude<CredentialResolution, { status: "available" }>,
-): { status: ProviderStatus; error: string } {
-  const next = {
-    status: resolution.status === "error" ? "error" : "auth_required",
-    error: credentialError(resolution),
-  } as { status: ProviderStatus; error: string };
-  if (
-    !current ||
-    (current.status === "auth_required" && next.status === "error")
-  )
-    return next;
-  return current;
-}
-
-function preferRemoteAuthFailure(
-  current: { status: ProviderStatus; error: string } | undefined,
-  error: string,
-): { status: ProviderStatus; error: string } {
-  if (current?.status === "error") return current;
-  return { status: "auth_required", error };
-}
-
-async function requestUsage(
-  key: string,
-  fetchImplementation: typeof providerFetch,
-  deadlineMs: number,
-): Promise<unknown> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), deadlineMs);
-  try {
-    const response = await fetchImplementation(DEEPSEEK_BALANCE_URL, {
-      method: "GET",
-      headers: {
-        Authorization: "Bearer " + key,
-        Accept: "application/json",
-      },
-      credentials: "omit",
-      redirect: "manual",
-      signal: controller.signal,
-    });
-    if (response.status === 401 || response.status === 403)
-      throw new DeepSeekError("provider_auth_rejected");
-    if (response.status === 429)
-      throw new DeepSeekError(
-        "provider_rate_limited",
-        retryAfterToIso(response.headers.get("retry-after")),
-      );
-    if (!response.ok)
-      throw new DeepSeekError("provider_error:" + response.status);
-    const body = await readResponseBody(response, controller.signal);
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(
-        new TextDecoder("utf-8", { fatal: true }).decode(body),
-      );
-    } catch {
-      throw new DeepSeekError("invalid_json");
-    }
-    return parsed;
-  } catch (error) {
-    if (controller.signal.aborted) throw new DeepSeekError("provider_timeout");
-    if (error instanceof DeepSeekError) throw error;
-    throw new DeepSeekError("network_unavailable");
-  } finally {
-    clearTimeout(timeout);
-  }
 }
 
 export function normalizeDeepSeekPayload(
@@ -362,70 +251,4 @@ function decimalAmount(value: unknown): value is string {
     value.length > 0 &&
     /^(?:0|[1-9]\d*)(?:\.\d+)?$/u.test(value)
   );
-}
-
-async function readResponseBody(
-  response: Response,
-  signal: AbortSignal,
-): Promise<Uint8Array> {
-  const declared = response.headers.get("content-length")?.trim();
-  if (
-    declared &&
-    /^\d+$/.test(declared) &&
-    Number(declared) > RESPONSE_LIMIT_BYTES
-  ) {
-    await response.body?.cancel().catch(() => undefined);
-    throw new DeepSeekError("response_too_large");
-  }
-  if (!response.body) throw new DeepSeekError("response_size_unverifiable");
-  const reader = response.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let length = 0;
-  try {
-    while (true) {
-      if (signal.aborted) throw new DeepSeekError("provider_timeout");
-      const result = await reader.read();
-      if (result.done) break;
-      length += result.value.byteLength;
-      if (length > RESPONSE_LIMIT_BYTES)
-        throw new DeepSeekError("response_too_large");
-      chunks.push(result.value);
-    }
-  } finally {
-    void reader.cancel().catch(() => undefined);
-    reader.releaseLock();
-  }
-  const bytes = new Uint8Array(length);
-  let offset = 0;
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return bytes;
-}
-
-class DeepSeekError extends Error {
-  readonly retryAfter?: string;
-
-  constructor(code: string, retryAfter?: string) {
-    super(code);
-    this.retryAfter = retryAfter;
-  }
-}
-
-function credentialError(resolution: CredentialResolution): string {
-  if (resolution.status === "missing") return "deepseek_credential_unavailable";
-  if (resolution.status === "invalid") return "deepseek_credential_invalid";
-  return "deepseek_credential_resolution_failed";
-}
-
-function errorCode(error: unknown): string {
-  if (error instanceof Error) return error.message;
-  return String(error);
-}
-
-function statusFromError(error: string): ProviderStatus {
-  if (error === "provider_auth_rejected") return "auth_required";
-  if (error === "provider_rate_limited") return "rate_limited";
-  return "error";
 }

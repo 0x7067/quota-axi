@@ -45,7 +45,7 @@ describe("OpenRouter provider", () => {
       source: "api",
       state: { status: "fresh", stale: false },
       credits: { remaining: 73.25, unit: "usd" },
-      account: { accountId: "personal" },
+      account: { accountId: "personal", identityStatus: "unverified" },
       attempts: [{ source: "env:OPENROUTER_API_KEY", status: "success" }],
     });
     expect(report.windows).toEqual([
