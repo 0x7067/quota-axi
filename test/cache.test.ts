@@ -12,14 +12,27 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   deleteCachedProvider,
   readCachedClaudeProvider,
+  readCachedCommandCodeProvider,
+  readCachedKimiProvider,
+  readCachedMiniMaxProvider,
   readCachedProvider,
   writeCachedProviders,
 } from "../src/cache.js";
+import { annotateQuotaAdvice } from "../src/advice.js";
 import { cacheFilePath, claudeCredentialContextId } from "../src/lib/fs.js";
+import {
+  clearCommandCodeReadingContextId,
+  commandCodeCacheContextId,
+  publishCommandCodeReadingContextId,
+} from "../src/providers/commandcode-cache-context.js";
+import { staleFromCache } from "../src/providers/common.js";
+import { createKimiCodeCliCredentialSource } from "../src/providers/kimi-code-cli-credential.js";
+import { publishMiniMaxReadingContextId } from "../src/providers/minimax-cache-context.js";
 import type { ProviderId, ProviderQuota } from "../src/types.js";
 
 const originalXdgCacheHome = process.env.XDG_CACHE_HOME;
 const originalClaudeConfigDir = process.env.CLAUDE_CONFIG_DIR;
+const originalKimiCodeHome = process.env.KIMI_CODE_HOME;
 let tempDir: string | undefined;
 
 afterEach(() => {
@@ -28,8 +41,11 @@ afterEach(() => {
   if (originalClaudeConfigDir === undefined)
     delete process.env.CLAUDE_CONFIG_DIR;
   else process.env.CLAUDE_CONFIG_DIR = originalClaudeConfigDir;
+  if (originalKimiCodeHome === undefined) delete process.env.KIMI_CODE_HOME;
+  else process.env.KIMI_CODE_HOME = originalKimiCodeHome;
   if (tempDir) rmSync(tempDir, { recursive: true, force: true });
   tempDir = undefined;
+  clearCommandCodeReadingContextId();
 });
 
 describe("quota cache", () => {
@@ -106,6 +122,60 @@ describe("quota cache", () => {
       source: "pi:openai-codex",
       state: { sourcesTried: ["oauth", "pi:openai-codex"] },
     });
+  });
+
+  it("isolates Codex Pi sibling snapshots by account key", () => {
+    useTempCache();
+    const personal = quota("codex", 20);
+    personal.accountKey = "openai-codex";
+    personal.source = "pi:openai-codex";
+    personal.state.sourcesTried = ["pi:openai-codex"];
+    const work = quota("codex", 80);
+    work.accountKey = "openai-codex-work";
+    work.source = "pi:openai-codex-work";
+    work.state.sourcesTried = ["pi:openai-codex-work"];
+
+    writeCachedProviders([personal, work]);
+
+    expect(readCachedProvider("codex")).toBeUndefined();
+    expect(readCachedProvider("codex", "openai-codex")).toMatchObject({
+      accountKey: "openai-codex",
+      source: "pi:openai-codex",
+      windows: [{ percentUsed: 20 }],
+    });
+    expect(readCachedProvider("codex", "openai-codex-work")).toMatchObject({
+      accountKey: "openai-codex-work",
+      source: "pi:openai-codex-work",
+      windows: [{ percentUsed: 80 }],
+    });
+    const payload = JSON.parse(readFileSync(cacheFilePath(), "utf8")) as {
+      schemaVersion: number;
+    };
+    expect(payload.schemaVersion).toBe(3);
+  });
+
+  it("keeps an expanded report's filler key out of a later unexpanded report", () => {
+    useTempCache();
+    const work = quota("codex", 20);
+    work.accountKey = "openai-codex-work";
+    const expanded = annotateQuotaAdvice({
+      generatedAt: "2026-07-06T18:10:00Z",
+      providers: [work, quota("copilot", 40)],
+    });
+    expect(expanded.schemaVersion).toBe(6);
+    expect(expanded.providers[1]?.accountKey).toBe("default");
+
+    writeCachedProviders(expanded.providers);
+    const cached = readCachedProvider("copilot");
+    expect(cached).toMatchObject({ windows: [{ percentUsed: 40 }] });
+    expect(cached?.accountKey).toBeUndefined();
+
+    const later = annotateQuotaAdvice({
+      generatedAt: "2026-07-06T19:10:00Z",
+      providers: [staleFromCache(cached!, "fetch failed", ["api"], [])],
+    });
+    expect(later.schemaVersion).toBe(5);
+    expect(later.providers[0]?.accountKey).toBeUndefined();
   });
 
   it("retains exact known and unfamiliar Codex cache identities", () => {
@@ -199,10 +269,140 @@ describe("quota cache", () => {
       providers: Array<{ credentialContext?: string }>;
     };
     const contextId = payload.providers[0]?.credentialContext;
-    expect(payload.schemaVersion).toBe(2);
+    expect(payload.schemaVersion).toBe(3);
     expect(contextId).toMatch(/^[a-f0-9]{64}$/);
     expect(JSON.stringify(payload)).not.toContain(contextDir);
     expect(readCachedClaudeProvider(claudeCredentialContextId())).toBeDefined();
+  });
+
+  it("keeps one Claude snapshot when the credential context changes", () => {
+    useTempCache();
+    process.env.CLAUDE_CONFIG_DIR = join(tempDir!, "claude-context-a");
+    writeCachedProviders([quota("claude", 10)]);
+    process.env.CLAUDE_CONFIG_DIR = join(tempDir!, "claude-context-b");
+    writeCachedProviders([quota("claude", 20)]);
+
+    const payload = JSON.parse(readFileSync(cacheFilePath(), "utf8")) as {
+      providers: Array<{ snapshot: ProviderQuota }>;
+    };
+    expect(payload.providers).toHaveLength(1);
+
+    writeCachedProviders([quotaWithoutWindows("claude")]);
+    expect(readCachedProvider("claude")).toBeUndefined();
+  });
+
+  it("refuses Kimi cache captured under another Kimi Code environment", async () => {
+    useTempCache();
+    const codeHome = join(tempDir!, "synthetic-kimi-code-home");
+    const config = join(codeHome, "config.toml");
+    mkdirSync(codeHome, { recursive: true });
+    process.env.KIMI_CODE_HOME = codeHome;
+    writeFileSync(
+      config,
+      `[providers."managed:kimi-code"]
+type = "kimi"
+api_key = "cache-context-must-not-depend-on-this-118"
+`,
+    );
+    const mainland = await selectKimiEnvironment();
+
+    writeCachedProviders([{ ...quota("kimi", 42), source: "api" as const }]);
+
+    const payload = JSON.parse(readFileSync(cacheFilePath(), "utf8")) as {
+      providers: Array<{ credentialContext?: string }>;
+    };
+    expect(payload.providers[0]?.credentialContext).toMatch(/^[a-f0-9]{64}$/);
+    expect(JSON.stringify(payload)).not.toContain(codeHome);
+    expect(readCachedKimiProvider(mainland)).toBeDefined();
+
+    writeFileSync(
+      config,
+      `[providers."managed:kimi-code"]
+type = "kimi"
+api_key = "a-rotated-key-selects-the-same-environment-994"
+default_model = "k2"
+`,
+    );
+
+    expect(await selectKimiEnvironment()).toBe(mainland);
+    expect(readCachedKimiProvider(mainland)).toBeDefined();
+
+    writeFileSync(
+      config,
+      '[providers."managed:kimi-code"]\nbase_url = "https://api.kimi.ai/coding/v1"\n',
+    );
+    const global = await selectKimiEnvironment();
+
+    expect(global).not.toBe(mainland);
+    expect(readCachedKimiProvider(global)).toBeUndefined();
+    expect(readCachedProvider("kimi")).toBeDefined();
+  });
+
+  /**
+   * Kimi Code rewrites `config.toml` on login, so the environment can already
+   * have changed by the time a reading is written. The stamp has to name the
+   * environment the numbers came from, not whichever one the file describes
+   * afterwards, or one deployment's quota is filed under the other's identity
+   * and later served back as its stale reading.
+   */
+  it("stamps a Kimi snapshot with the environment its reading was taken under", async () => {
+    useTempCache();
+    const codeHome = join(tempDir!, "switching-kimi-code-home");
+    const config = join(codeHome, "config.toml");
+    mkdirSync(codeHome, { recursive: true });
+    process.env.KIMI_CODE_HOME = codeHome;
+    writeFileSync(
+      config,
+      '[providers."managed:kimi-code"]\nbase_url = "https://api.kimi.com/coding/v1"\n',
+    );
+    const readingEnvironment = await selectKimiEnvironment();
+
+    writeFileSync(
+      config,
+      `[providers."managed:kimi-code"]
+base_url = "https://api.kimi.ai/coding/v1"
+
+[providers."managed:kimi-code".oauth]
+storage = "file"
+key = "oauth/kimi-code-env-synthetic00000031"
+oauth_host = "https://auth.kimi.ai"
+`,
+    );
+
+    writeCachedProviders([{ ...quota("kimi", 42), source: "api" as const }]);
+
+    expect(readCachedKimiProvider(readingEnvironment)).toBeDefined();
+    expect(
+      readCachedKimiProvider(await selectKimiEnvironment()),
+    ).toBeUndefined();
+  });
+
+  it("scopes MiniMax cache reuse to the reading's source and deployment", () => {
+    useTempCache();
+    const globalContext = "a".repeat(64);
+    const otherContext = "b".repeat(64);
+    publishMiniMaxReadingContextId(globalContext);
+
+    writeCachedProviders([quota("minimax", 42)]);
+
+    const payload = JSON.parse(readFileSync(cacheFilePath(), "utf8")) as {
+      providers: Array<{ credentialContext?: string }>;
+    };
+    expect(payload.providers[0]?.credentialContext).toBe(globalContext);
+    expect(readCachedMiniMaxProvider(globalContext)).toBeDefined();
+    expect(readCachedMiniMaxProvider(otherContext)).toBeUndefined();
+
+    // A legacy record without a context is withheld, not deleted.
+    writeFileSync(
+      cacheFilePath(),
+      JSON.stringify({
+        generatedAt: "x",
+        schemaVersion: 2,
+        providers: [quota("minimax", 11)],
+      }),
+    );
+    expect(readCachedMiniMaxProvider(globalContext)).toBeUndefined();
+    expect(readCachedProvider("minimax")?.windows[0].percentUsed).toBe(11);
   });
 
   it("writes normalized cache data with mode 0600 and no attempts or sentinel secret", () => {
@@ -309,12 +509,81 @@ describe("quota cache", () => {
 
     expect(readCachedProvider("alibaba")).toBeUndefined();
   });
+
+  it("does not replace a context-scoped snapshot when the current reading has no identity", () => {
+    useTempCache();
+    const contextId = commandCodeCacheContextId(
+      "pi:commandcode",
+      "org:fixture",
+    );
+    publishCommandCodeReadingContextId(contextId);
+    writeCachedProviders([quota("commandcode", 40)]);
+
+    clearCommandCodeReadingContextId();
+    writeCachedProviders([quota("commandcode", 5)]);
+
+    const payload = JSON.parse(readFileSync(cacheFilePath(), "utf8")) as {
+      providers: Array<{
+        provider?: string;
+        credentialContext?: string;
+        windows: Array<{ percentUsed?: number }>;
+      }>;
+    };
+    const record = payload.providers.find(
+      (provider) => provider.provider === "commandcode",
+    );
+    expect(record?.credentialContext).toBe(contextId);
+    expect(record?.windows[0]?.percentUsed).toBe(40);
+    expect(
+      readCachedCommandCodeProvider(contextId)?.windows[0].percentUsed,
+    ).toBe(40);
+  });
+
+  it("does not clear a context-scoped snapshot when a no-window reading has no identity", () => {
+    useTempCache();
+    const contextId = commandCodeCacheContextId(
+      "pi:commandcode",
+      "org:fixture",
+    );
+    publishCommandCodeReadingContextId(contextId);
+    writeCachedProviders([quota("commandcode", 40)]);
+
+    clearCommandCodeReadingContextId();
+    writeCachedProviders([quotaWithoutWindows("commandcode")]);
+
+    expect(
+      readCachedCommandCodeProvider(contextId)?.windows[0].percentUsed,
+    ).toBe(40);
+  });
+
+  it("clears a context-scoped snapshot after an identified no-window report", () => {
+    useTempCache();
+    const contextId = commandCodeCacheContextId(
+      "pi:commandcode",
+      "org:fixture",
+    );
+    publishCommandCodeReadingContextId(contextId);
+    writeCachedProviders([quota("commandcode", 40)]);
+    writeCachedProviders([quotaWithoutWindows("commandcode")]);
+
+    expect(readCachedCommandCodeProvider(contextId)).toBeUndefined();
+    expect(readCachedProvider("commandcode")).toBeUndefined();
+  });
 });
 
 function useTempCache(): void {
   tempDir = mkdtempSync(join(tmpdir(), "quota-axi-cache-"));
   process.env.XDG_CACHE_HOME = tempDir;
   process.env.CLAUDE_CONFIG_DIR = join(tempDir, "synthetic-claude-context");
+}
+
+/**
+ * Selects the Kimi Code environment the way a reading does, and returns the
+ * cache identity that selection carries.
+ */
+async function selectKimiEnvironment(): Promise<string> {
+  const { contextId } = await createKimiCodeCliCredentialSource().select();
+  return contextId;
 }
 
 function quota(provider: ProviderId, percentUsed: number): ProviderQuota {
@@ -355,5 +624,8 @@ function providerLabel(provider: ProviderId): string {
   if (provider === "grok") return "Grok";
   if (provider === "zai") return "Z.AI";
   if (provider === "agy") return "Antigravity";
+  if (provider === "commandcode") return "Command Code";
+  if (provider === "opencode-go") return "OpenCode Go";
+  if (provider === "minimax") return "MiniMax";
   return "Kimi";
 }

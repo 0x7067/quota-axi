@@ -8,7 +8,12 @@ export type ProviderId =
   | "zai"
   | "agy"
   | "alibaba"
-  | "opencode-go";
+  | "opencode-go"
+  | "commandcode"
+  | "minimax"
+  | "mimo"
+  | "deepseek"
+  | "openrouter";
 
 export const PROVIDER_IDS = [
   "claude",
@@ -21,11 +26,17 @@ export const PROVIDER_IDS = [
   "agy",
   "alibaba",
   "opencode-go",
+  "commandcode",
+  "minimax",
+  "mimo",
+  "deepseek",
+  "openrouter",
 ] as const satisfies readonly ProviderId[];
 
 export type ProviderSource =
   | "oauth"
   | "pi:openai-codex"
+  | `pi:openai-codex-${string}`
   | "cli-rpc"
   | "cli"
   | "api"
@@ -157,6 +168,24 @@ export type EffectiveSelection = Partial<
   unmeasurableWindowIds?: string[];
 };
 
+/**
+ * A contradiction between what a scope's own meter reports and what a bound it
+ * only inherits from a broader scope reports: the inherited window reports
+ * nothing left while every window metered for this scope alone still reports
+ * allowance.
+ *
+ * Publishing the inherited zero as the scope's effective remaining would assert
+ * an exhaustion the readings themselves dispute, so the conflict is published
+ * as data instead and the scope's `status` stays `unknown`. It is a disclosure
+ * of uncertainty, not a claim that the scope is available.
+ */
+export type BoundConflict = {
+  /** Inherited bounds reporting zero remaining. */
+  exhaustedWindowIds: string[];
+  /** Windows metered for this scope alone, all still reporting allowance. */
+  liveWindowIds: string[];
+};
+
 export type QuotaWindow = {
   id: string;
   label: string;
@@ -179,6 +208,13 @@ export type EffectiveAvailability = {
   effectivePercentRemaining?: number;
   boundedBy: string[];
   limitingWindowIds?: string[];
+  /**
+   * Present only when this scope's own windows contradict an inherited bound
+   * that reads zero. `status` is then `unknown` and no effective percentage,
+   * runway, or selection scalar is asserted: the conflict itself is the
+   * reported fact.
+   */
+  boundConflict?: BoundConflict;
   /** Compact pace over every bounding window, not only the current limiter. */
   pace?: EffectivePaceSummary;
   /**
@@ -207,10 +243,33 @@ export type SourceAttempt = {
   status: "success" | "failed" | "skipped";
   error?: string;
   credentialPresent?: boolean;
+  /**
+   * Whether this credential source was not genuinely absent and failed to
+   * yield a reading. Left unset it is derived by `isDegradedSourceAttempt`; set it explicitly
+   * only to correct that derivation for an attempt that is not a credential
+   * problem.
+   */
+  degraded?: boolean;
+};
+
+/** A non-absent credential source that did not yield the reported reading. */
+export type DegradedSource = {
+  source: string;
+  error?: string;
+};
+
+export type ProviderAccount = {
+  /** Opaque local lane identity, stable across refresh and discovery order. */
+  accountKey: string;
+  /** Resolves undefined when the lane establishes no distinct account. */
+  fetchQuota(options: ProviderOptions): Promise<ProviderQuota | undefined>;
+  inspectAuth(options: ProviderOptions): Promise<AuthProviderReport>;
 };
 
 export type ProviderQuota = {
   provider: ProviderId;
+  /** Present in account-expanded reports; absent for the legacy single lane. */
+  accountKey?: string;
   /** Display name. Omitted from default `--json`; see `--full`. */
   label?: string;
   /** Report provenance. Omitted from default `--json`; see `--full`. */
@@ -227,7 +286,7 @@ export type ProviderQuota = {
   credits?: {
     remaining?: number;
     unlimited?: boolean;
-    unit?: "usd" | "credits";
+    unit?: "usd" | "cny" | "credits";
   };
   state: {
     status: ProviderStatus;
@@ -244,6 +303,12 @@ export type ProviderQuota = {
     reason?: ProviderStateReason;
     remedyCommand?: string;
     untrustedWindowIds?: string[];
+    /**
+     * Sources that were superseded: a working source answered for this
+     * provider while these were broken or could not be read. Present only on a
+     * fresh reading, so the breakage behind a healthy row stays visible.
+     */
+    degradedSources?: DegradedSource[];
     /** Omitted from default `--json`; see `--full`. */
     sourcesTried?: string[];
   };
@@ -252,13 +317,15 @@ export type ProviderQuota = {
 
 export type QuotaAxiResponse = {
   generatedAt: string;
-  schemaVersion: 5;
+  schemaVersion: 5 | 6;
   providers: ProviderQuota[];
   help?: string[];
 };
 
 export type ProviderOptions = {
   allowKeychainPrompt: boolean;
+  /** Restrict discovery to the provider's selected native profile file. */
+  credentialMode?: "profile-only";
   /**
    * Permit the quota path to run a vendor CLI's own non-interactive refresh
    * command when the same stored access token is expired, refreshable, and
@@ -273,6 +340,7 @@ export type ProviderOptions = {
 export type ProviderAdapter = {
   id: ProviderId;
   label: string;
+  discoverAccounts?(): Promise<ProviderAccount[] | undefined>;
   fetchQuota(options: ProviderOptions): Promise<ProviderQuota>;
   inspectAuth(options: ProviderOptions): Promise<AuthProviderReport>;
 };
@@ -287,6 +355,7 @@ export type AuthSourceReport = {
 
 export type AuthProviderReport = {
   provider: ProviderId;
+  accountKey?: string;
   sources: AuthSourceReport[];
 };
 
@@ -295,7 +364,7 @@ export type IntelligenceBucket = "high" | "medium" | "low";
 
 /** Native-provider model knowledge used by the `models` evidence join. */
 export type ModelCatalogEntry = {
-  provider: "claude" | "codex" | "grok" | "kimi";
+  provider: ProviderId;
   id: string;
   label: string;
   intelligence: IntelligenceBucket;
@@ -319,6 +388,7 @@ export type ProviderStateSummary = Pick<
 >;
 
 export type ModelQuotaRecord = {
+  accountKey?: string;
   provider: ModelCatalogEntry["provider"];
   id: string;
   label: string;
@@ -330,7 +400,10 @@ export type ModelQuotaRecord = {
   state: ProviderStateSummary;
 };
 
-export type ModelReference = Pick<ModelQuotaRecord, "provider" | "id">;
+export type ModelReference = Pick<
+  ModelQuotaRecord,
+  "provider" | "accountKey" | "id"
+>;
 
 /** Opt-in ordering keys. Future keys require their own evidence and docs. */
 export type ModelSortKey = "runway";
@@ -343,7 +416,7 @@ export type ModelSortResult = {
 
 export type ModelsResponse = {
   generatedAt: string;
-  schemaVersion: 1;
+  schemaVersion: 1 | 2;
   catalog: Pick<ModelCatalog, "version" | "provenance">;
   models: ModelQuotaRecord[];
   /** Provider/model window scopes with no corresponding catalog entry. */

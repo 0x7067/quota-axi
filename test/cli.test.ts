@@ -1,4 +1,11 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -24,7 +31,20 @@ const originalZaiProvider = PROVIDERS.zai;
 const originalAgyProvider = PROVIDERS.agy;
 const originalAlibabaProvider = PROVIDERS.alibaba;
 const originalOpenCodeGoProvider = PROVIDERS["opencode-go"];
+const originalCommandCodeProvider = PROVIDERS.commandcode;
+const originalMinimaxProvider = PROVIDERS.minimax;
+const originalMimoProvider = PROVIDERS.mimo;
+const originalDeepSeekProvider = PROVIDERS.deepseek;
+const originalOpenRouterProvider = PROVIDERS.openrouter;
 const originalXdgCacheHome = process.env.XDG_CACHE_HOME;
+const originalClaudeConfigDir = process.env.CLAUDE_CONFIG_DIR;
+const originalCodexHome = process.env.CODEX_HOME;
+const originalMinimaxApiKey = process.env.MINIMAX_API_KEY;
+const originalMimoApiKey = process.env.MIMO_API_KEY;
+const originalDeepSeekApiKey = process.env.DEEPSEEK_API_KEY;
+const originalOpenRouterApiKey = process.env.OPENROUTER_API_KEY;
+const originalPiCodingAgentDir = process.env.PI_CODING_AGENT_DIR;
+const originalMmxConfigDir = process.env.MMX_CONFIG_DIR;
 let tempDir: string | undefined;
 
 afterEach(() => {
@@ -38,8 +58,22 @@ afterEach(() => {
   PROVIDERS.agy = originalAgyProvider;
   PROVIDERS.alibaba = originalAlibabaProvider;
   PROVIDERS["opencode-go"] = originalOpenCodeGoProvider;
+  PROVIDERS.commandcode = originalCommandCodeProvider;
+  PROVIDERS.minimax = originalMinimaxProvider;
+  PROVIDERS.mimo = originalMimoProvider;
+  PROVIDERS.deepseek = originalDeepSeekProvider;
+  PROVIDERS.openrouter = originalOpenRouterProvider;
+  vi.unstubAllGlobals();
   if (originalXdgCacheHome === undefined) delete process.env.XDG_CACHE_HOME;
   else process.env.XDG_CACHE_HOME = originalXdgCacheHome;
+  restoreEnvironment("CLAUDE_CONFIG_DIR", originalClaudeConfigDir);
+  restoreEnvironment("CODEX_HOME", originalCodexHome);
+  restoreEnvironment("MINIMAX_API_KEY", originalMinimaxApiKey);
+  restoreEnvironment("MIMO_API_KEY", originalMimoApiKey);
+  restoreEnvironment("DEEPSEEK_API_KEY", originalDeepSeekApiKey);
+  restoreEnvironment("OPENROUTER_API_KEY", originalOpenRouterApiKey);
+  restoreEnvironment("PI_CODING_AGENT_DIR", originalPiCodingAgentDir);
+  restoreEnvironment("MMX_CONFIG_DIR", originalMmxConfigDir);
   if (tempDir) rmSync(tempDir, { recursive: true, force: true });
   tempDir = undefined;
   process.exitCode = undefined;
@@ -59,6 +93,11 @@ describe("CLI flag parsing", () => {
       "agy",
       "alibaba",
       "opencode-go",
+      "commandcode",
+      "minimax",
+      "mimo",
+      "deepseek",
+      "openrouter",
     ]);
   });
 
@@ -96,6 +135,11 @@ describe("CLI flag parsing", () => {
           "agy",
           "alibaba",
           "opencode-go",
+          "commandcode",
+          "minimax",
+          "mimo",
+          "deepseek",
+          "openrouter",
         ],
         json: true,
         full: true,
@@ -103,6 +147,7 @@ describe("CLI flag parsing", () => {
         once: false,
         allowKeychainPrompt: true,
         noCredentialRefresh: false,
+        profileOnly: false,
       },
     );
     expect(parseFlags(["--tui"]).tui).toBe(true);
@@ -176,6 +221,15 @@ describe("CLI flag parsing", () => {
       parseModelsFlags(["--no-credential-refresh"]).noCredentialRefresh,
     ).toBe(true);
   });
+
+  it("parses profile-only mode and rejects it for models", () => {
+    expect(
+      parseFlags(["--provider", "claude", "--profile-only"]).profileOnly,
+    ).toBe(true);
+    expect(() => parseModelsFlags(["--profile-only"])).toThrow(
+      "--profile-only is only supported by the quota command",
+    );
+  });
 });
 
 describe("delegated credential refresh wiring", () => {
@@ -231,6 +285,61 @@ describe("delegated credential refresh wiring", () => {
       { allowKeychainPrompt: false, refreshCredentials: false },
     ]);
   });
+
+  it("wires profile-only mode without refresh or Keychain access", async () => {
+    const seen: ProviderOptions[] = [];
+    PROVIDERS.claude = recordingProvider(seen);
+    process.env.CLAUDE_CONFIG_DIR = "/explicit/claude-profile";
+
+    await quotaCommand(["--provider", "claude", "--profile-only"], undefined);
+
+    expect(seen).toEqual([
+      {
+        allowKeychainPrompt: false,
+        refreshCredentials: false,
+        credentialMode: "profile-only",
+      },
+    ]);
+  });
+
+  it("rejects invalid profile-only scopes before provider I/O", async () => {
+    const seen: ProviderOptions[] = [];
+    PROVIDERS.claude = recordingProvider(seen);
+
+    await expect(quotaCommand(["--profile-only"], undefined)).rejects.toThrow(
+      "--profile-only requires exactly one --provider selector",
+    );
+    await expect(
+      quotaCommand(["--provider", "claude,codex", "--profile-only"], undefined),
+    ).rejects.toThrow(
+      "--profile-only requires exactly one --provider selector",
+    );
+    await expect(
+      quotaCommand(["--provider", "cursor", "--profile-only"], undefined),
+    ).rejects.toThrow("--profile-only does not support provider: cursor");
+    await expect(
+      authCommand(["--provider", "claude", "--profile-only"], undefined),
+    ).rejects.toThrow("--profile-only is only supported by the quota command");
+    delete process.env.CLAUDE_CONFIG_DIR;
+    await expect(
+      quotaCommand(["--provider", "claude", "--profile-only"], undefined),
+    ).rejects.toThrow(
+      "--profile-only with --provider claude requires explicit CLAUDE_CONFIG_DIR",
+    );
+    process.env.CLAUDE_CONFIG_DIR = "   ";
+    await expect(
+      quotaCommand(["--provider", "claude", "--profile-only"], undefined),
+    ).rejects.toThrow(
+      "--profile-only with --provider claude requires explicit CLAUDE_CONFIG_DIR",
+    );
+    delete process.env.CODEX_HOME;
+    await expect(
+      quotaCommand(["--provider", "codex", "--profile-only"], undefined),
+    ).rejects.toThrow(
+      "--profile-only with --provider codex requires explicit CODEX_HOME",
+    );
+    expect(seen).toEqual([]);
+  });
 });
 
 describe("argv normalization", () => {
@@ -240,6 +349,11 @@ describe("argv normalization", () => {
 
   it("routes leading flags to the quota command", () => {
     expect(normalizeArgv(["--json"])).toEqual(["quota", "--json"]);
+    expect(normalizeArgv(["--", "--provider", "agy"])).toEqual([
+      "quota",
+      "--provider",
+      "agy",
+    ]);
     expect(normalizeArgv(["--provider", "claude"])).toEqual([
       "quota",
       "--provider",
@@ -280,6 +394,20 @@ describe("argv normalization", () => {
 });
 
 describe("CLI quota rendering", () => {
+  it("bypasses cache persistence only in profile-only mode", async () => {
+    tempDir = mkdtempSync(join(tmpdir(), "quota-axi-profile-cache-"));
+    process.env.XDG_CACHE_HOME = tempDir;
+    process.env.CLAUDE_CONFIG_DIR = join(tempDir, "claude-profile");
+    PROVIDERS.claude = providerWithQuota(freshClaudeQuota());
+    const cachePath = join(tempDir, "quota-axi", "quotas.json");
+
+    await quotaCommand(["--provider", "claude", "--profile-only"], undefined);
+    expect(existsSync(cachePath)).toBe(false);
+
+    await quotaCommand(["--provider", "claude"], undefined);
+    expect(existsSync(cachePath)).toBe(true);
+  });
+
   it("renders live quota when cache persistence fails", async () => {
     tempDir = mkdtempSync(join(tmpdir(), "quota-axi-cli-cache-"));
     const blockedCacheRoot = join(tempDir, "cache-root");
@@ -777,6 +905,297 @@ describe("CLI quota rendering", () => {
   });
 });
 
+describe("new provider public quota output", () => {
+  it("renders registered MiniMax model scopes through the JSON CLI", async () => {
+    useTempCache();
+    const key = "synthetic-minimax-cli-key";
+    process.env.MINIMAX_API_KEY = key;
+    const payload = JSON.parse(
+      readFileSync("test/fixtures/minimax/quota.json", "utf8"),
+    );
+    const fetch = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        expect(String(input)).toBe(
+          "https://api.minimax.io/v1/token_plan/remains",
+        );
+        expect(new Headers(init?.headers).get("authorization")).toBe(
+          `Bearer ${key}`,
+        );
+        return new Response(JSON.stringify(payload), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      },
+    );
+    vi.stubGlobal("fetch", fetch);
+
+    const json = JSON.parse(
+      await capture(["--provider", "minimax", "--json", "--full"]),
+    ) as QuotaAxiResponse;
+    const provider = json.providers[0];
+
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(provider).toMatchObject({
+      provider: "minimax",
+      source: "api",
+      state: {
+        status: "fresh",
+        stale: false,
+        sourcesTried: ["env:MINIMAX_API_KEY"],
+      },
+      attempts: [{ source: "env:MINIMAX_API_KEY", status: "success" }],
+    });
+    expect(provider?.windows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "model:minimax-m3:5h",
+          percentRemaining: 91,
+          windowSeconds: 18_000,
+        }),
+        expect.objectContaining({
+          id: "model:minimax-m3:7d",
+          percentRemaining: 70,
+          windowSeconds: 604_800,
+        }),
+      ]),
+    );
+    expect(provider?.quotaSemantics?.effectiveAvailability).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          scope: "model:minimax-m3",
+          status: "known",
+          effectivePercentRemaining: 70,
+        }),
+        expect.objectContaining({
+          scope: "model:minimax-m2.7-highspeed",
+          status: "known",
+          effectivePercentRemaining: 50,
+        }),
+      ]),
+    );
+    expect(JSON.stringify(json)).not.toContain(key);
+  });
+
+  it("keeps registered MiMo authentication without a fabricated quota scope", async () => {
+    useTempCache();
+    process.env.MIMO_API_KEY = "synthetic-mimo-cli-key";
+
+    const json = JSON.parse(
+      await capture(["--provider", "mimo", "--json", "--full"]),
+    ) as QuotaAxiResponse;
+    expect(json.providers).toEqual([
+      expect.objectContaining({
+        provider: "mimo",
+        source: "api",
+        windows: [],
+        state: expect.objectContaining({
+          status: "fresh",
+          stale: false,
+          authStatus: "usable",
+          sourcesTried: ["env:MIMO_API_KEY"],
+        }),
+        quotaSemantics: expect.objectContaining({
+          status: "unknown",
+          effectiveAvailability: [],
+          description: expect.stringContaining("No quota windows"),
+        }),
+      }),
+    ]);
+  });
+
+  it("reports missing registered MiMo authentication through JSON", async () => {
+    useTempCache();
+    delete process.env.MIMO_API_KEY;
+
+    const json = JSON.parse(
+      await capture(["--provider", "mimo", "--json", "--full"]),
+    ) as QuotaAxiResponse;
+    expect(json.providers).toEqual([
+      expect.objectContaining({
+        provider: "mimo",
+        source: "unavailable",
+        windows: [],
+        state: {
+          status: "auth_required",
+          stale: false,
+          error: "mimo_credential_unavailable",
+          sourcesTried: ["env:MIMO_API_KEY"],
+        },
+      }),
+    ]);
+    expect(process.exitCode).toBe(1);
+  });
+
+  it("reports invalid MiniMax file authentication through the auth CLI", async () => {
+    useTempCache();
+    delete process.env.MINIMAX_API_KEY;
+    process.env.PI_CODING_AGENT_DIR = join(tempDir!, "pi-agent");
+    process.env.MMX_CONFIG_DIR = join(tempDir!, "mmx");
+    mkdirSync(process.env.PI_CODING_AGENT_DIR, { recursive: true });
+    writeFileSync(
+      join(process.env.PI_CODING_AGENT_DIR, "auth.json"),
+      JSON.stringify({ minimax: { type: "api_key" } }),
+    );
+
+    const json = JSON.parse(
+      await capture(["auth", "--provider", "minimax", "--json"]),
+    ) as {
+      auth: Array<{ provider: string; sources: Array<Record<string, string>> }>;
+    };
+    expect(json.auth).toEqual([
+      expect.objectContaining({
+        provider: "minimax",
+        sources: [
+          expect.objectContaining({
+            source: "env:MINIMAX_API_KEY",
+            status: "missing",
+          }),
+          expect.objectContaining({
+            source: "pi:minimax",
+            status: "invalid",
+            error: "credential_missing",
+          }),
+          expect.objectContaining({
+            source: "minimax:config.json",
+            status: "missing",
+          }),
+        ],
+      }),
+    ]);
+  });
+
+  it("publishes the registered DeepSeek balance through the JSON CLI", async () => {
+    useTempCache();
+    const key = "synthetic-deepseek-cli-key";
+    process.env.DEEPSEEK_API_KEY = key;
+    const fetch = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        expect(String(input)).toBe("https://api.deepseek.com/user/balance");
+        expect(new Headers(init?.headers).get("authorization")).toBe(
+          `Bearer ${key}`,
+        );
+        return new Response(
+          JSON.stringify({
+            is_available: true,
+            balance_infos: [
+              {
+                currency: "USD",
+                total_balance: "12.50",
+                granted_balance: "10.00",
+                topped_up_balance: "2.50",
+              },
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      },
+    );
+    vi.stubGlobal("fetch", fetch);
+
+    const json = JSON.parse(
+      await capture(["--provider", "deepseek", "--json", "--full"]),
+    ) as QuotaAxiResponse;
+
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(json.providers).toEqual([
+      expect.objectContaining({
+        provider: "deepseek",
+        source: "api",
+        windows: [],
+        credits: { remaining: 12.5, unit: "usd" },
+        state: expect.objectContaining({
+          status: "fresh",
+          stale: false,
+          sourcesTried: ["env:DEEPSEEK_API_KEY"],
+        }),
+        attempts: [{ source: "env:DEEPSEEK_API_KEY", status: "success" }],
+      }),
+    ]);
+    expect(JSON.stringify(json)).not.toContain(key);
+    expect(process.exitCode).toBeUndefined();
+  });
+
+  it("publishes the registered OpenRouter key cap in JSON and names it in the default report", async () => {
+    useTempCache();
+    const key = "synthetic-openrouter-cli-key";
+    process.env.OPENROUTER_API_KEY = key;
+    const fetch = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        expect(String(input)).toBe("https://openrouter.ai/api/v1/key");
+        expect(new Headers(init?.headers).get("authorization")).toBe(
+          `Bearer ${key}`,
+        );
+        return new Response(
+          JSON.stringify({
+            data: {
+              label: "personal",
+              limit: 100,
+              limit_remaining: 73.25,
+              limit_reset: "Daily",
+              usage: 26.75,
+              is_free_tier: false,
+            },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      },
+    );
+    vi.stubGlobal("fetch", fetch);
+
+    const json = JSON.parse(
+      await capture(["--provider", "openrouter", "--json", "--full"]),
+    ) as QuotaAxiResponse;
+    expect(json.providers).toEqual([
+      expect.objectContaining({
+        provider: "openrouter",
+        source: "api",
+        account: {
+          accountId: "personal",
+          identityStatus: "unverified",
+        },
+        credits: { remaining: 73.25, unit: "usd" },
+        windows: [
+          expect.objectContaining({
+            id: "key-limit",
+            kind: "credits",
+            spentUsd: 26.75,
+            limitUsd: 100,
+            percentRemaining: 73.25,
+            resetText: "Daily",
+          }),
+        ],
+        state: expect.objectContaining({ status: "fresh", stale: false }),
+      }),
+    ]);
+    expect(JSON.stringify(json)).not.toContain(key);
+
+    const report = await capture(["--provider", "openrouter"]);
+    expect(report).toContain("openrouter,all,unresolved_windows,key-limit");
+  });
+
+  it("reports both new providers as signed out when no key is present", async () => {
+    useTempCache();
+    delete process.env.DEEPSEEK_API_KEY;
+    delete process.env.OPENROUTER_API_KEY;
+    process.env.PI_CODING_AGENT_DIR = join(tempDir!, "pi-agent-empty");
+    const fetch = vi.fn(async () => {
+      throw new Error("no request expected without a credential");
+    });
+    vi.stubGlobal("fetch", fetch);
+
+    const report = await capture(["--provider", "deepseek,openrouter"]);
+
+    expect(fetch).not.toHaveBeenCalled();
+    expect(report).toContain(
+      "deepseek,all,auth_required,deepseek_credential_unavailable",
+    );
+    expect(report).toContain(
+      "openrouter,all,auth_required,openrouter_credential_unavailable",
+    );
+    expect(process.exitCode).toBe(1);
+  });
+});
+
 describe("default TOON decision blocks", () => {
   it("names every requested provider in quota[] or attention[]", async () => {
     useTempCache();
@@ -793,6 +1212,17 @@ describe("default TOON decision blocks", () => {
     PROVIDERS.agy = providerWithQuota(unavailableAgyQuota());
     PROVIDERS.alibaba = providerWithQuota(freshAlibabaQuota());
     PROVIDERS["opencode-go"] = providerWithQuota(freshOpenCodeGoQuota());
+    PROVIDERS.commandcode = providerWithQuota(freshCommandCodeQuota());
+    PROVIDERS.minimax = providerWithQuota(
+      emptyFreshQuota("minimax", "MiniMax"),
+    );
+    PROVIDERS.mimo = providerWithQuota(emptyFreshQuota("mimo", "MiMo"));
+    PROVIDERS.deepseek = providerWithQuota(
+      emptyFreshQuota("deepseek", "DeepSeek"),
+    );
+    PROVIDERS.openrouter = providerWithQuota(
+      emptyFreshQuota("openrouter", "OpenRouter"),
+    );
 
     const output = await capture([]);
     const named = new Set([
@@ -805,11 +1235,16 @@ describe("default TOON decision blocks", () => {
       "alibaba",
       "claude",
       "codex",
+      "commandcode",
       "copilot",
       "cursor",
+      "deepseek",
       "grok",
       "kimi",
+      "mimo",
+      "minimax",
       "opencode-go",
+      "openrouter",
       "zai",
     ]);
   });
@@ -854,6 +1289,36 @@ describe("default TOON decision blocks", () => {
     expect(declaredPriority).not.toEqual(
       [...declaredPriority].sort((a, b) => b - a),
     );
+  });
+
+  it("states a raw credit balance instead of contradicting it with no_quota", async () => {
+    useTempCache();
+    PROVIDERS.commandcode = providerWithQuota({
+      provider: "commandcode",
+      label: "Command Code",
+      source: "api",
+      windows: [],
+      credits: { remaining: 12.5, unit: "credits" },
+      state: {
+        status: "fresh",
+        stale: false,
+        refreshedAt: "2026-07-06T18:10:00Z",
+        authStatus: "usable",
+        sourcesTried: ["pi:commandcode"],
+      },
+    });
+
+    const output = await capture(["--provider", "commandcode"]);
+
+    expect(toonRows(output, "attention")).toEqual([
+      [
+        "commandcode",
+        "all",
+        "credits",
+        "remaining 12.5 credits (auth usable)",
+        "none",
+      ],
+    ]);
   });
 
   it("renders an unmeasurable spendPriority as `unknown`, never as 0", async () => {
@@ -957,6 +1422,28 @@ describe("default TOON decision blocks", () => {
     ]);
   });
 
+  it("names a bound conflict in attention[] instead of an exhausted quota[] row", async () => {
+    useTempCache();
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-07T05:27:00.000Z"));
+    PROVIDERS.codex = providerWithQuota(codexBoundConflictQuota());
+
+    const output = await capture(["--provider", "codex"]);
+    const quota = toonRows(output, "quota").map((row) => row[1]);
+
+    expect(quota).toEqual(["all_models"]);
+    expect(toonRows(output, "attention")).toContainEqual([
+      "codex",
+      "model:codex_bengalfox",
+      "bound_conflict",
+      "weekly reads 0 · model:codex_bengalfox:5h + model:codex_bengalfox:7d still report allowance",
+      "none",
+    ]);
+    expect(toonRows(output, "exhaustion").map((row) => row[1])).toEqual([
+      "all_models",
+    ]);
+  });
+
   it("states a positive auth fact for a provider with no quota[] row", async () => {
     useTempCache();
     PROVIDERS.grok = providerWithQuota(grokModelAuthOnlyQuota());
@@ -1009,6 +1496,26 @@ describe("default TOON decision blocks", () => {
     for (const output of [compact, full]) {
       expect(output).not.toContain("projectionBasis");
     }
+  });
+
+  it("gives an unexpanded provider the default account key beside an expanded one", async () => {
+    useTempCache();
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-15T12:00:00.000Z"));
+    PROVIDERS.claude = providerWithQuota(pacedProvider("claude", 90, 10));
+    PROVIDERS.codex = providerWithAccounts([
+      ["openai-codex", pacedProvider("codex", 20, 80)],
+      ["openai-codex-work", pacedProvider("codex", 40, 60)],
+    ]);
+
+    const output = await capture(["--provider", "claude,codex"]);
+
+    expect(output).toContain("quota[3]{provider,accountKey,");
+    expect(toonRows(output, "quota").map((row) => row.slice(0, 2))).toEqual([
+      ["claude", "default"],
+      ["codex", "openai-codex"],
+      ["codex", "openai-codex-work"],
+    ]);
   });
 });
 
@@ -1145,11 +1652,18 @@ describe("CLI plumbing via the axi SDK", () => {
     PROVIDERS.agy = providerWithAuth("agy", "Antigravity");
     PROVIDERS.alibaba = providerWithAuth("alibaba", "Alibaba Coding Plan");
     PROVIDERS["opencode-go"] = providerWithAuth("opencode-go", "OpenCode Go");
+    PROVIDERS.commandcode = providerWithAuth("commandcode", "Command Code");
+    PROVIDERS.minimax = providerWithAuth("minimax", "MiniMax");
+    PROVIDERS.mimo = providerWithAuth("mimo", "MiMo");
+    PROVIDERS.deepseek = providerWithAuth("deepseek", "DeepSeek");
+    PROVIDERS.openrouter = providerWithAuth("openrouter", "OpenRouter");
 
     const output = await capture(["--allow-keychain-prompt", "auth"]);
     expect(output).toContain(
       "Inspect local quota auth sources without printing secret values",
     );
+    expect(output).toContain("deepseek,test,none,available,none");
+    expect(output).toContain("openrouter,test,none,available,none");
     expect(output).not.toContain("unknown argument");
     expect(process.exitCode).toBeUndefined();
   });
@@ -1273,6 +1787,19 @@ describe("terminal height and the machine output paths", () => {
   }
 });
 
+function emptyFreshQuota(
+  provider: ProviderQuota["provider"],
+  label: string,
+): ProviderQuota {
+  return {
+    provider,
+    label,
+    source: "api",
+    windows: [],
+    state: { status: "fresh", stale: false },
+  };
+}
+
 function providerWithQuota(quota: ProviderQuota): ProviderAdapter {
   return {
     id: quota.provider,
@@ -1282,6 +1809,26 @@ function providerWithQuota(quota: ProviderQuota): ProviderAdapter {
     },
     async inspectAuth() {
       return { provider: quota.provider, sources: [] };
+    },
+  };
+}
+
+/** Expands into one lane per account, the way an adapter's discovery does. */
+function providerWithAccounts(
+  lanes: [string, ProviderQuota][],
+): ProviderAdapter {
+  return {
+    ...providerWithQuota(lanes[0][1]),
+    async discoverAccounts() {
+      return lanes.map(([accountKey, quota]) => ({
+        accountKey,
+        async fetchQuota() {
+          return quota;
+        },
+        async inspectAuth() {
+          return { provider: quota.provider, sources: [] };
+        },
+      }));
     },
   };
 }
@@ -1308,6 +1855,11 @@ function providerWithAuth(
 function useTempCache(): void {
   tempDir = mkdtempSync(join(tmpdir(), "quota-axi-cli-cache-"));
   process.env.XDG_CACHE_HOME = tempDir;
+}
+
+function restoreEnvironment(name: string, value: string | undefined): void {
+  if (value === undefined) delete process.env[name];
+  else process.env[name] = value;
 }
 
 function freshClaudeQuota(): ProviderQuota {
@@ -1707,6 +2259,31 @@ function freshOpenCodeGoQuota(): ProviderQuota {
   };
 }
 
+function freshCommandCodeQuota(): ProviderQuota {
+  return {
+    provider: "commandcode",
+    label: "Command Code",
+    source: "api",
+    plan: "Command Code",
+    windows: [
+      {
+        id: "weekly",
+        label: "weekly",
+        kind: "weekly",
+        percentUsed: 12,
+        percentRemaining: 88,
+        windowSeconds: 604800,
+      },
+    ],
+    state: {
+      status: "fresh",
+      stale: false,
+      refreshedAt: "2026-07-06T18:10:00Z",
+      sourcesTried: ["pi:commandcode"],
+    },
+  };
+}
+
 function unavailableAgyQuota(): ProviderQuota {
   return {
     provider: "agy",
@@ -1719,5 +2296,58 @@ function unavailableAgyQuota(): ProviderQuota {
       error: "Antigravity/agy is not running",
       sourcesTried: ["loopback"],
     },
+  };
+}
+
+/**
+ * The 2026-09-07 capture: the Codex account weekly reads zero while the named
+ * model's own 5h and 7d meters are visibly drawing down, and a live call to
+ * that model succeeded.
+ */
+function codexBoundConflictQuota(): ProviderQuota {
+  return {
+    provider: "codex",
+    label: "Codex",
+    source: "cli-rpc",
+    plan: "pro",
+    windows: [
+      {
+        id: "five_hour",
+        label: "session",
+        kind: "session",
+        percentUsed: 8,
+        percentRemaining: 92,
+        startsAt: "2026-09-07T05:27:00.000Z",
+        resetsAt: "2026-09-07T10:27:00.000Z",
+      },
+      {
+        id: "weekly",
+        label: "week",
+        kind: "weekly",
+        percentUsed: 100,
+        percentRemaining: 0,
+        startsAt: "2026-08-31T17:27:00.000Z",
+        resetsAt: "2026-09-07T17:27:00.000Z",
+      },
+      {
+        id: "model:codex_bengalfox:5h",
+        label: "Spark session",
+        kind: "model",
+        percentUsed: 8,
+        percentRemaining: 92,
+        startsAt: "2026-09-07T05:27:00.000Z",
+        resetsAt: "2026-09-07T10:27:00.000Z",
+      },
+      {
+        id: "model:codex_bengalfox:7d",
+        label: "Spark week",
+        kind: "model",
+        percentUsed: 4,
+        percentRemaining: 96,
+        startsAt: "2026-09-07T05:27:00.000Z",
+        resetsAt: "2026-09-14T05:27:00.000Z",
+      },
+    ],
+    state: { status: "fresh", stale: false, sourcesTried: ["cli-rpc"] },
   };
 }

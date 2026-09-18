@@ -11,8 +11,10 @@ import { withQuotaSemantics } from "../src/interpretation.js";
 import type { ProviderQuota } from "../src/types.js";
 import {
   claudeProvider,
+  codexProvider,
   fixtureResponse,
   GENERATED_AT,
+  signedOutProvider,
 } from "./fixtures/tui-response.js";
 
 const CARD_COLUMNS = 49;
@@ -708,6 +710,41 @@ describe("cards for providers with no combinable bound", () => {
     );
   });
 
+  it("states a windowless provider's raw credit balance instead of an empty bar", () => {
+    const creditsOnly = withQuotaSemantics(
+      {
+        provider: "commandcode",
+        label: "Command Code",
+        source: "api",
+        windows: [],
+        credits: { remaining: 12.5, unit: "credits" },
+        state: {
+          status: "fresh",
+          stale: false,
+          refreshedAt: GENERATED_AT,
+          authStatus: "usable",
+          sourcesTried: ["pi:commandcode"],
+        },
+      },
+      GENERATED_AT,
+    );
+    const lines = renderQuotaTui(
+      {
+        generatedAt: GENERATED_AT,
+        schemaVersion: 5,
+        providers: [creditsOnly],
+      },
+      { timeZone: "America/Los_Angeles" },
+    ).split("\n");
+
+    expect(findLine(lines, "12.5 credits remaining")).toBeDefined();
+    expect(lines.join("\n")).not.toContain("effective unknown");
+    const emptyTrack = lines
+      .map((line) => stripAnsi(line))
+      .filter((line) => /^│\s+─{10,}\s+│$/.test(line));
+    expect(emptyTrack).toHaveLength(0);
+  });
+
   it("renders Cursor's jointly bounded card with its effective bar", () => {
     const cursor = withQuotaSemantics(
       {
@@ -910,6 +947,54 @@ describe("color handling", () => {
     expect(exhausted).toContain(
       "\x1b[1;38;2;243;139;168m✗ exhausted now\x1b[0m",
     );
+  });
+
+  it("pads a shorter account card with blank rows, not its account line", () => {
+    const work = { ...codexProvider(), accountKey: "openai-codex-work" };
+    const personal = {
+      ...signedOutProvider("kimi", "Codex sign-in required"),
+      provider: "codex",
+      label: "Codex",
+      accountKey: "openai-codex",
+    };
+    const lines = renderQuotaTui(
+      {
+        generatedAt: GENERATED_AT,
+        schemaVersion: 5,
+        providers: [work, personal],
+      },
+      { columns: 120, timeZone: "America/Los_Angeles" },
+    ).split("\n");
+
+    const cardLines = (card: 0 | 1): string[] =>
+      lines.map((line) =>
+        card === 0 ? line.slice(0, CARD_COLUMNS) : line.slice(CARD_COLUMNS + 2),
+      );
+    const accountRows = (card: 0 | 1, key: string): number =>
+      cardLines(card).filter((line) => line.includes(`account ${key} `)).length;
+    expect(accountRows(0, "openai-codex-work")).toBe(1);
+    expect(accountRows(1, "openai-codex")).toBe(1);
+    expect(findCardLine(lines, 1, "Codex sign-in required")).toBeDefined();
+  });
+
+  it("keeps the filler account key out of the full footer", () => {
+    const response = fixtureResponse();
+    response.providers[0].accountKey = "default";
+    response.providers[0].account = { email: "kun@example.com" };
+    const full = renderQuotaTui(response, {
+      timeZone: "America/Los_Angeles",
+      full: true,
+    });
+    expect(findLine(full.split("\n"), "claude ·")).not.toContain("· default");
+    expect(full).toContain("claude · kun@example.com");
+
+    response.providers[0].accountKey = "openai-codex-work";
+    expect(
+      renderQuotaTui(response, {
+        timeZone: "America/Los_Angeles",
+        full: true,
+      }),
+    ).toContain("claude · openai-codex-work · kun@example.com");
   });
 
   it("detects color depth from the environment", () => {

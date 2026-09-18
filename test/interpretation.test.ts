@@ -86,6 +86,7 @@ describe("quota semantics", () => {
       ["agy", [window("gemini_weekly", "weekly", 98)]],
       ["cursor", [window("included_usage", "monthly", 72)]],
       ["copilot", [window("premium_interactions", "monthly", 81)]],
+      ["commandcode", [window("five_hour", "session", 55)]],
     ];
 
     for (const [providerId, windows] of cases) {
@@ -219,6 +220,42 @@ describe("quota semantics", () => {
     });
   });
 
+  it("does not block named-model runway when its fully available cycle has not opened yet", () => {
+    const result = withQuotaSemantics(
+      provider("claude", [
+        window("seven_day", "weekly", 90, {
+          windowSeconds: WEEK_SECONDS,
+          resetsAt: weeklyResetsAt(0.5),
+        }),
+        window("model:fable", "model", 100, {
+          percentUsed: 0,
+          windowSeconds: WEEK_SECONDS,
+          // The provider has assigned the next full cycle, but its start is
+          // still just ahead of this report's snapshot clock.
+          resetsAt: offsetFromGeneratedAt(WEEK_SECONDS + 1),
+        }),
+      ]),
+      GENERATED_AT,
+    );
+
+    const availability = result.quotaSemantics?.effectiveAvailability ?? [];
+    expect(
+      availability.find(({ scope }) => scope === "all_models")?.runway,
+    ).toEqual({
+      status: "through_reset",
+      projectionConfidence: "established",
+    });
+    expect(result.windows.find(({ id }) => id === "model:fable")?.pace).toEqual(
+      { status: "unknown", reason: "future_cycle_start" },
+    );
+    expect(
+      availability.find(({ scope }) => scope === "model:fable")?.runway,
+    ).toEqual({
+      status: "through_reset",
+      projectionConfidence: "established",
+    });
+  });
+
   it("does not promote a model's lower Alibaba limit into the account bound", () => {
     const result = withQuotaSemantics(
       provider("alibaba", [
@@ -293,7 +330,53 @@ describe("quota semantics", () => {
     ]);
   });
 
-  it("does not claim independent OpenCode Go windows jointly bind all models", () => {
+  it("treats OpenCode Go rolling, weekly, and monthly windows as stacked plan caps", () => {
+    const result = withQuotaSemantics(
+      provider("opencode-go", [
+        window("rolling", "unknown", 90),
+        window("weekly", "weekly", 80),
+        window("monthly", "monthly", 70),
+      ]),
+      GENERATED_AT,
+    );
+
+    expect(result.quotaSemantics).toMatchObject({
+      status: "known",
+      effectiveAvailability: [
+        {
+          scope: "all_models",
+          status: "known",
+          effectivePercentRemaining: 70,
+          boundedBy: ["rolling", "weekly", "monthly"],
+          limitingWindowIds: ["monthly"],
+        },
+      ],
+    });
+  });
+
+  it("keeps OpenCode Go effective unknown when a cap is missing", () => {
+    const result = withQuotaSemantics(
+      provider("opencode-go", [
+        window("weekly", "weekly", 80),
+        window("monthly", "monthly", 70),
+      ]),
+      GENERATED_AT,
+    );
+
+    expect(result.quotaSemantics).toMatchObject({
+      status: "partial",
+      effectiveAvailability: [
+        {
+          scope: "all_models",
+          status: "unknown",
+          boundedBy: ["weekly", "monthly"],
+        },
+      ],
+      unresolvedWindowIds: ["rolling"],
+    });
+  });
+
+  it("treats a duration-confirmed rolling window as the rolling cap", () => {
     const result = withQuotaSemantics(
       provider("opencode-go", [
         window("five_hour", "session", 90),
@@ -304,13 +387,38 @@ describe("quota semantics", () => {
     );
 
     expect(result.quotaSemantics).toMatchObject({
-      status: "unknown",
-      effectiveAvailability: [],
-      unresolvedWindowIds: ["five_hour", "weekly", "monthly"],
+      status: "known",
+      effectiveAvailability: [
+        {
+          scope: "all_models",
+          status: "known",
+          effectivePercentRemaining: 70,
+          limitingWindowIds: ["monthly"],
+        },
+      ],
     });
-    expect(result.quotaSemantics?.description).toContain(
-      "does not claim an effective combined percentage",
+  });
+  it("keeps OpenCode Go effective unknown when an unfamiliar window appears", () => {
+    const result = withQuotaSemantics(
+      provider("opencode-go", [
+        window("weekly", "weekly", 80),
+        window("monthly", "monthly", 70),
+        window("credits", "unknown", 50),
+      ]),
+      GENERATED_AT,
     );
+
+    expect(result.quotaSemantics).toMatchObject({
+      status: "partial",
+      effectiveAvailability: [
+        {
+          scope: "all_models",
+          status: "unknown",
+          boundedBy: ["weekly", "monthly"],
+        },
+      ],
+      unresolvedWindowIds: ["credits", "rolling"],
+    });
   });
 
   it("surfaces pace on a non-currently-limiting bounding window that is ahead", () => {
@@ -420,6 +528,126 @@ describe("quota semantics", () => {
     );
   });
 
+  it("reports a Codex bound conflict instead of exhaustion when a zeroed base window contradicts live model windows", () => {
+    const result = withQuotaSemantics(
+      provider("codex", [
+        window("five_hour", "session", 92, {
+          startsAt: GENERATED_AT,
+          resetsAt: offsetFromGeneratedAt(5 * 60 * 60),
+        }),
+        window("weekly", "weekly", 0, {
+          startsAt: offsetFromGeneratedAt(-4 * 24 * 60 * 60),
+          resetsAt: offsetFromGeneratedAt(3 * 24 * 60 * 60),
+        }),
+        window("model:codex_bengalfox:5h", "model", 92, {
+          startsAt: GENERATED_AT,
+          resetsAt: offsetFromGeneratedAt(5 * 60 * 60),
+        }),
+        window("model:codex_bengalfox:7d", "model", 96, {
+          startsAt: GENERATED_AT,
+          resetsAt: offsetFromGeneratedAt(7 * 24 * 60 * 60),
+        }),
+      ]),
+      GENERATED_AT,
+    );
+
+    const availability = result.quotaSemantics?.effectiveAvailability ?? [];
+    const model = availability.find(
+      (scope) => scope.scope === "model:codex_bengalfox",
+    );
+
+    expect(model).toMatchObject({
+      status: "unknown",
+      boundedBy: [
+        "five_hour",
+        "weekly",
+        "model:codex_bengalfox:5h",
+        "model:codex_bengalfox:7d",
+      ],
+      boundConflict: {
+        exhaustedWindowIds: ["weekly"],
+        liveWindowIds: ["model:codex_bengalfox:5h", "model:codex_bengalfox:7d"],
+      },
+    });
+    expect(model?.effectivePercentRemaining).toBeUndefined();
+    expect(model?.runway?.status).toBe("unknown");
+    expect(model?.selection?.status).toBe("unknown");
+
+    // The account's own meter really is exhausted, and still says so.
+    expect(availability).toContainEqual(
+      expect.objectContaining({
+        scope: "all_models",
+        status: "known",
+        effectivePercentRemaining: 0,
+        runway: expect.objectContaining({
+          status: "exhausted_now",
+          limitingWindowId: "weekly",
+        }),
+      }),
+    );
+  });
+
+  it("keeps a Codex model exhausted when its own window is the zero", () => {
+    const result = withQuotaSemantics(
+      provider("codex", [
+        window("weekly", "weekly", 0),
+        window("model:codex_bengalfox:5h", "model", 92),
+        window("model:codex_bengalfox:7d", "model", 0),
+      ]),
+      GENERATED_AT,
+    );
+
+    const model = result.quotaSemantics?.effectiveAvailability.find(
+      (scope) => scope.scope === "model:codex_bengalfox",
+    );
+
+    expect(model).toMatchObject({
+      status: "known",
+      effectivePercentRemaining: 0,
+      runway: expect.objectContaining({ status: "exhausted_now" }),
+    });
+    expect(model?.boundConflict).toBeUndefined();
+  });
+
+  // The bound conflict is opted into per provider. Claude's account 5h/7d bound
+  // is enforced across models, so the same reading shape must still resolve to
+  // the account's zero rather than degrading a correct verdict into `unknown`.
+  it("keeps a Claude model exhausted when the account window it inherits reads zero", () => {
+    const result = withQuotaSemantics(
+      provider("claude", [
+        window("five_hour", "session", 88, {
+          windowSeconds: 18_000,
+          resetsAt: offsetFromGeneratedAt(9_000),
+        }),
+        window("seven_day", "weekly", 0, {
+          windowSeconds: WEEK_SECONDS,
+          resetsAt: offsetFromGeneratedAt(WEEK_SECONDS / 2),
+        }),
+        window("model:fable", "model", 74, {
+          windowSeconds: WEEK_SECONDS,
+          resetsAt: offsetFromGeneratedAt(WEEK_SECONDS / 2),
+        }),
+      ]),
+      GENERATED_AT,
+    );
+
+    const model = result.quotaSemantics?.effectiveAvailability.find(
+      (scope) => scope.scope === "model:fable",
+    );
+
+    expect(model).toMatchObject({
+      status: "known",
+      effectivePercentRemaining: 0,
+      boundedBy: ["five_hour", "seven_day", "model:fable"],
+      limitingWindowIds: ["seven_day"],
+      runway: expect.objectContaining({
+        status: "exhausted_now",
+        limitingWindowId: "seven_day",
+      }),
+    });
+    expect(model?.boundConflict).toBeUndefined();
+  });
+
   it("marks unfamiliar Codex windows partial instead of ignoring them", () => {
     const result = withQuotaSemantics(
       provider("codex", [
@@ -457,6 +685,35 @@ describe("quota semantics", () => {
     ]);
   });
 
+  it("bounds Kimi by its account windows and never by the monthly code share", () => {
+    const monthCode: QuotaWindow = {
+      id: "month_code",
+      label: "code month",
+      kind: "monthly",
+      percentUsed: 25,
+    };
+    const result = withQuotaSemantics(
+      provider("kimi", [
+        window("five_hour", "session", 50),
+        window("month_total", "monthly", 60),
+        monthCode,
+      ]),
+      GENERATED_AT,
+    );
+
+    expect(result.quotaSemantics?.status).toBe("known");
+    expect(result.quotaSemantics?.unresolvedWindowIds).toBeUndefined();
+    expect(result.quotaSemantics?.effectiveAvailability).toEqual([
+      expect.objectContaining({
+        scope: "all_models",
+        status: "known",
+        effectivePercentRemaining: 50,
+        boundedBy: ["five_hour", "month_total"],
+        limitingWindowIds: ["five_hour"],
+      }),
+    ]);
+  });
+
   it("keeps valid Kimi bounds while marking unparsed limits partial", () => {
     const kimi = provider("kimi", [window("weekly", "weekly", 59)]);
     kimi.state.untrustedWindowIds = ["limit:2"];
@@ -466,7 +723,7 @@ describe("quota semantics", () => {
     expect(result.quotaSemantics).toEqual({
       status: "partial",
       description:
-        "Kimi's valid weekly and five-hour account windows are known bounds, but unrecognized or unparsed limits may add bounds, so effective remaining is unknown.",
+        "Kimi's valid weekly, five-hour, and monthly-total account windows are known bounds, but unrecognized or unparsed limits may add bounds, so effective remaining is unknown. The monthly code window is the code-typed share of that monthly total rather than a separate allowance, so it adds no bound.",
       effectiveAvailability: [
         {
           scope: "all_models",
@@ -617,14 +874,84 @@ describe("quota semantics", () => {
     const agy = withQuotaSemantics(
       provider("agy", [
         window("gemini_5h", "session", 100),
-        window("gemini_weekly", "weekly", 98),
+        window("gemini_weekly", "weekly", 0),
+        window("claude_gpt_5h", "session", 100),
+        window("claude_gpt_weekly", "weekly", 90),
       ]),
       GENERATED_AT,
     );
     expect(agy.quotaSemantics).toMatchObject({
-      status: "unknown",
-      effectiveAvailability: [],
-      unresolvedWindowIds: ["gemini_5h", "gemini_weekly"],
+      status: "known",
+      effectiveAvailability: [
+        expect.objectContaining({
+          scope: "gemini",
+          status: "known",
+          effectivePercentRemaining: 0,
+          boundedBy: ["gemini_5h", "gemini_weekly"],
+          limitingWindowIds: ["gemini_weekly"],
+        }),
+        expect.objectContaining({
+          scope: "claude_gpt",
+          status: "known",
+          effectivePercentRemaining: 90,
+          boundedBy: ["claude_gpt_5h", "claude_gpt_weekly"],
+          limitingWindowIds: ["claude_gpt_weekly"],
+        }),
+      ],
+    });
+    expect(agy.quotaSemantics?.unresolvedWindowIds).toBeUndefined();
+
+    const agyWeeklyOnly = withQuotaSemantics(
+      provider("agy", [window("gemini_weekly", "weekly", 40)]),
+      GENERATED_AT,
+    );
+    expect(agyWeeklyOnly.quotaSemantics).toMatchObject({
+      status: "known",
+      effectiveAvailability: [
+        expect.objectContaining({
+          scope: "gemini",
+          effectivePercentRemaining: 40,
+          boundedBy: ["gemini_weekly"],
+        }),
+      ],
+    });
+
+    const agyUnfamiliar = withQuotaSemantics(
+      provider("agy", [
+        window("gemini_weekly", "weekly", 40),
+        window("limit:extra", "unknown", 80),
+      ]),
+      GENERATED_AT,
+    );
+    expect(agyUnfamiliar.quotaSemantics).toMatchObject({
+      status: "partial",
+      unresolvedWindowIds: ["limit:extra"],
+      effectiveAvailability: [
+        expect.objectContaining({
+          scope: "gemini",
+          effectivePercentRemaining: 40,
+        }),
+      ],
+    });
+
+    const agyUnknownKind = withQuotaSemantics(
+      provider("agy", [
+        window("gemini_5h", "session", 100),
+        window("gemini_weekly", "weekly", 70),
+        window("gemini_unknown", "unknown", 10),
+      ]),
+      GENERATED_AT,
+    );
+    expect(agyUnknownKind.quotaSemantics).toMatchObject({
+      status: "partial",
+      unresolvedWindowIds: ["gemini_unknown"],
+      effectiveAvailability: [
+        expect.objectContaining({
+          scope: "gemini",
+          effectivePercentRemaining: 70,
+          boundedBy: ["gemini_5h", "gemini_weekly"],
+        }),
+      ],
     });
 
     const kimi = withQuotaSemantics(
@@ -978,5 +1305,23 @@ describe("per-scope selection signal", () => {
       withQuotaSemantics(missingCycle, GENERATED_AT).quotaSemantics
         ?.effectiveAvailability[0]?.selection,
     ).toEqual({ status: "unknown", unmeasurableWindowIds: ["seven_day"] });
+  });
+
+  it("marks agy reading stale when its resetsAt is in the past relative to generatedAt", () => {
+    const agy = provider("agy", [
+      window("gemini_5h", "session", 90, {
+        windowSeconds: FIVE_HOURS_SECONDS,
+        resetsAt: new Date(Date.parse(GENERATED_AT) - 1_000).toISOString(),
+      }),
+      window("gemini_weekly", "weekly", 80, {
+        windowSeconds: WEEK_SECONDS,
+        resetsAt: after(3 * DAY_SECONDS),
+      }),
+    ]);
+
+    const result = withQuotaSemantics(agy, GENERATED_AT);
+    expect(result.state.status).toBe("stale");
+    expect(result.state.stale).toBe(true);
+    expect(result.quotaSemantics?.status).toBe("unknown");
   });
 });
