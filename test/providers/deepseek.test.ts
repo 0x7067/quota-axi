@@ -112,13 +112,47 @@ describe("DeepSeek provider", () => {
         balance_infos: [
           {
             currency: "USD",
-            total_balance: "-1",
+            total_balance: "abc",
             granted_balance: "0",
             topped_up_balance: "0",
           },
         ],
       }),
     ).toThrow("invalid_amount");
+  });
+
+  it("reports a negative balance as negative remaining credits", async () => {
+    const request = vi.fn(async () => {
+      return new Response(
+        JSON.stringify({
+          is_available: false,
+          balance_infos: [
+            {
+              currency: "USD",
+              total_balance: "-4.25",
+              granted_balance: "0",
+              topped_up_balance: "0",
+            },
+          ],
+        }),
+        { headers: { "content-type": "application/json" } },
+      );
+    });
+
+    const report = await createDeepSeekAdapter({
+      credential: () => ({
+        status: "available",
+        key: KEY,
+        source: "env:DEEPSEEK_API_KEY",
+      }),
+      fetch: request,
+      now: () => Date.parse("2026-09-01T00:00:00.000Z"),
+    }).fetchQuota(OPTIONS);
+
+    expect(report).toMatchObject({
+      state: { status: "fresh" },
+      credits: { remaining: -4.25, unit: "usd" },
+    });
   });
 
   it("reports unusable local credentials as auth_required", async () => {

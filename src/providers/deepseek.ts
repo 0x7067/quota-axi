@@ -218,7 +218,7 @@ function computeCredits(
   );
   if (usdTotal) {
     const value = Number(usdTotal.value);
-    if (Number.isFinite(value) && value >= 0) {
+    if (Number.isFinite(value)) {
       return { remaining: value, unit: "usd" };
     }
   }
@@ -227,7 +227,7 @@ function computeCredits(
   );
   if (cnyTotal) {
     const value = Number(cnyTotal.value);
-    if (Number.isFinite(value) && value >= 0) {
+    if (Number.isFinite(value)) {
       return { remaining: value, unit: "credits" };
     }
   }
@@ -249,6 +249,6 @@ function decimalAmount(value: unknown): value is string {
     typeof value === "string" &&
     value.length <= 64 &&
     value.length > 0 &&
-    /^(?:0|[1-9]\d*)(?:\.\d+)?$/u.test(value)
+    /^-?(?:0|[1-9]\d*)(?:\.\d+)?$/u.test(value)
   );
 }
