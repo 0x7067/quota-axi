@@ -158,6 +158,33 @@ describe("OpenRouter provider", () => {
     expect(report.credits).toBeUndefined();
   });
 
+  it("reports an over-cap key as spent with a negative remaining balance", async () => {
+    const report = await createOpenRouterAdapter({
+      credential: () => ({
+        status: "available",
+        key: KEY,
+        source: "env:OPENROUTER_API_KEY",
+      }),
+      fetch: async () =>
+        new Response(
+          JSON.stringify({ data: { limit: 100, limit_remaining: -5 } }),
+          { headers: { "content-type": "application/json" } },
+        ),
+      now: () => Date.parse("2026-09-01T00:00:00.000Z"),
+    }).fetchQuota(OPTIONS);
+
+    expect(report.state.status).toBe("fresh");
+    expect(report.windows).toEqual([
+      expect.objectContaining({
+        id: "key-limit",
+        limitUsd: 100,
+        spentUsd: 105,
+        percentRemaining: 0,
+      }),
+    ]);
+    expect(report.credits).toEqual({ remaining: -5, unit: "usd" });
+  });
+
   it("reports a zero finite cap as fully spent", async () => {
     const report = await createOpenRouterAdapter({
       credential: () => ({

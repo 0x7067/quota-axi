@@ -130,7 +130,7 @@ async function fetchQuota(dependencies: Dependencies): Promise<ProviderQuota> {
         const percentRemaining =
           normalized.limit > 0
             ? clampPercent(100 - (used / normalized.limit) * 100)
-            : normalized.remaining === 0
+            : normalized.remaining <= 0
               ? 0
               : undefined;
         if (percentRemaining !== undefined) {
@@ -230,7 +230,7 @@ export function normalizeOpenRouterPayload(
   const unlimited = data.limit === null;
   const limit = unlimited ? undefined : asNonnegativeNumber(data.limit);
   if (!unlimited && limit === undefined) throw new Error("invalid_limit");
-  const remaining = asNonnegativeNumber(data.limit_remaining);
+  const remaining = asFiniteNumber(data.limit_remaining);
   const period = asString(data.limit_reset);
   const label = asString(data.label);
 
@@ -250,9 +250,14 @@ function objectValue(value: unknown): Record<string, unknown> | undefined {
 }
 
 function asNonnegativeNumber(value: unknown): number | undefined {
-  if (typeof value !== "number" || !Number.isFinite(value) || value < 0)
-    return undefined;
-  return value;
+  const number = asFiniteNumber(value);
+  return number !== undefined && number >= 0 ? number : undefined;
+}
+
+function asFiniteNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value)
+    ? value
+    : undefined;
 }
 
 function asString(value: unknown): string | undefined {
