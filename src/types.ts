@@ -52,7 +52,8 @@ export type ProviderAuthStatus = "usable" | "expired_refreshable" | "unusable";
 
 export type ProviderStateReason =
   | "keychain_access_required"
-  | "credentials_expired";
+  | "credentials_expired"
+  | "inference_opt_in_required";
 
 export type QuotaPaceStatus = "ahead" | "on_pace" | "behind" | "unknown";
 
@@ -316,6 +317,11 @@ export type QuotaAxiResponse = {
 
 export type ProviderOptions = {
   allowKeychainPrompt: boolean;
+  /**
+   * Explicitly permit one bounded Claude Code inference to read quota response
+   * headers when an env bearer cannot use the zero-spend usage endpoint.
+   */
+  allowClaudeInference?: boolean;
   /** Restrict discovery to the provider's selected native profile file. */
   credentialMode?: "profile-only";
   /**

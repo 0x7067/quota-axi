@@ -217,6 +217,10 @@ function readCachedProviderInContext(
 }
 
 export function writeCachedProviders(providers: ProviderQuota[]): void {
+  providers = providers.filter(
+    (provider) =>
+      !(provider.provider === "claude" && provider.source === "cli"),
+  );
   const clearProviders = new Set(
     providers
       .filter(
@@ -359,9 +363,7 @@ function missingRequiredContext(provider: ProviderId): boolean {
   // when the current reading has no published context identity.
   if (provider === "codex") return false;
   const scope = CONTEXT_SCOPED_PROVIDERS[provider];
-  return (
-    scope !== undefined && !scope({ provider } as ProviderQuota)
-  );
+  return scope !== undefined && !scope({ provider } as ProviderQuota);
 }
 
 function serializeCachedProvider(
