@@ -1,6 +1,7 @@
 import { open } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { classifyPiAuthEntry } from "../lib/pi-auth-store.js";
+import { resolvePiAuthFilePath } from "../lib/pi-agent-dir.js";
 
 const PI_PROVIDER_ID = "xai";
 const AUTH_FILE_LIMIT_BYTES = 64 * 1024;
@@ -109,14 +110,12 @@ async function resolveCredential(
   try {
     parsed = JSON.parse(contents.toString("utf8")) as unknown;
   } catch {
-    return { status: "error" };
+    return { status: "invalid" };
   }
 
-  const root = objectValue(parsed);
-  if (!root) return { status: "invalid" };
-
-  const entry = objectValue(root[PI_PROVIDER_ID]);
-  if (!entry) return { status: "missing" };
+  const classified = classifyPiAuthEntry(parsed, PI_PROVIDER_ID);
+  if (classified.status !== "present") return classified;
+  const { entry } = classified;
 
   const type = stringValue(entry.type)?.toLowerCase();
   if (type === "api_key") {
@@ -142,29 +141,15 @@ async function resolveCredential(
     return { status: "available", kind: "oauth", credential: access };
   }
 
-  if (type === undefined) return { status: "missing" };
+  if (type === undefined) return { status: "invalid" };
   return { status: "unsupported" };
 }
 
 function authFilePath(dependencies: BrokerDependencies): string {
-  return join(piAgentDirectory(dependencies), "auth.json");
-}
-
-function piAgentDirectory(dependencies: BrokerDependencies): string {
-  const home = () =>
-    nonempty(dependencies.environment.HOME) ?? dependencies.homeDirectory();
-  const configured = nonempty(dependencies.environment.PI_CODING_AGENT_DIR);
-  if (configured === undefined) {
-    return join(home(), ".pi", "agent");
-  }
-  if (configured === "~") return home();
-  if (
-    configured.startsWith("~/") ||
-    (process.platform === "win32" && configured.startsWith("~\\"))
-  ) {
-    return join(home(), configured.slice(2));
-  }
-  return configured;
+  return resolvePiAuthFilePath(
+    dependencies.environment,
+    dependencies.homeDirectory,
+  );
 }
 
 function usableLiteralSecret(value: unknown): string | undefined {
@@ -224,16 +209,6 @@ async function readBoundedFile(
   } finally {
     await file.close();
   }
-}
-
-function nonempty(value: string | undefined): string | undefined {
-  return value && value.length > 0 ? value : undefined;
-}
-
-function objectValue(value: unknown): Record<string, unknown> | undefined {
-  return value !== null && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : undefined;
 }
 
 function stringValue(value: unknown): string | undefined {

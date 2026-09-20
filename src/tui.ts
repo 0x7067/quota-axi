@@ -75,6 +75,11 @@ const ACCENTS: Record<ProviderId, StyleSpec> = {
   agy: { rgb: [232, 184, 109], ansi16: "93", bold: true },
   alibaba: { rgb: [255, 155, 120], ansi16: "91", bold: true },
   "opencode-go": { rgb: [160, 210, 255], ansi16: "96", bold: true },
+  commandcode: { rgb: [110, 210, 168], ansi16: "92", bold: true },
+  minimax: { rgb: [255, 196, 112], ansi16: "93", bold: true },
+  mimo: { rgb: [174, 214, 241], ansi16: "96", bold: true },
+  deepseek: { rgb: [88, 160, 242], ansi16: "94", bold: true },
+  openrouter: { rgb: [183, 148, 232], ansi16: "95", bold: true },
 };
 
 const STYLES: Record<Exclude<StyleName, `accent:${ProviderId}`>, StyleSpec> = {
@@ -217,11 +222,15 @@ function buildLiveCard(provider: ProviderQuota, generatedAtMs: number): Card {
       rightTitle,
       "border",
     ),
+    ...accountCardLines(provider, "border"),
     interior([], "border"),
   ];
 
   const headline = pickHeadlineAvailability(provider);
-  if (hasWhollyUnknownWindowRelationships(provider)) {
+  const creditsLine = creditsOnlyHeadline(provider, stale);
+  if (creditsLine) {
+    lines.push(...creditsLine);
+  } else if (hasWhollyUnknownWindowRelationships(provider)) {
     lines.push(...windowsOnlyHeadline(stale));
   } else {
     lines.push(...effectiveHeadline(provider, headline, stale));
@@ -230,7 +239,9 @@ function buildLiveCard(provider: ProviderQuota, generatedAtMs: number): Card {
   if (provider.windows.length > 0) {
     lines.push(interior([], "border"));
     for (const window of provider.windows) {
-      lines.push(interior(windowRow(window, generatedAtMs), "border"));
+      lines.push(
+        interior(windowRow(window, generatedAtMs, provider.windows), "border"),
+      );
     }
   }
 
@@ -315,6 +326,40 @@ function effectiveHeadline(
 }
 
 /**
+ * A windowless reading that reports a raw credit balance has no combined bound
+ * and no percentage to draw, so its card states the balance instead of an empty
+ * effective bar whose zero fill would read as a failure. The balance is shown
+ * exactly as the vendor reports it, never converted into a percentage.
+ */
+function creditsOnlyHeadline(
+  provider: ProviderQuota,
+  stale: boolean | undefined,
+): Line[] | undefined {
+  if (provider.windows.length > 0) return undefined;
+  const credits = provider.credits;
+  if (!credits) return undefined;
+  const amount =
+    credits.unlimited === true
+      ? "unlimited"
+      : credits.remaining === undefined
+        ? undefined
+        : `${credits.remaining} ${credits.unit ?? "credits"} remaining`;
+  if (amount === undefined) return undefined;
+  return [
+    interior(
+      [
+        { text: "   " },
+        {
+          text: stale ? `stale · ${amount}` : amount,
+          style: "dimBold",
+        },
+      ],
+      "border",
+    ),
+  ];
+}
+
+/**
  * The headline block for a provider that reports real per-window usage but no
  * combinable bound: quota-axi does not know whether those windows are
  * independent or jointly bounding, so there is no combined
@@ -367,6 +412,7 @@ function buildFailedCard(provider: ProviderQuota): Card {
       rightTitle,
       "borderDim",
     ),
+    ...accountCardLines(provider, "borderDim"),
     interior([], "borderDim"),
   ];
   const message =
@@ -444,7 +490,14 @@ function interior(content: Line, borderStyle: StyleName): Line {
   ];
 }
 
-function windowRow(window: QuotaWindow, generatedAtMs: number): Line {
+function windowRow(
+  window: QuotaWindow,
+  generatedAtMs: number,
+  windows: QuotaWindow[],
+): Line {
+  if (window.shareOf) {
+    return shareWindowRow(window, generatedAtMs, windows);
+  }
   const pct = window.percentRemaining;
   const marker = window.pace?.timeRemainingPercent;
   const reset = resetCountdown(window, generatedAtMs);
@@ -461,6 +514,42 @@ function windowRow(window: QuotaWindow, generatedAtMs: number): Line {
     { text: padEndDisplay(reset, 6), style: "dim" },
     { text: " " },
   ];
+}
+
+/**
+ * A used-share has no own remaining, so the remaining bar and `?` would make
+ * it look unmeasured. Print the used percent of the parent instead.
+ */
+function shareWindowRow(
+  window: QuotaWindow,
+  generatedAtMs: number,
+  windows: QuotaWindow[],
+): Line {
+  const reset = resetCountdown(window, generatedAtMs);
+  const captionWidth = WINDOW_BAR_WIDTH + 1 + 4;
+  return [
+    { text: "   " },
+    { text: padEndDisplay(shortWindowLabel(window), 8), style: "label" },
+    {
+      text: padEndDisplay(
+        truncate(shareCaption(window, windows), captionWidth),
+        captionWidth,
+      ),
+      style: "label",
+    },
+    { text: "  " },
+    { text: padEndDisplay(reset, 6), style: "dim" },
+    { text: " " },
+  ];
+}
+
+function shareCaption(window: QuotaWindow, windows: QuotaWindow[]): string {
+  const parent = windows.find((candidate) => candidate.id === window.shareOf);
+  const parentLabel = parent
+    ? shortWindowLabel(parent)
+    : truncate(window.shareOf ?? "", 7);
+  if (window.percentUsed === undefined) return `share of ${parentLabel}`;
+  return `${Math.round(window.percentUsed)}% of ${parentLabel}`;
 }
 
 /**
@@ -697,7 +786,11 @@ function formatHeaderTime(iso: string, timeZone?: string): string {
 }
 
 function fullFooterLines(provider: ProviderQuota, width: number): string[] {
-  const accountParts: string[] = [provider.provider];
+  const accountKey = configuredAccountKey(provider);
+  const accountParts: string[] = [
+    provider.provider,
+    ...(accountKey ? [accountKey] : []),
+  ];
   const protectedAccountParts = new Set([0]);
   if (provider.account?.email) accountParts.push(provider.account.email);
   if (provider.account?.organization) {
@@ -843,11 +936,13 @@ function padCardToHeight(card: Card, height: number): Card {
   const missing = height - card.length;
   if (missing <= 0) return card;
   const bottom = card.at(-1);
-  const interiorLine = card[1];
-  if (!bottom || !interiorLine) return card;
+  // Row 1 carries content on account cards, so pad with a blank interior in
+  // the card's own border style rather than copying that row.
+  const borderStyle = card[1]?.[0]?.style;
+  if (!bottom || !borderStyle) return card;
   return [
     ...card.slice(0, -1),
-    ...Array.from({ length: missing }, () => [...interiorLine]),
+    ...Array.from({ length: missing }, () => interior([], borderStyle)),
     bottom,
   ];
 }
@@ -864,6 +959,36 @@ function boldHealthStyle(pct: number): "okBold" | "warnBold" | "critBold" {
 
 function humanize(text: string): string {
   return text.replace(/_/g, " ");
+}
+
+/**
+ * The account key only when it names an account the user configured. An
+ * expanded report fills `default` on every provider that selected one account,
+ * which is a schema artefact rather than something to show a human.
+ */
+function configuredAccountKey(provider: ProviderQuota): string | undefined {
+  return provider.accountKey && provider.accountKey !== "default"
+    ? provider.accountKey
+    : undefined;
+}
+
+function accountCardLines(
+  provider: ProviderQuota,
+  border: "border" | "borderDim",
+): Line[] {
+  const accountKey = configuredAccountKey(provider);
+  if (!accountKey) return [];
+  return [
+    interior(
+      [
+        {
+          text: truncate(`   account ${accountKey}`, CARD_INTERIOR),
+          style: "dim",
+        },
+      ],
+      border,
+    ),
+  ];
 }
 
 function truncate(text: string, width: number): string {

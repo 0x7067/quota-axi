@@ -27,6 +27,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.doUnmock("../../src/cache.js");
   vi.doUnmock("../../src/lib/process.js");
   vi.doUnmock("node:child_process");
   vi.resetModules();
@@ -59,6 +60,10 @@ function piAuthFile(): string {
 }
 
 function writePiAuth(entry: Record<string, unknown>): void {
+  writePiAuthValue(entry);
+}
+
+function writePiAuthValue(entry: unknown): void {
   mkdirSync(process.env.PI_CODING_AGENT_DIR!, { recursive: true });
   writeFileSync(piAuthFile(), JSON.stringify({ "openai-codex": entry }), {
     mode: 0o600,
@@ -130,7 +135,7 @@ describe("Codex credential-state reporting", () => {
     expect(findCommandPath).not.toHaveBeenCalledWith("codex");
     expect(spawn).toHaveBeenCalledWith(
       binary,
-      ["-s", "read-only", "-a", "untrusted", "app-server"],
+      ["-s", "read-only", "-a", "never", "app-server"],
       expect.any(Object),
     );
   });
@@ -205,16 +210,18 @@ describe("Codex credential-state reporting", () => {
       status: "invalid",
     });
     expect(fetchMock).not.toHaveBeenCalled();
-    expect(result.attempts).toContainEqual({
-      source: "oauth",
-      status: "skipped",
-      error: "credentials_invalid",
-    });
+    expect(result.attempts).toContainEqual(
+      expect.objectContaining({
+        source: "oauth",
+        status: "skipped",
+        error: "credentials_invalid",
+      }),
+    );
   });
 
-  it("surfaces expired JWT credentials without probing OAuth usage", async () => {
+  it("probes an expired JWT credential and lets the endpoint decide", async () => {
     writeAuth({ tokens: { access_token: jwt({ exp: 1 }) } });
-    const fetchMock = vi.fn();
+    const fetchMock = vi.fn(async () => new Response(null, { status: 401 }));
     vi.stubGlobal("fetch", fetchMock);
 
     const { fetchQuota, inspectAuth } =
@@ -233,13 +240,17 @@ describe("Codex credential-state reporting", () => {
       path: authFile(),
       status: "expired",
     });
-    expect(fetchMock).not.toHaveBeenCalled();
+    // Stored expiry orders the credential, it never skips it: only the
+    // endpoint's own rejection is an authentication verdict.
+    expect(fetchMock).toHaveBeenCalled();
     expect(result.state.status).toBe("auth_required");
-    expect(result.attempts).toContainEqual({
-      source: "oauth",
-      status: "skipped",
-      error: "credentials_expired",
-    });
+    expect(result.attempts).toContainEqual(
+      expect.objectContaining({
+        source: "oauth",
+        status: "failed",
+        error: "Codex sign-in required",
+      }),
+    );
   });
 
   it("treats access-token usability as authoritative when id_token is expired", async () => {
@@ -297,14 +308,14 @@ describe("Codex credential-state reporting", () => {
     );
   });
 
-  it("still skips OAuth when the access token JWT itself is expired", async () => {
+  it("still probes OAuth when the access token JWT itself is expired", async () => {
     writeAuth({
       tokens: {
         id_token: jwt({ exp: Math.floor(Date.now() / 1000) + 3600 }),
         access_token: jwt({ exp: 1 }),
       },
     });
-    const fetchMock = vi.fn();
+    const fetchMock = vi.fn(async () => new Response(null, { status: 401 }));
     vi.stubGlobal("fetch", fetchMock);
 
     const { fetchQuota, inspectAuth } =
@@ -318,13 +329,17 @@ describe("Codex credential-state reporting", () => {
       refreshCredentials: false,
     });
 
+    // Auth inspection still reports what the store says; the quota read does
+    // not treat that stored field as the verdict.
     expect(auth.sources[0]?.status).toBe("expired");
-    expect(fetchMock).not.toHaveBeenCalled();
-    expect(result.attempts).toContainEqual({
-      source: "oauth",
-      status: "skipped",
-      error: "credentials_expired",
-    });
+    expect(fetchMock).toHaveBeenCalled();
+    expect(result.attempts).toContainEqual(
+      expect.objectContaining({
+        source: "oauth",
+        status: "failed",
+        error: "Codex sign-in required",
+      }),
+    );
   });
 
   it("surfaces malformed auth JSON as invalid", async () => {
@@ -484,6 +499,84 @@ describe("Codex credential-state reporting", () => {
     ]);
   });
 
+  it("reports a transient Pi failure after native OAuth rejection", async () => {
+    const nativeToken = jwt({ exp: Math.floor(Date.now() / 1000) + 3600 });
+    writeAuth({ tokens: { access_token: nativeToken } });
+    writePiAuth(piOauthEntry());
+    const binary = join(tempDir!, "codex-fixture");
+    process.env.QUOTA_AXI_CODEX_BINARY = binary;
+    const spawn = vi.fn(() => successfulChild());
+    vi.doMock("node:child_process", () => ({ spawn }));
+    vi.doMock("../../src/lib/process.js", () => ({
+      findCommandPath: vi.fn(async () => binary),
+      terminateChild: vi.fn(),
+    }));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+        const authorization = (init?.headers as Record<string, string>)
+          ?.authorization;
+        if (authorization === `Bearer ${nativeToken}`) {
+          return new Response(null, { status: 401 });
+        }
+        throw new TypeError("network unavailable");
+      }),
+    );
+
+    const { fetchQuota } = await import("../../src/providers/codex.js");
+    const result = await fetchQuota({
+      allowKeychainPrompt: false,
+      refreshCredentials: false,
+    });
+
+    expect(result.source).toBe("pi:openai-codex");
+    expect(result.state.status).toBe("error");
+    expect(result.state.error).toBe("network unavailable");
+    expect(result.state.status).not.toBe("auth_required");
+    expect(result.attempts).toEqual([
+      { source: "oauth", status: "failed", error: "Codex sign-in required" },
+      {
+        source: "pi:openai-codex",
+        status: "failed",
+        error: "network unavailable",
+      },
+    ]);
+    expect(spawn).not.toHaveBeenCalled();
+  });
+
+  it("lets a transient CLI failure outrank earlier auth rejection", async () => {
+    const nativeToken = jwt({ exp: Math.floor(Date.now() / 1000) + 3600 });
+    writeAuth({ tokens: { access_token: nativeToken } });
+    const binary = join(tempDir!, "codex-fixture");
+    process.env.QUOTA_AXI_CODEX_BINARY = binary;
+    const child = failingChild();
+    const spawn = vi.fn(() => {
+      queueMicrotask(() =>
+        child.emit("error", new Error("network unavailable")),
+      );
+      return child;
+    });
+    vi.doMock("node:child_process", () => ({ spawn }));
+    vi.doMock("../../src/lib/process.js", () => ({
+      findCommandPath: vi.fn(async () => binary),
+      terminateChild: vi.fn(),
+    }));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(null, { status: 401 })),
+    );
+
+    const { fetchQuota } = await import("../../src/providers/codex.js");
+    const result = await fetchQuota({
+      allowKeychainPrompt: false,
+      refreshCredentials: false,
+    });
+
+    expect(result.state.status).toBe("error");
+    expect(result.state.error).toBe("Codex quota unavailable");
+    expect(result.state.status).not.toBe("auth_required");
+  });
+
   it("keeps a transient native probe failure over an expired Pi credential", async () => {
     const nativeToken = jwt({ exp: Math.floor(Date.now() / 1000) + 3600 });
     writeAuth({ tokens: { access_token: nativeToken } });
@@ -514,48 +607,58 @@ describe("Codex credential-state reporting", () => {
     expect(result.state.status).toBe("error");
     expect(result.state.error).toBe("Codex quota request timed out");
     expect(result.state.status).not.toBe("auth_required");
+    expect(result.source).toBe("oauth");
     expect(result.attempts).toEqual([
       {
         source: "oauth",
         status: "failed",
         error: "Codex quota request timed out",
       },
-      {
-        source: "pi:openai-codex",
-        status: "skipped",
-        error: "credentials_expired_refreshable",
-        credentialPresent: true,
-      },
-      { source: "cli-rpc", status: "failed", error: expect.any(String) },
     ]);
   });
 
-  it.each([401, 429])(
-    "keeps a transient native probe failure over an available Pi credential rejected with %i",
-    async (piStatus) => {
+  it.each([
+    {
+      failure: "a network error",
+      secondEndpoint: async () => {
+        throw new TypeError("network unavailable");
+      },
+      expectedError: "network unavailable",
+    },
+    {
+      failure: "a server error",
+      secondEndpoint: async () => new Response(null, { status: 500 }),
+      expectedError: "Codex quota unavailable",
+    },
+    {
+      failure: "an incompatible payload",
+      secondEndpoint: async () =>
+        new Response(JSON.stringify({ unrelated: true }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      expectedError: "Codex quota unavailable",
+    },
+  ])(
+    "does not switch sources when one native endpoint rejects and the other has $failure",
+    async ({ secondEndpoint, expectedError }) => {
       const nativeToken = jwt({ exp: Math.floor(Date.now() / 1000) + 3600 });
+      const piToken = "working-pi-token";
       writeAuth({ tokens: { access_token: nativeToken } });
-      writePiAuth(piOauthEntry());
-      const timeout = () => {
-        const error = new Error("The operation was aborted");
-        error.name = "AbortError";
-        return error;
-      };
-      const fetchMock = vi.fn(
-        async (_url: string | URL | Request, init?: RequestInit) => {
-          const authorization = (init?.headers as Record<string, string>)
-            ?.authorization;
-          if (authorization === `Bearer ${nativeToken}`) throw timeout();
-          return new Response(null, {
-            status: piStatus,
-            headers:
-              piStatus === 429
-                ? { "retry-after": "2030-01-01T00:00:00.000Z" }
-                : undefined,
-          });
-        },
+      writePiAuth(piOauthEntry({ access: piToken }));
+      const bearers: string[] = [];
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+          const authorization =
+            (init?.headers as Record<string, string>)?.authorization ?? "";
+          bearers.push(authorization);
+          if (String(url).endsWith("/wham/usage")) {
+            return new Response(null, { status: 401 });
+          }
+          return secondEndpoint();
+        }),
       );
-      vi.stubGlobal("fetch", fetchMock);
 
       const { fetchQuota } = await import("../../src/providers/codex.js");
       const result = await fetchQuota({
@@ -563,23 +666,59 @@ describe("Codex credential-state reporting", () => {
         refreshCredentials: false,
       });
 
+      expect(result.source).toBe("oauth");
       expect(result.state.status).toBe("error");
-      expect(result.state.error).toBe("Codex quota request timed out");
-      expect(result.state.status).not.toBe("auth_required");
-      expect(result.state.status).not.toBe("rate_limited");
-      expect(result.state.retryAfter).toBeUndefined();
-      expect(result.attempts).toContainEqual({
-        source: "pi:openai-codex",
-        status: "failed",
-        error:
-          piStatus === 429
-            ? "Codex quota endpoint rate limited"
-            : "Codex sign-in required",
-      });
+      expect(result.state.error).toBe(expectedError);
+      expect(result.attempts).toEqual([
+        { source: "oauth", status: "failed", error: expectedError },
+      ]);
+      expect(bearers).toEqual([
+        `Bearer ${nativeToken}`,
+        `Bearer ${nativeToken}`,
+      ]);
+      expect(bearers).not.toContain(`Bearer ${piToken}`);
     },
   );
 
-  it("keeps an unusable native credential over an expired Pi credential", async () => {
+  it("does not switch to working Pi OAuth after a transient native failure", async () => {
+    const nativeToken = jwt({ exp: Math.floor(Date.now() / 1000) + 3600 });
+    const piToken = "working-pi-token";
+    writeAuth({ tokens: { access_token: nativeToken } });
+    writePiAuth(piOauthEntry({ access: piToken }));
+    const bearers: string[] = [];
+    const fetchMock = vi.fn(
+      async (_url: string | URL | Request, init?: RequestInit) => {
+        const authorization =
+          (init?.headers as Record<string, string>)?.authorization ?? "";
+        bearers.push(authorization);
+        if (authorization === `Bearer ${nativeToken}`) {
+          throw new TypeError("network unavailable");
+        }
+        return successfulUsageResponse();
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { withQuotaSemantics } = await import("../../src/interpretation.js");
+    const { fetchQuota } = await import("../../src/providers/codex.js");
+    const result = await fetchQuota({
+      allowKeychainPrompt: false,
+      refreshCredentials: false,
+    });
+    const interpreted = withQuotaSemantics(result, new Date().toISOString());
+
+    expect(result.source).toBe("oauth");
+    expect(result.state.status).toBe("error");
+    expect(result.state.error).toBe("network unavailable");
+    expect(result.attempts).toEqual([
+      { source: "oauth", status: "failed", error: "network unavailable" },
+    ]);
+    expect(bearers).toEqual([`Bearer ${nativeToken}`, `Bearer ${nativeToken}`]);
+    expect(bearers).not.toContain(`Bearer ${piToken}`);
+    expect(interpreted.state.degradedSources).toBeUndefined();
+  });
+
+  it("probes both stored-expired credentials before reporting a sign-out", async () => {
     writeAuth({ tokens: { access_token: jwt({ exp: 1 }) } });
     writePiAuth(
       piOauthEntry({
@@ -587,7 +726,11 @@ describe("Codex credential-state reporting", () => {
         expires: Date.now() - 1,
       }),
     );
-    const fetchMock = vi.fn();
+    const bearers: string[] = [];
+    const fetchMock = vi.fn(async (_input: unknown, init?: RequestInit) => {
+      bearers.push(new Headers(init?.headers).get("authorization") ?? "");
+      return new Response(null, { status: 401 });
+    });
     vi.stubGlobal("fetch", fetchMock);
 
     const { fetchQuota } = await import("../../src/providers/codex.js");
@@ -596,19 +739,21 @@ describe("Codex credential-state reporting", () => {
       refreshCredentials: false,
     });
 
+    // Neither store is skipped on its own expiry field; the sign-out verdict
+    // stands only because the endpoint rejected both of them.
+    expect(bearers).toContain("Bearer expired-pi-access-token");
     expect(result.state.error).toBe("Codex sign-in required");
     expect(result.state.status).toBe("auth_required");
-    expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("still names the expired Pi credential when no native credential exists", async () => {
+  it("probes the expired Pi credential when no native credential exists", async () => {
     writePiAuth(
       piOauthEntry({
         access: "expired-pi-access-token",
         expires: Date.now() - 1,
       }),
     );
-    const fetchMock = vi.fn();
+    const fetchMock = vi.fn(async () => new Response(null, { status: 401 }));
     vi.stubGlobal("fetch", fetchMock);
 
     const { fetchQuota } = await import("../../src/providers/codex.js");
@@ -617,11 +762,16 @@ describe("Codex credential-state reporting", () => {
       refreshCredentials: false,
     });
 
-    // The guard above must not silence the diagnostic that is genuinely the
-    // best explanation available.
-    expect(result.state.error).toBe("Pi Codex access token expired");
+    expect(fetchMock).toHaveBeenCalled();
+    expect(result.state.error).toBe("Codex sign-in required");
     expect(result.state.status).toBe("auth_required");
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(result.attempts).toContainEqual(
+      expect.objectContaining({
+        source: "pi:openai-codex",
+        status: "failed",
+        error: "Codex sign-in required",
+      }),
+    );
   });
 
   it("keeps CLI RPC as the final fallback after both file sources", async () => {
@@ -659,6 +809,65 @@ describe("Codex credential-state reporting", () => {
     expect(spawn).toHaveBeenCalledOnce();
   });
 
+  it("keeps unsupported Pi auth degraded when CLI RPC returns quota", async () => {
+    writePiAuth({ type: "api_key", key: "unsupported-api-key" });
+    const binary = join(tempDir!, "codex-fixture");
+    process.env.QUOTA_AXI_CODEX_BINARY = binary;
+    const spawn = vi.fn(() => successfulChild());
+    vi.doMock("node:child_process", () => ({ spawn }));
+    vi.doMock("../../src/lib/process.js", () => ({
+      findCommandPath: vi.fn(async () => binary),
+      terminateChild: vi.fn(),
+    }));
+
+    const { withQuotaSemantics } = await import("../../src/interpretation.js");
+    const { fetchQuota } = await import("../../src/providers/codex.js");
+    const result = await fetchQuota({
+      allowKeychainPrompt: false,
+      refreshCredentials: false,
+    });
+    const interpreted = withQuotaSemantics(result, new Date().toISOString());
+
+    expect(result.source).toBe("cli-rpc");
+    expect(result.windows.length).toBeGreaterThan(0);
+    expect(interpreted.state.degradedSources).toEqual([
+      {
+        source: "pi:openai-codex",
+        error: "unsupported_credential_type",
+      },
+    ]);
+  });
+
+  it.each([{}, null, "invalid", []])(
+    "keeps structurally invalid Pi auth %# degraded when CLI RPC returns quota",
+    async (entry) => {
+      writePiAuthValue(entry);
+      const binary = join(tempDir!, "codex-fixture");
+      process.env.QUOTA_AXI_CODEX_BINARY = binary;
+      const spawn = vi.fn(() => successfulChild());
+      vi.doMock("node:child_process", () => ({ spawn }));
+      vi.doMock("../../src/lib/process.js", () => ({
+        findCommandPath: vi.fn(async () => binary),
+        terminateChild: vi.fn(),
+      }));
+
+      const { withQuotaSemantics } =
+        await import("../../src/interpretation.js");
+      const { fetchQuota } = await import("../../src/providers/codex.js");
+      const result = await fetchQuota({
+        allowKeychainPrompt: false,
+        refreshCredentials: false,
+      });
+      const interpreted = withQuotaSemantics(result, new Date().toISOString());
+
+      expect(result.source).toBe("cli-rpc");
+      expect(result.windows.length).toBeGreaterThan(0);
+      expect(interpreted.state.degradedSources).toEqual([
+        { source: "pi:openai-codex", error: "credentials_invalid" },
+      ]);
+    },
+  );
+
   it("reports refreshable Pi expiry without exchanging or exposing the refresh token", async () => {
     writePiAuth(
       piOauthEntry({
@@ -667,7 +876,11 @@ describe("Codex credential-state reporting", () => {
         expires: Date.now() - 1,
       }),
     );
-    const fetchMock = vi.fn();
+    const bearers: string[] = [];
+    const fetchMock = vi.fn(async (_input: unknown, init?: RequestInit) => {
+      bearers.push(new Headers(init?.headers).get("authorization") ?? "");
+      return new Response(null, { status: 401 });
+    });
     vi.stubGlobal("fetch", fetchMock);
 
     const { fetchQuota, inspectAuth } =
@@ -689,11 +902,15 @@ describe("Codex credential-state reporting", () => {
     expect(result.state.status).toBe("auth_required");
     expect(result.attempts).toContainEqual({
       source: "pi:openai-codex",
-      status: "skipped",
-      error: "credentials_expired_refreshable",
-      credentialPresent: true,
+      status: "failed",
+      error: "Codex sign-in required",
     });
-    expect(fetchMock).not.toHaveBeenCalled();
+    // The access token is probed; the refresh token is never read or sent.
+    expect(bearers.length).toBeGreaterThan(0);
+    expect(new Set(bearers)).toEqual(
+      new Set(["Bearer expired-pi-access-token"]),
+    );
+    expect(JSON.stringify(bearers)).not.toContain("private-refresh-token");
     expect(JSON.stringify({ auth, result })).not.toContain(
       "expired-pi-access-token",
     );
@@ -733,7 +950,7 @@ describe("Codex credential-state reporting", () => {
 
   it("maps unsupported API keys and non-refreshable expiry into source diagnostics", async () => {
     writePiAuth({ type: "api_key", key: "unsupported-api-key" });
-    const fetchMock = vi.fn();
+    const fetchMock = vi.fn(async () => new Response(null, { status: 401 }));
     vi.stubGlobal("fetch", fetchMock);
     const { fetchQuota, inspectAuth } =
       await import("../../src/providers/codex.js");
@@ -755,6 +972,7 @@ describe("Codex credential-state reporting", () => {
       source: "pi:openai-codex",
       status: "skipped",
       error: "unsupported_credential_type",
+      credentialPresent: true,
     });
 
     writePiAuth(
@@ -777,13 +995,14 @@ describe("Codex credential-state reporting", () => {
       status: "expired",
       error: "credentials_expired",
     });
+    // Auth inspection still names the stored expiry, while the quota read
+    // probes the token rather than trusting that field.
     expect(expiredResult.attempts).toContainEqual({
       source: "pi:openai-codex",
-      status: "skipped",
-      error: "credentials_expired",
-      credentialPresent: true,
+      status: "failed",
+      error: "Codex sign-in required",
     });
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalled();
     expect(
       JSON.stringify({
         apiKeyAuth,
@@ -820,6 +1039,346 @@ describe("Codex credential-state reporting", () => {
     expect(rendered).not.toContain(accessToken);
     expect(rendered).not.toContain(refreshToken);
     expect(rendered).toContain("[redacted]");
+  });
+
+  describe("profile-only credential mode", () => {
+    const options = {
+      allowKeychainPrompt: false,
+      refreshCredentials: true,
+      credentialMode: "profile-only" as const,
+    };
+
+    it("reads each explicitly selected home independently with matching bearer and account headers", async () => {
+      const firstHome = join(tempDir!, "first-profile");
+      const secondHome = join(tempDir!, "second-profile");
+      mkdirSync(firstHome, { recursive: true });
+      mkdirSync(secondHome, { recursive: true });
+      writeFileSync(
+        join(firstHome, "auth.json"),
+        JSON.stringify({
+          tokens: {
+            access_token: "CODEX-SENTINEL-DO-NOT-LEAK-220001",
+            account_id: "acct-first",
+          },
+        }),
+      );
+      writeFileSync(
+        join(secondHome, "auth.json"),
+        JSON.stringify({
+          tokens: {
+            access_token: "CODEX-SENTINEL-DO-NOT-LEAK-220002",
+            account_id: "acct-second",
+          },
+        }),
+      );
+      const requests: Array<Record<string, string>> = [];
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (_url: unknown, init?: RequestInit) => {
+          requests.push(init?.headers as Record<string, string>);
+          const accountId = (init?.headers as Record<string, string>)[
+            "ChatGPT-Account-Id"
+          ];
+          return new Response(
+            JSON.stringify({
+              email: `${accountId}@example.invalid`,
+              account_id: accountId,
+              rate_limit: {
+                primary_window: {
+                  used_percent: 12,
+                  limit_window_seconds: 18_000,
+                },
+              },
+            }),
+            { status: 200 },
+          );
+        }),
+      );
+
+      const { fetchQuota } = await import("../../src/providers/codex.js");
+      process.env.CODEX_HOME = firstHome;
+      const first = await fetchQuota(options);
+      process.env.CODEX_HOME = secondHome;
+      const second = await fetchQuota(options);
+
+      expect(requests).toEqual([
+        {
+          authorization: "Bearer CODEX-SENTINEL-DO-NOT-LEAK-220001",
+          accept: "application/json",
+          "ChatGPT-Account-Id": "acct-first",
+        },
+        {
+          authorization: "Bearer CODEX-SENTINEL-DO-NOT-LEAK-220002",
+          accept: "application/json",
+          "ChatGPT-Account-Id": "acct-second",
+        },
+      ]);
+      expect(first).toMatchObject({
+        source: "oauth",
+        account: {
+          email: "acct-first@example.invalid",
+          accountId: "acct-first",
+        },
+        state: { status: "fresh", stale: false },
+        attempts: [{ source: "oauth", status: "success" }],
+      });
+      expect(second).toMatchObject({
+        source: "oauth",
+        account: {
+          email: "acct-second@example.invalid",
+          accountId: "acct-second",
+        },
+        attempts: [{ source: "oauth", status: "success" }],
+      });
+      expect(first.state.refreshedAt).toBeTruthy();
+      expect(JSON.stringify({ first, second })).not.toMatch(
+        /CODEX-SENTINEL-DO-NOT-LEAK-220001|CODEX-SENTINEL-DO-NOT-LEAK-220002/,
+      );
+    });
+
+    it("does not consult Pi, binaries, subprocesses, or cache when the selected profile fails", async () => {
+      delete process.env.CODEX_HOME;
+      const resolve = vi.fn(async () => {
+        throw new Error("hostile Pi rescue");
+      });
+      const inspect = vi.fn(async () => {
+        throw new Error("hostile Pi inspection");
+      });
+      const resolveEntry = vi.fn(async () => {
+        throw new Error("hostile Pi entry rescue");
+      });
+      const inspectEntry = vi.fn(async () => {
+        throw new Error("hostile Pi entry inspection");
+      });
+      const listProviderIds = vi.fn(async () => {
+        throw new Error("hostile Pi entry listing");
+      });
+      const readCachedProvider = vi.fn(() => {
+        throw new Error("hostile cache rescue");
+      });
+      const findCommandPath = vi.fn(async () => "/hostile/codex");
+      const spawn = vi.fn();
+      vi.doMock("../../src/cache.js", () => ({ readCachedProvider }));
+      vi.doMock("../../src/lib/process.js", () => ({
+        findCommandPath,
+        terminateChild: vi.fn(),
+      }));
+      vi.doMock("node:child_process", () => ({ spawn }));
+
+      const { createCodexAdapter } =
+        await import("../../src/providers/codex.js");
+      const adapter = createCodexAdapter({
+        piCodexBroker: {
+          resolve,
+          inspect,
+          resolveEntry,
+          inspectEntry,
+          listProviderIds,
+        },
+      });
+      const result = await adapter.fetchQuota(options);
+
+      expect(result).toMatchObject({
+        source: "unavailable",
+        windows: [],
+        state: {
+          status: "unavailable",
+          stale: false,
+          error: "Codex profile selector missing",
+          sourcesTried: ["oauth"],
+        },
+        attempts: [
+          {
+            source: "oauth",
+            status: "skipped",
+            error: "profile_selector_missing",
+          },
+        ],
+      });
+      expect(resolve).not.toHaveBeenCalled();
+      expect(inspect).not.toHaveBeenCalled();
+      expect(resolveEntry).not.toHaveBeenCalled();
+      expect(inspectEntry).not.toHaveBeenCalled();
+      expect(listProviderIds).not.toHaveBeenCalled();
+      expect(readCachedProvider).not.toHaveBeenCalled();
+      expect(findCommandPath).not.toHaveBeenCalled();
+      expect(spawn).not.toHaveBeenCalled();
+    });
+
+    it("keeps trailing whitespace in a nonblank selected home", async () => {
+      const selectedHome = join(tempDir!, "profile ");
+      const trimmedHome = selectedHome.trim();
+      mkdirSync(selectedHome, { recursive: true });
+      mkdirSync(trimmedHome, { recursive: true });
+      writeFileSync(
+        join(selectedHome, "auth.json"),
+        JSON.stringify({
+          tokens: { access_token: "CODEX-SENTINEL-DO-NOT-LEAK-220003" },
+        }),
+      );
+      writeFileSync(
+        join(trimmedHome, "auth.json"),
+        JSON.stringify({
+          tokens: { access_token: "CODEX-SENTINEL-DO-NOT-LEAK-220004" },
+        }),
+      );
+      process.env.CODEX_HOME = selectedHome;
+      const bearers: string[] = [];
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (_url: unknown, init?: RequestInit) => {
+          bearers.push(new Headers(init?.headers).get("authorization") ?? "");
+          return successfulUsageResponse();
+        }),
+      );
+
+      const { fetchQuota } = await import("../../src/providers/codex.js");
+      const result = await fetchQuota(options);
+
+      expect(result.state.status).toBe("fresh");
+      expect(bearers).toEqual(["Bearer CODEX-SENTINEL-DO-NOT-LEAK-220003"]);
+      expect(JSON.stringify(result)).not.toMatch(
+        /CODEX-SENTINEL-DO-NOT-LEAK-220003|CODEX-SENTINEL-DO-NOT-LEAK-220004/,
+      );
+    });
+
+    it.each([
+      {
+        failure: "selected file missing",
+        arrange: () => {},
+        expectedStatus: "unavailable",
+        expectedError: "Codex profile credentials missing",
+        expectedReason: "credentials_missing",
+        credentialPresent: undefined,
+      },
+      {
+        failure: "selected file unreadable",
+        arrange: () => mkdirSync(authFile()),
+        expectedStatus: "error",
+        expectedError: "Codex credential file unreadable",
+        expectedReason: "file_read_error",
+        credentialPresent: true,
+      },
+      {
+        failure: "selected file has malformed JSON",
+        arrange: () => writeAuth("{not-json"),
+        expectedStatus: "error",
+        expectedError: "Codex credential file malformed",
+        expectedReason: "json_parse_error",
+        credentialPresent: true,
+      },
+      {
+        failure: "selected file has an invalid credential",
+        arrange: () => writeAuth({ tokens: {} }),
+        expectedStatus: "error",
+        expectedError: "Codex credential invalid",
+        expectedReason: "credentials_invalid",
+        credentialPresent: true,
+      },
+    ])(
+      "keeps $failure distinct without fallback",
+      async ({
+        arrange,
+        expectedStatus,
+        expectedError,
+        expectedReason,
+        credentialPresent,
+      }) => {
+        arrange();
+        const fetchMock = vi.fn();
+        vi.stubGlobal("fetch", fetchMock);
+
+        const { fetchQuota } = await import("../../src/providers/codex.js");
+        const result = await fetchQuota(options);
+
+        expect(result).toMatchObject({
+          source: "unavailable",
+          state: { status: expectedStatus, error: expectedError, stale: false },
+          attempts: [
+            {
+              source: "oauth",
+              status: "skipped",
+              error: expectedReason,
+              ...(credentialPresent ? { credentialPresent } : {}),
+            },
+          ],
+        });
+        expect(fetchMock).not.toHaveBeenCalled();
+      },
+    );
+
+    it("reports definitive selected-profile rejection as auth required without exposing the token", async () => {
+      const token = "CODEX-SENTINEL-DO-NOT-LEAK-220005";
+      writeAuth({ tokens: { access_token: token } });
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => new Response(null, { status: 401 })),
+      );
+
+      const { fetchQuota } = await import("../../src/providers/codex.js");
+      const result = await fetchQuota(options);
+
+      expect(result).toMatchObject({
+        source: "unavailable",
+        state: {
+          status: "auth_required",
+          error: "Codex sign-in required",
+          stale: false,
+        },
+        attempts: [
+          {
+            source: "oauth",
+            status: "failed",
+            error: "Codex sign-in required",
+          },
+        ],
+      });
+      expect(JSON.stringify(result)).not.toContain(token);
+    });
+
+    it("probes stored-expired selected credentials without allowing fallback", async () => {
+      writeAuth({
+        tokens: {
+          access_token: jwt({ exp: 1 }),
+          account_id: "selected-account",
+        },
+      });
+      writePiAuth(piOauthEntry());
+      const fetchMock = vi.fn(async () => new Response(null, { status: 401 }));
+      vi.stubGlobal("fetch", fetchMock);
+
+      const { fetchQuota } = await import("../../src/providers/codex.js");
+      const result = await fetchQuota(options);
+
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(result.source).toBe("unavailable");
+      expect(result.state).toMatchObject({
+        status: "auth_required",
+        stale: false,
+        error: "Codex sign-in required",
+        sourcesTried: ["oauth"],
+      });
+      expect(result.attempts).toEqual([
+        { source: "oauth", status: "failed", error: "Codex sign-in required" },
+      ]);
+    });
+
+    it("keeps omitted credential mode on the legacy Pi fallback path", async () => {
+      writePiAuth(piOauthEntry());
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => successfulUsageResponse()),
+      );
+
+      const { fetchQuota } = await import("../../src/providers/codex.js");
+      const result = await fetchQuota({
+        allowKeychainPrompt: false,
+        refreshCredentials: false,
+      });
+
+      expect(result.source).toBe("pi:openai-codex");
+      expect(result.state.sourcesTried).toEqual(["oauth", "pi:openai-codex"]);
+    });
   });
 });
 

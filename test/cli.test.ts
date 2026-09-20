@@ -1,4 +1,11 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -24,7 +31,20 @@ const originalZaiProvider = PROVIDERS.zai;
 const originalAgyProvider = PROVIDERS.agy;
 const originalAlibabaProvider = PROVIDERS.alibaba;
 const originalOpenCodeGoProvider = PROVIDERS["opencode-go"];
+const originalCommandCodeProvider = PROVIDERS.commandcode;
+const originalMinimaxProvider = PROVIDERS.minimax;
+const originalMimoProvider = PROVIDERS.mimo;
+const originalDeepSeekProvider = PROVIDERS.deepseek;
+const originalOpenRouterProvider = PROVIDERS.openrouter;
 const originalXdgCacheHome = process.env.XDG_CACHE_HOME;
+const originalClaudeConfigDir = process.env.CLAUDE_CONFIG_DIR;
+const originalCodexHome = process.env.CODEX_HOME;
+const originalMinimaxApiKey = process.env.MINIMAX_API_KEY;
+const originalMimoApiKey = process.env.MIMO_API_KEY;
+const originalDeepSeekApiKey = process.env.DEEPSEEK_API_KEY;
+const originalOpenRouterApiKey = process.env.OPENROUTER_API_KEY;
+const originalPiCodingAgentDir = process.env.PI_CODING_AGENT_DIR;
+const originalMmxConfigDir = process.env.MMX_CONFIG_DIR;
 let tempDir: string | undefined;
 
 afterEach(() => {
@@ -38,8 +58,22 @@ afterEach(() => {
   PROVIDERS.agy = originalAgyProvider;
   PROVIDERS.alibaba = originalAlibabaProvider;
   PROVIDERS["opencode-go"] = originalOpenCodeGoProvider;
+  PROVIDERS.commandcode = originalCommandCodeProvider;
+  PROVIDERS.minimax = originalMinimaxProvider;
+  PROVIDERS.mimo = originalMimoProvider;
+  PROVIDERS.deepseek = originalDeepSeekProvider;
+  PROVIDERS.openrouter = originalOpenRouterProvider;
+  vi.unstubAllGlobals();
   if (originalXdgCacheHome === undefined) delete process.env.XDG_CACHE_HOME;
   else process.env.XDG_CACHE_HOME = originalXdgCacheHome;
+  restoreEnvironment("CLAUDE_CONFIG_DIR", originalClaudeConfigDir);
+  restoreEnvironment("CODEX_HOME", originalCodexHome);
+  restoreEnvironment("MINIMAX_API_KEY", originalMinimaxApiKey);
+  restoreEnvironment("MIMO_API_KEY", originalMimoApiKey);
+  restoreEnvironment("DEEPSEEK_API_KEY", originalDeepSeekApiKey);
+  restoreEnvironment("OPENROUTER_API_KEY", originalOpenRouterApiKey);
+  restoreEnvironment("PI_CODING_AGENT_DIR", originalPiCodingAgentDir);
+  restoreEnvironment("MMX_CONFIG_DIR", originalMmxConfigDir);
   if (tempDir) rmSync(tempDir, { recursive: true, force: true });
   tempDir = undefined;
   process.exitCode = undefined;
@@ -59,6 +93,11 @@ describe("CLI flag parsing", () => {
       "agy",
       "alibaba",
       "opencode-go",
+      "commandcode",
+      "minimax",
+      "mimo",
+      "deepseek",
+      "openrouter",
     ]);
   });
 
@@ -96,13 +135,20 @@ describe("CLI flag parsing", () => {
           "agy",
           "alibaba",
           "opencode-go",
+          "commandcode",
+          "minimax",
+          "mimo",
+          "deepseek",
+          "openrouter",
         ],
         json: true,
         full: true,
         tui: false,
         once: false,
         allowKeychainPrompt: true,
+        allowClaudeInference: false,
         noCredentialRefresh: false,
+        profileOnly: false,
       },
     );
     expect(parseFlags(["--tui"]).tui).toBe(true);
@@ -176,6 +222,15 @@ describe("CLI flag parsing", () => {
       parseModelsFlags(["--no-credential-refresh"]).noCredentialRefresh,
     ).toBe(true);
   });
+
+  it("parses profile-only mode and rejects it for models", () => {
+    expect(
+      parseFlags(["--provider", "claude", "--profile-only"]).profileOnly,
+    ).toBe(true);
+    expect(() => parseModelsFlags(["--profile-only"])).toThrow(
+      "--profile-only is only supported by the quota command",
+    );
+  });
 });
 
 describe("delegated credential refresh wiring", () => {
@@ -221,6 +276,41 @@ describe("delegated credential refresh wiring", () => {
     ]);
   });
 
+  it("passes the explicit Claude inference opt-in only when requested", async () => {
+    const seen: ProviderOptions[] = [];
+    PROVIDERS.claude = recordingProvider(seen);
+
+    await quotaCommand(["--provider", "claude"], undefined);
+    await quotaCommand(
+      ["--provider", "claude", "--allow-claude-inference"],
+      undefined,
+    );
+
+    expect(seen[0]?.allowClaudeInference).toBeUndefined();
+    expect(seen[1]?.allowClaudeInference).toBe(true);
+  });
+
+  it("rejects recurring or unrelated Claude inference opt-ins", async () => {
+    await expect(
+      quotaCommand(
+        ["--provider", "claude", "--tui", "--allow-claude-inference"],
+        undefined,
+      ),
+    ).rejects.toThrow("requires --once with --tui");
+    await expect(
+      quotaCommand(
+        ["--provider", "codex", "--allow-claude-inference"],
+        undefined,
+      ),
+    ).rejects.toThrow("requires the claude provider");
+    await expect(
+      authCommand(
+        ["--provider", "claude", "--allow-claude-inference"],
+        undefined,
+      ),
+    ).rejects.toThrow("only supported by the quota command");
+  });
+
   it("never delegates a refresh from the read-only auth report", async () => {
     const seen: ProviderOptions[] = [];
     PROVIDERS.claude = recordingProvider(seen);
@@ -231,6 +321,61 @@ describe("delegated credential refresh wiring", () => {
       { allowKeychainPrompt: false, refreshCredentials: false },
     ]);
   });
+
+  it("wires profile-only mode without refresh or Keychain access", async () => {
+    const seen: ProviderOptions[] = [];
+    PROVIDERS.claude = recordingProvider(seen);
+    process.env.CLAUDE_CONFIG_DIR = "/explicit/claude-profile";
+
+    await quotaCommand(["--provider", "claude", "--profile-only"], undefined);
+
+    expect(seen).toEqual([
+      {
+        allowKeychainPrompt: false,
+        refreshCredentials: false,
+        credentialMode: "profile-only",
+      },
+    ]);
+  });
+
+  it("rejects invalid profile-only scopes before provider I/O", async () => {
+    const seen: ProviderOptions[] = [];
+    PROVIDERS.claude = recordingProvider(seen);
+
+    await expect(quotaCommand(["--profile-only"], undefined)).rejects.toThrow(
+      "--profile-only requires exactly one --provider selector",
+    );
+    await expect(
+      quotaCommand(["--provider", "claude,codex", "--profile-only"], undefined),
+    ).rejects.toThrow(
+      "--profile-only requires exactly one --provider selector",
+    );
+    await expect(
+      quotaCommand(["--provider", "cursor", "--profile-only"], undefined),
+    ).rejects.toThrow("--profile-only does not support provider: cursor");
+    await expect(
+      authCommand(["--provider", "claude", "--profile-only"], undefined),
+    ).rejects.toThrow("--profile-only is only supported by the quota command");
+    delete process.env.CLAUDE_CONFIG_DIR;
+    await expect(
+      quotaCommand(["--provider", "claude", "--profile-only"], undefined),
+    ).rejects.toThrow(
+      "--profile-only with --provider claude requires explicit CLAUDE_CONFIG_DIR",
+    );
+    process.env.CLAUDE_CONFIG_DIR = "   ";
+    await expect(
+      quotaCommand(["--provider", "claude", "--profile-only"], undefined),
+    ).rejects.toThrow(
+      "--profile-only with --provider claude requires explicit CLAUDE_CONFIG_DIR",
+    );
+    delete process.env.CODEX_HOME;
+    await expect(
+      quotaCommand(["--provider", "codex", "--profile-only"], undefined),
+    ).rejects.toThrow(
+      "--profile-only with --provider codex requires explicit CODEX_HOME",
+    );
+    expect(seen).toEqual([]);
+  });
 });
 
 describe("argv normalization", () => {
@@ -240,6 +385,11 @@ describe("argv normalization", () => {
 
   it("routes leading flags to the quota command", () => {
     expect(normalizeArgv(["--json"])).toEqual(["quota", "--json"]);
+    expect(normalizeArgv(["--", "--provider", "agy"])).toEqual([
+      "quota",
+      "--provider",
+      "agy",
+    ]);
     expect(normalizeArgv(["--provider", "claude"])).toEqual([
       "quota",
       "--provider",
@@ -280,6 +430,20 @@ describe("argv normalization", () => {
 });
 
 describe("CLI quota rendering", () => {
+  it("bypasses cache persistence only in profile-only mode", async () => {
+    tempDir = mkdtempSync(join(tmpdir(), "quota-axi-profile-cache-"));
+    process.env.XDG_CACHE_HOME = tempDir;
+    process.env.CLAUDE_CONFIG_DIR = join(tempDir, "claude-profile");
+    PROVIDERS.claude = providerWithQuota(freshClaudeQuota());
+    const cachePath = join(tempDir, "quota-axi", "quotas.json");
+
+    await quotaCommand(["--provider", "claude", "--profile-only"], undefined);
+    expect(existsSync(cachePath)).toBe(false);
+
+    await quotaCommand(["--provider", "claude"], undefined);
+    expect(existsSync(cachePath)).toBe(true);
+  });
+
   it("renders live quota when cache persistence fails", async () => {
     tempDir = mkdtempSync(join(tmpdir(), "quota-axi-cli-cache-"));
     const blockedCacheRoot = join(tempDir, "cache-root");
@@ -367,6 +531,277 @@ describe("CLI quota rendering", () => {
       "codex,all_models,unmeasurable,five_hour blocks spendPriority,none",
     );
     expect(output).not.toContain("codex,all,");
+  });
+
+  it("advertises the inference opt-in when the env token's scope denial is the final Claude failure", async () => {
+    useTempCache();
+    PROVIDERS.claude = providerWithQuota(envScopeDeniedClaudeQuota());
+    const chunks: string[] = [];
+
+    await main({
+      argv: ["--provider", "claude", "--json"],
+      binPath: "quota-axi",
+      stdout: {
+        write(chunk) {
+          chunks.push(String(chunk));
+          return true;
+        },
+      },
+    });
+
+    const output = JSON.parse(chunks.join("")) as QuotaAxiResponse;
+    const claude = output.providers.find(
+      (provider) => provider.provider === "claude",
+    );
+    expect(claude?.state).toMatchObject({
+      status: "unavailable",
+      authStatus: "usable",
+      error: "claude_env_usage_scope_unavailable",
+      reason: "inference_opt_in_required",
+      remedyCommand: "quota-axi --provider claude --allow-claude-inference",
+    });
+    expect(claude?.windows).toEqual([]);
+    expect(output.help).toHaveLength(1);
+    expect(output.help?.[0]).toContain(
+      "`quota-axi --provider claude --allow-claude-inference`",
+    );
+    expect(output.help?.[0]).toMatch(/inference/);
+    expect(output.help?.[0]).toMatch(/never does this by default/);
+  });
+
+  it("prefers the inference opt-in over Keychain advice when the env scope denial ended discovery", async () => {
+    useTempCache();
+    const macos = envScopeDeniedClaudeQuota();
+    macos.state.sourcesTried = ["oauth-file", "keychain", "env"];
+    macos.attempts = [
+      {
+        source: "oauth-file",
+        status: "skipped",
+        error: "credentials_missing",
+      },
+      {
+        source: "keychain",
+        status: "skipped",
+        error: "keychain_prompt_required",
+        credentialPresent: true,
+      },
+      ...(macos.attempts ?? []),
+    ];
+    PROVIDERS.claude = providerWithQuota(macos);
+    const chunks: string[] = [];
+
+    await main({
+      argv: ["--provider", "claude", "--json"],
+      binPath: "quota-axi",
+      stdout: {
+        write(chunk) {
+          chunks.push(String(chunk));
+          return true;
+        },
+      },
+    });
+
+    const output = JSON.parse(chunks.join("")) as QuotaAxiResponse;
+    const claude = output.providers.find(
+      (provider) => provider.provider === "claude",
+    );
+    expect(claude?.state).toMatchObject({
+      reason: "inference_opt_in_required",
+      remedyCommand: "quota-axi --provider claude --allow-claude-inference",
+    });
+    expect(output.help).toHaveLength(1);
+    expect(output.help?.[0]).not.toContain("--allow-keychain-prompt");
+  });
+
+  it("never falls back to Keychain advice after the opt-in native run fails", async () => {
+    useTempCache();
+    const macos = envScopeDeniedClaudeQuota();
+    macos.state.error = "claude_native_quota_unavailable";
+    macos.state.sourcesTried = [
+      "oauth-file",
+      "keychain",
+      "env",
+      "claude-native-inference",
+    ];
+    macos.attempts = [
+      {
+        source: "oauth-file",
+        status: "skipped",
+        error: "credentials_missing",
+      },
+      {
+        source: "keychain",
+        status: "skipped",
+        error: "keychain_prompt_required",
+        credentialPresent: true,
+      },
+      ...(macos.attempts ?? []),
+      {
+        source: "claude-native-inference",
+        status: "failed",
+        error: "claude_native_quota_unavailable",
+        degraded: false,
+      },
+    ];
+    PROVIDERS.claude = providerWithQuota(macos);
+    const chunks: string[] = [];
+
+    await main({
+      argv: ["--provider", "claude", "--json"],
+      binPath: "quota-axi",
+      stdout: {
+        write(chunk) {
+          chunks.push(String(chunk));
+          return true;
+        },
+      },
+    });
+
+    const output = JSON.parse(chunks.join("")) as QuotaAxiResponse;
+    const claude = output.providers.find(
+      (provider) => provider.provider === "claude",
+    );
+    expect(claude?.state.error).toBe("claude_native_quota_unavailable");
+    expect(claude?.state.reason).toBeUndefined();
+    expect(claude?.state.remedyCommand).toBeUndefined();
+    expect(output.help).toBeUndefined();
+  });
+
+  it("renders a native 429's observed windows as quota and exhaustion rows beside the rate limit", async () => {
+    useTempCache();
+    PROVIDERS.claude = providerWithQuota(nativeRateLimitedClaudeQuota());
+
+    const toon = await capture(["--provider", "claude"]);
+    const quota = toonRows(toon, "quota");
+    expect(quota).toHaveLength(1);
+    expect(quota[0]?.slice(0, 3)).toEqual(["claude", "all_models", "0"]);
+    expect(toonRows(toon, "exhaustion").map((row) => row.slice(0, 2))).toEqual([
+      ["claude", "all_models"],
+    ]);
+    expect(toonRows(toon, "attention")).toContainEqual([
+      "claude",
+      "all",
+      "rate_limited",
+      "claude_native_rate_limited retry after 2026-09-19T06:01:00.000Z",
+      "none",
+    ]);
+
+    const json = JSON.parse(
+      await capture(["--provider", "claude", "--json", "--full"]),
+    ) as QuotaAxiResponse;
+    const claude = json.providers[0];
+    expect(claude?.source).toBe("cli");
+    expect(claude?.state).toMatchObject({
+      status: "rate_limited",
+      stale: false,
+      authStatus: "usable",
+      retryAfter: "2026-09-19T06:01:00.000Z",
+    });
+    expect(claude?.windows.map((window) => window.percentUsed)).toEqual([100]);
+    expect(
+      claude?.quotaSemantics?.effectiveAvailability[0]
+        ?.effectivePercentRemaining,
+    ).toBe(0);
+    expect(existsSync(join(process.env.XDG_CACHE_HOME!, "quota-axi"))).toBe(
+      false,
+    );
+  });
+
+  it("renders the inference opt-in remedy on the TOON attention row", async () => {
+    useTempCache();
+    PROVIDERS.claude = providerWithQuota(envScopeDeniedClaudeQuota());
+    const chunks: string[] = [];
+
+    await main({
+      argv: ["--provider", "claude"],
+      binPath: "quota-axi",
+      stdout: {
+        write(chunk) {
+          chunks.push(String(chunk));
+          return true;
+        },
+      },
+    });
+
+    const output = chunks.join("");
+    expect(output).toContain(
+      "claude,all,unavailable,claude_env_usage_scope_unavailable · reason inference_opt_in_required (auth usable),quota-axi --provider claude --allow-claude-inference",
+    );
+    expect(output).toContain(
+      "Running `quota-axi --provider claude --allow-claude-inference` once",
+    );
+    expect(output).not.toMatch(/^ {2}claude,all_models,\d/m);
+  });
+
+  it("does not re-advertise the inference opt-in once the native fallback was attempted", async () => {
+    useTempCache();
+    const attempted = envScopeDeniedClaudeQuota();
+    attempted.state.error = "claude_native_quota_unavailable";
+    attempted.attempts = [
+      ...(attempted.attempts ?? []),
+      {
+        source: "claude-native-inference",
+        status: "failed",
+        error: "claude_native_quota_unavailable",
+        degraded: false,
+      },
+    ];
+    PROVIDERS.claude = providerWithQuota(attempted);
+    const chunks: string[] = [];
+
+    await main({
+      argv: ["--provider", "claude", "--json"],
+      binPath: "quota-axi",
+      stdout: {
+        write(chunk) {
+          chunks.push(String(chunk));
+          return true;
+        },
+      },
+    });
+
+    const output = JSON.parse(chunks.join("")) as QuotaAxiResponse;
+    const claude = output.providers.find(
+      (provider) => provider.provider === "claude",
+    );
+    expect(claude?.state.reason).toBeUndefined();
+    expect(claude?.state.remedyCommand).toBeUndefined();
+    expect(output.help).toBeUndefined();
+  });
+
+  it("does not advertise the inference opt-in for a stored credential's 403", async () => {
+    useTempCache();
+    const stored = envScopeDeniedClaudeQuota();
+    stored.state.error = "Claude quota unavailable (403)";
+    stored.state.authStatus = undefined;
+    stored.attempts = [
+      {
+        source: "oauth-file",
+        status: "failed",
+        error: "Claude quota unavailable (403)",
+      },
+    ];
+    PROVIDERS.claude = providerWithQuota(stored);
+    const chunks: string[] = [];
+
+    await main({
+      argv: ["--provider", "claude", "--json"],
+      binPath: "quota-axi",
+      stdout: {
+        write(chunk) {
+          chunks.push(String(chunk));
+          return true;
+        },
+      },
+    });
+
+    const output = JSON.parse(chunks.join("")) as QuotaAxiResponse;
+    const claude = output.providers.find(
+      (provider) => provider.provider === "claude",
+    );
+    expect(claude?.state.reason).toBeUndefined();
+    expect(claude?.state.remedyCommand).toBeUndefined();
+    expect(output.help).toBeUndefined();
   });
 
   it("surfaces keychain access advice in JSON when stale quota is blocked by a skipped keychain prompt", async () => {
@@ -740,6 +1175,54 @@ describe("CLI quota rendering", () => {
     );
   });
 
+  it("names a used-share window in attention[] without a code quota[] row", async () => {
+    useTempCache();
+    PROVIDERS.kimi = providerWithQuota({
+      ...freshKimiQuota(),
+      windows: [
+        ...freshKimiQuota().windows,
+        {
+          id: "month_total",
+          label: "month",
+          kind: "monthly",
+          percentUsed: 40,
+          percentRemaining: 60,
+          resetsAt: "2027-03-01T00:00:00.000Z",
+        },
+        {
+          id: "month_code",
+          label: "code month",
+          kind: "monthly",
+          percentUsed: 25,
+          shareOf: "month_total",
+          resetsAt: "2027-03-01T00:00:00.000Z",
+        },
+      ],
+    });
+
+    const toon = await capture(["--provider", "kimi"]);
+    expect(toonRows(toon, "attention")).toContainEqual([
+      "kimi",
+      "all",
+      "share",
+      "month_code of month_total · 25",
+      "none",
+    ]);
+    expect(toonRows(toon, "quota").map((row) => row[1])).toEqual([
+      "all_models",
+    ]);
+    expect(toon).not.toMatch(/kimi,code[_,]/);
+
+    const json = JSON.parse(
+      await capture(["--provider", "kimi", "--json"]),
+    ) as QuotaAxiResponse;
+    const monthCode = json.providers[0]?.windows.find(
+      (window) => window.id === "month_code",
+    );
+    expect(monthCode?.shareOf).toBe("month_total");
+    expect(monthCode?.percentRemaining).toBeUndefined();
+  });
+
   it("renders the card-grid report for --tui and composes with --provider", async () => {
     useTempCache();
     PROVIDERS.codex = providerWithQuota(freshCodexQuota());
@@ -777,6 +1260,297 @@ describe("CLI quota rendering", () => {
   });
 });
 
+describe("new provider public quota output", () => {
+  it("renders registered MiniMax model scopes through the JSON CLI", async () => {
+    useTempCache();
+    const key = "synthetic-minimax-cli-key";
+    process.env.MINIMAX_API_KEY = key;
+    const payload = JSON.parse(
+      readFileSync("test/fixtures/minimax/quota.json", "utf8"),
+    );
+    const fetch = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        expect(String(input)).toBe(
+          "https://api.minimax.io/v1/token_plan/remains",
+        );
+        expect(new Headers(init?.headers).get("authorization")).toBe(
+          `Bearer ${key}`,
+        );
+        return new Response(JSON.stringify(payload), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      },
+    );
+    vi.stubGlobal("fetch", fetch);
+
+    const json = JSON.parse(
+      await capture(["--provider", "minimax", "--json", "--full"]),
+    ) as QuotaAxiResponse;
+    const provider = json.providers[0];
+
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(provider).toMatchObject({
+      provider: "minimax",
+      source: "api",
+      state: {
+        status: "fresh",
+        stale: false,
+        sourcesTried: ["env:MINIMAX_API_KEY"],
+      },
+      attempts: [{ source: "env:MINIMAX_API_KEY", status: "success" }],
+    });
+    expect(provider?.windows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "model:minimax-m3:5h",
+          percentRemaining: 91,
+          windowSeconds: 18_000,
+        }),
+        expect.objectContaining({
+          id: "model:minimax-m3:7d",
+          percentRemaining: 70,
+          windowSeconds: 604_800,
+        }),
+      ]),
+    );
+    expect(provider?.quotaSemantics?.effectiveAvailability).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          scope: "model:minimax-m3",
+          status: "known",
+          effectivePercentRemaining: 70,
+        }),
+        expect.objectContaining({
+          scope: "model:minimax-m2.7-highspeed",
+          status: "known",
+          effectivePercentRemaining: 50,
+        }),
+      ]),
+    );
+    expect(JSON.stringify(json)).not.toContain(key);
+  });
+
+  it("keeps registered MiMo authentication without a fabricated quota scope", async () => {
+    useTempCache();
+    process.env.MIMO_API_KEY = "synthetic-mimo-cli-key";
+
+    const json = JSON.parse(
+      await capture(["--provider", "mimo", "--json", "--full"]),
+    ) as QuotaAxiResponse;
+    expect(json.providers).toEqual([
+      expect.objectContaining({
+        provider: "mimo",
+        source: "api",
+        windows: [],
+        state: expect.objectContaining({
+          status: "fresh",
+          stale: false,
+          authStatus: "usable",
+          sourcesTried: ["env:MIMO_API_KEY"],
+        }),
+        quotaSemantics: expect.objectContaining({
+          status: "unknown",
+          effectiveAvailability: [],
+          description: expect.stringContaining("No quota windows"),
+        }),
+      }),
+    ]);
+  });
+
+  it("reports missing registered MiMo authentication through JSON", async () => {
+    useTempCache();
+    delete process.env.MIMO_API_KEY;
+
+    const json = JSON.parse(
+      await capture(["--provider", "mimo", "--json", "--full"]),
+    ) as QuotaAxiResponse;
+    expect(json.providers).toEqual([
+      expect.objectContaining({
+        provider: "mimo",
+        source: "unavailable",
+        windows: [],
+        state: {
+          status: "auth_required",
+          stale: false,
+          error: "mimo_credential_unavailable",
+          sourcesTried: ["env:MIMO_API_KEY"],
+        },
+      }),
+    ]);
+    expect(process.exitCode).toBe(1);
+  });
+
+  it("reports invalid MiniMax file authentication through the auth CLI", async () => {
+    useTempCache();
+    delete process.env.MINIMAX_API_KEY;
+    process.env.PI_CODING_AGENT_DIR = join(tempDir!, "pi-agent");
+    process.env.MMX_CONFIG_DIR = join(tempDir!, "mmx");
+    mkdirSync(process.env.PI_CODING_AGENT_DIR, { recursive: true });
+    writeFileSync(
+      join(process.env.PI_CODING_AGENT_DIR, "auth.json"),
+      JSON.stringify({ minimax: { type: "api_key" } }),
+    );
+
+    const json = JSON.parse(
+      await capture(["auth", "--provider", "minimax", "--json"]),
+    ) as {
+      auth: Array<{ provider: string; sources: Array<Record<string, string>> }>;
+    };
+    expect(json.auth).toEqual([
+      expect.objectContaining({
+        provider: "minimax",
+        sources: [
+          expect.objectContaining({
+            source: "env:MINIMAX_API_KEY",
+            status: "missing",
+          }),
+          expect.objectContaining({
+            source: "pi:minimax",
+            status: "invalid",
+            error: "credential_missing",
+          }),
+          expect.objectContaining({
+            source: "minimax:config.json",
+            status: "missing",
+          }),
+        ],
+      }),
+    ]);
+  });
+
+  it("publishes the registered DeepSeek balance through the JSON CLI", async () => {
+    useTempCache();
+    const key = "synthetic-deepseek-cli-key";
+    process.env.DEEPSEEK_API_KEY = key;
+    const fetch = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        expect(String(input)).toBe("https://api.deepseek.com/user/balance");
+        expect(new Headers(init?.headers).get("authorization")).toBe(
+          `Bearer ${key}`,
+        );
+        return new Response(
+          JSON.stringify({
+            is_available: true,
+            balance_infos: [
+              {
+                currency: "USD",
+                total_balance: "12.50",
+                granted_balance: "10.00",
+                topped_up_balance: "2.50",
+              },
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      },
+    );
+    vi.stubGlobal("fetch", fetch);
+
+    const json = JSON.parse(
+      await capture(["--provider", "deepseek", "--json", "--full"]),
+    ) as QuotaAxiResponse;
+
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(json.providers).toEqual([
+      expect.objectContaining({
+        provider: "deepseek",
+        source: "api",
+        windows: [],
+        credits: { remaining: 12.5, unit: "usd" },
+        state: expect.objectContaining({
+          status: "fresh",
+          stale: false,
+          sourcesTried: ["env:DEEPSEEK_API_KEY"],
+        }),
+        attempts: [{ source: "env:DEEPSEEK_API_KEY", status: "success" }],
+      }),
+    ]);
+    expect(JSON.stringify(json)).not.toContain(key);
+    expect(process.exitCode).toBeUndefined();
+  });
+
+  it("publishes the registered OpenRouter key cap in JSON and names it in the default report", async () => {
+    useTempCache();
+    const key = "synthetic-openrouter-cli-key";
+    process.env.OPENROUTER_API_KEY = key;
+    const fetch = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        expect(String(input)).toBe("https://openrouter.ai/api/v1/key");
+        expect(new Headers(init?.headers).get("authorization")).toBe(
+          `Bearer ${key}`,
+        );
+        return new Response(
+          JSON.stringify({
+            data: {
+              label: "personal",
+              limit: 100,
+              limit_remaining: 73.25,
+              limit_reset: "Daily",
+              usage: 26.75,
+              is_free_tier: false,
+            },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      },
+    );
+    vi.stubGlobal("fetch", fetch);
+
+    const json = JSON.parse(
+      await capture(["--provider", "openrouter", "--json", "--full"]),
+    ) as QuotaAxiResponse;
+    expect(json.providers).toEqual([
+      expect.objectContaining({
+        provider: "openrouter",
+        source: "api",
+        account: {
+          accountId: "personal",
+          identityStatus: "unverified",
+        },
+        credits: { remaining: 73.25, unit: "usd" },
+        windows: [
+          expect.objectContaining({
+            id: "key-limit",
+            kind: "credits",
+            spentUsd: 26.75,
+            limitUsd: 100,
+            percentRemaining: 73.25,
+            resetText: "Daily",
+          }),
+        ],
+        state: expect.objectContaining({ status: "fresh", stale: false }),
+      }),
+    ]);
+    expect(JSON.stringify(json)).not.toContain(key);
+
+    const report = await capture(["--provider", "openrouter"]);
+    expect(report).toContain("openrouter,all,unresolved_windows,key-limit");
+  });
+
+  it("reports both new providers as signed out when no key is present", async () => {
+    useTempCache();
+    delete process.env.DEEPSEEK_API_KEY;
+    delete process.env.OPENROUTER_API_KEY;
+    process.env.PI_CODING_AGENT_DIR = join(tempDir!, "pi-agent-empty");
+    const fetch = vi.fn(async () => {
+      throw new Error("no request expected without a credential");
+    });
+    vi.stubGlobal("fetch", fetch);
+
+    const report = await capture(["--provider", "deepseek,openrouter"]);
+
+    expect(fetch).not.toHaveBeenCalled();
+    expect(report).toContain(
+      "deepseek,all,auth_required,deepseek_credential_unavailable",
+    );
+    expect(report).toContain(
+      "openrouter,all,auth_required,openrouter_credential_unavailable",
+    );
+    expect(process.exitCode).toBe(1);
+  });
+});
+
 describe("default TOON decision blocks", () => {
   it("names every requested provider in quota[] or attention[]", async () => {
     useTempCache();
@@ -793,6 +1567,17 @@ describe("default TOON decision blocks", () => {
     PROVIDERS.agy = providerWithQuota(unavailableAgyQuota());
     PROVIDERS.alibaba = providerWithQuota(freshAlibabaQuota());
     PROVIDERS["opencode-go"] = providerWithQuota(freshOpenCodeGoQuota());
+    PROVIDERS.commandcode = providerWithQuota(freshCommandCodeQuota());
+    PROVIDERS.minimax = providerWithQuota(
+      emptyFreshQuota("minimax", "MiniMax"),
+    );
+    PROVIDERS.mimo = providerWithQuota(emptyFreshQuota("mimo", "MiMo"));
+    PROVIDERS.deepseek = providerWithQuota(
+      emptyFreshQuota("deepseek", "DeepSeek"),
+    );
+    PROVIDERS.openrouter = providerWithQuota(
+      emptyFreshQuota("openrouter", "OpenRouter"),
+    );
 
     const output = await capture([]);
     const named = new Set([
@@ -805,11 +1590,16 @@ describe("default TOON decision blocks", () => {
       "alibaba",
       "claude",
       "codex",
+      "commandcode",
       "copilot",
       "cursor",
+      "deepseek",
       "grok",
       "kimi",
+      "mimo",
+      "minimax",
       "opencode-go",
+      "openrouter",
       "zai",
     ]);
   });
@@ -855,6 +1645,51 @@ describe("default TOON decision blocks", () => {
       [...declaredPriority].sort((a, b) => b - a),
     );
   });
+
+  it.each([false, true])(
+    "states a raw credit balance with expanded accounts %s",
+    async (expanded) => {
+      useTempCache();
+      PROVIDERS.commandcode = providerWithQuota({
+        provider: "commandcode",
+        label: "Command Code",
+        source: "api",
+        windows: [],
+        credits: { remaining: 12.5, unit: "credits" },
+        state: {
+          status: "fresh",
+          stale: false,
+          refreshedAt: "2026-07-06T18:10:00Z",
+          authStatus: "usable",
+          sourcesTried: ["pi:commandcode"],
+        },
+      });
+
+      if (expanded) {
+        PROVIDERS.codex = providerWithAccounts([
+          ["openai-codex", pacedProvider("codex", 20, 80)],
+          ["openai-codex-work", pacedProvider("codex", 40, 60)],
+        ]);
+      }
+      const output = await capture([
+        "--provider",
+        expanded ? "commandcode,codex" : "commandcode",
+      ]);
+
+      expect(
+        toonRows(output, "attention").filter((row) => row[0] === "commandcode"),
+      ).toEqual([
+        [
+          "commandcode",
+          ...(expanded ? ["default"] : []),
+          "all",
+          "credits",
+          "remaining 12.5 credits (auth usable)",
+          "none",
+        ],
+      ]);
+    },
+  );
 
   it("renders an unmeasurable spendPriority as `unknown`, never as 0", async () => {
     useTempCache();
@@ -957,6 +1792,28 @@ describe("default TOON decision blocks", () => {
     ]);
   });
 
+  it("names a bound conflict in attention[] instead of an exhausted quota[] row", async () => {
+    useTempCache();
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-07T05:27:00.000Z"));
+    PROVIDERS.codex = providerWithQuota(codexBoundConflictQuota());
+
+    const output = await capture(["--provider", "codex"]);
+    const quota = toonRows(output, "quota").map((row) => row[1]);
+
+    expect(quota).toEqual(["all_models"]);
+    expect(toonRows(output, "attention")).toContainEqual([
+      "codex",
+      "model:codex_bengalfox",
+      "bound_conflict",
+      "weekly reads 0 · model:codex_bengalfox:5h + model:codex_bengalfox:7d still report allowance",
+      "none",
+    ]);
+    expect(toonRows(output, "exhaustion").map((row) => row[1])).toEqual([
+      "all_models",
+    ]);
+  });
+
   it("states a positive auth fact for a provider with no quota[] row", async () => {
     useTempCache();
     PROVIDERS.grok = providerWithQuota(grokModelAuthOnlyQuota());
@@ -1009,6 +1866,26 @@ describe("default TOON decision blocks", () => {
     for (const output of [compact, full]) {
       expect(output).not.toContain("projectionBasis");
     }
+  });
+
+  it("gives an unexpanded provider the default account key beside an expanded one", async () => {
+    useTempCache();
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-15T12:00:00.000Z"));
+    PROVIDERS.claude = providerWithQuota(pacedProvider("claude", 90, 10));
+    PROVIDERS.codex = providerWithAccounts([
+      ["openai-codex", pacedProvider("codex", 20, 80)],
+      ["openai-codex-work", pacedProvider("codex", 40, 60)],
+    ]);
+
+    const output = await capture(["--provider", "claude,codex"]);
+
+    expect(output).toContain("quota[3]{provider,accountKey,");
+    expect(toonRows(output, "quota").map((row) => row.slice(0, 2))).toEqual([
+      ["claude", "default"],
+      ["codex", "openai-codex"],
+      ["codex", "openai-codex-work"],
+    ]);
   });
 });
 
@@ -1145,11 +2022,18 @@ describe("CLI plumbing via the axi SDK", () => {
     PROVIDERS.agy = providerWithAuth("agy", "Antigravity");
     PROVIDERS.alibaba = providerWithAuth("alibaba", "Alibaba Coding Plan");
     PROVIDERS["opencode-go"] = providerWithAuth("opencode-go", "OpenCode Go");
+    PROVIDERS.commandcode = providerWithAuth("commandcode", "Command Code");
+    PROVIDERS.minimax = providerWithAuth("minimax", "MiniMax");
+    PROVIDERS.mimo = providerWithAuth("mimo", "MiMo");
+    PROVIDERS.deepseek = providerWithAuth("deepseek", "DeepSeek");
+    PROVIDERS.openrouter = providerWithAuth("openrouter", "OpenRouter");
 
     const output = await capture(["--allow-keychain-prompt", "auth"]);
     expect(output).toContain(
       "Inspect local quota auth sources without printing secret values",
     );
+    expect(output).toContain("deepseek,test,none,available,none");
+    expect(output).toContain("openrouter,test,none,available,none");
     expect(output).not.toContain("unknown argument");
     expect(process.exitCode).toBeUndefined();
   });
@@ -1273,6 +2157,19 @@ describe("terminal height and the machine output paths", () => {
   }
 });
 
+function emptyFreshQuota(
+  provider: ProviderQuota["provider"],
+  label: string,
+): ProviderQuota {
+  return {
+    provider,
+    label,
+    source: "api",
+    windows: [],
+    state: { status: "fresh", stale: false },
+  };
+}
+
 function providerWithQuota(quota: ProviderQuota): ProviderAdapter {
   return {
     id: quota.provider,
@@ -1282,6 +2179,26 @@ function providerWithQuota(quota: ProviderQuota): ProviderAdapter {
     },
     async inspectAuth() {
       return { provider: quota.provider, sources: [] };
+    },
+  };
+}
+
+/** Expands into one lane per account, the way an adapter's discovery does. */
+function providerWithAccounts(
+  lanes: [string, ProviderQuota][],
+): ProviderAdapter {
+  return {
+    ...providerWithQuota(lanes[0][1]),
+    async discoverAccounts() {
+      return lanes.map(([accountKey, quota]) => ({
+        accountKey,
+        async fetchQuota() {
+          return quota;
+        },
+        async inspectAuth() {
+          return { provider: quota.provider, sources: [] };
+        },
+      }));
     },
   };
 }
@@ -1308,6 +2225,11 @@ function providerWithAuth(
 function useTempCache(): void {
   tempDir = mkdtempSync(join(tmpdir(), "quota-axi-cli-cache-"));
   process.env.XDG_CACHE_HOME = tempDir;
+}
+
+function restoreEnvironment(name: string, value: string | undefined): void {
+  if (value === undefined) delete process.env[name];
+  else process.env[name] = value;
 }
 
 function freshClaudeQuota(): ProviderQuota {
@@ -1357,6 +2279,71 @@ function staleClaudeQuota(): ProviderQuota {
         status: "skipped",
         error: "keychain_prompt_required",
         credentialPresent: true,
+      },
+    ],
+  };
+}
+
+function envScopeDeniedClaudeQuota(): ProviderQuota {
+  return {
+    provider: "claude",
+    label: "Claude",
+    source: "unavailable",
+    windows: [],
+    state: {
+      status: "unavailable",
+      stale: false,
+      authStatus: "usable",
+      error: "claude_env_usage_scope_unavailable",
+      sourcesTried: ["env"],
+    },
+    attempts: [
+      {
+        source: "env",
+        status: "failed",
+        error: "claude_env_usage_scope_unavailable",
+        degraded: false,
+      },
+    ],
+  };
+}
+
+function nativeRateLimitedClaudeQuota(): ProviderQuota {
+  return {
+    provider: "claude",
+    label: "Claude",
+    source: "cli",
+    windows: [
+      {
+        id: "five_hour",
+        label: "session",
+        kind: "session",
+        percentUsed: 100,
+        percentRemaining: 0,
+        resetsAt: "2099-01-01T05:00:00.000Z",
+        windowSeconds: 18_000,
+      },
+    ],
+    state: {
+      status: "rate_limited",
+      stale: false,
+      authStatus: "usable",
+      error: "claude_native_rate_limited",
+      retryAfter: "2026-09-19T06:01:00.000Z",
+      sourcesTried: ["env", "claude-native-inference"],
+    },
+    attempts: [
+      {
+        source: "env",
+        status: "failed",
+        error: "claude_env_usage_scope_unavailable",
+        degraded: false,
+      },
+      {
+        source: "claude-native-inference",
+        status: "failed",
+        error: "claude_native_rate_limited",
+        degraded: false,
       },
     ],
   };
@@ -1707,6 +2694,31 @@ function freshOpenCodeGoQuota(): ProviderQuota {
   };
 }
 
+function freshCommandCodeQuota(): ProviderQuota {
+  return {
+    provider: "commandcode",
+    label: "Command Code",
+    source: "api",
+    plan: "Command Code",
+    windows: [
+      {
+        id: "weekly",
+        label: "weekly",
+        kind: "weekly",
+        percentUsed: 12,
+        percentRemaining: 88,
+        windowSeconds: 604800,
+      },
+    ],
+    state: {
+      status: "fresh",
+      stale: false,
+      refreshedAt: "2026-07-06T18:10:00Z",
+      sourcesTried: ["pi:commandcode"],
+    },
+  };
+}
+
 function unavailableAgyQuota(): ProviderQuota {
   return {
     provider: "agy",
@@ -1719,5 +2731,58 @@ function unavailableAgyQuota(): ProviderQuota {
       error: "Antigravity/agy is not running",
       sourcesTried: ["loopback"],
     },
+  };
+}
+
+/**
+ * The 2026-09-07 capture: the Codex account weekly reads zero while the named
+ * model's own 5h and 7d meters are visibly drawing down, and a live call to
+ * that model succeeded.
+ */
+function codexBoundConflictQuota(): ProviderQuota {
+  return {
+    provider: "codex",
+    label: "Codex",
+    source: "cli-rpc",
+    plan: "pro",
+    windows: [
+      {
+        id: "five_hour",
+        label: "session",
+        kind: "session",
+        percentUsed: 8,
+        percentRemaining: 92,
+        startsAt: "2026-09-07T05:27:00.000Z",
+        resetsAt: "2026-09-07T10:27:00.000Z",
+      },
+      {
+        id: "weekly",
+        label: "week",
+        kind: "weekly",
+        percentUsed: 100,
+        percentRemaining: 0,
+        startsAt: "2026-08-31T17:27:00.000Z",
+        resetsAt: "2026-09-07T17:27:00.000Z",
+      },
+      {
+        id: "model:codex_bengalfox:5h",
+        label: "Spark session",
+        kind: "model",
+        percentUsed: 8,
+        percentRemaining: 92,
+        startsAt: "2026-09-07T05:27:00.000Z",
+        resetsAt: "2026-09-07T10:27:00.000Z",
+      },
+      {
+        id: "model:codex_bengalfox:7d",
+        label: "Spark week",
+        kind: "model",
+        percentUsed: 4,
+        percentRemaining: 96,
+        startsAt: "2026-09-07T05:27:00.000Z",
+        resetsAt: "2026-09-14T05:27:00.000Z",
+      },
+    ],
+    state: { status: "fresh", stale: false, sourcesTried: ["cli-rpc"] },
   };
 }

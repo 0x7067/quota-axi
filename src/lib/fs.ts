@@ -1,7 +1,12 @@
 import { mkdirSync, readFileSync } from "node:fs";
+import { open } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import {
+  claudeEnvOauthToken,
+  claudeProfileLocations,
+} from "./claude-profile.js";
 
 export type JsonFileReadResult =
   | { status: "success"; value: unknown }
@@ -53,30 +58,47 @@ export function cacheFilePath(): string {
  * selected by the current process. The selected path never leaves this helper.
  */
 export function claudeCredentialContextId(): string {
-  const configDir = resolve(
-    (process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude")).normalize(
-      "NFC",
-    ),
-  );
+  const { configDir, keychainService } = claudeProfileLocations();
+  // Include the exact service: it already encodes the secure-storage selector,
+  // including a relative raw path hash.
+  // Version the identity to withhold snapshots from earlier opaque discovery.
+  //
+  // An explicit environment token selects an account the profile path and
+  // Keychain service do not describe, so it earns its own identity: a snapshot
+  // taken with one must never be served as stale once it is gone. The marker is
+  // appended only when such a token is supplied, so every existing profile
+  // keeps the identity it already cached under. It is a presence marker, never
+  // any part of the token.
+  const envSelected = claudeEnvOauthToken() !== undefined;
   return createHash("sha256")
-    .update(`claude-config-dir:${configDir}`)
+    .update(
+      JSON.stringify([
+        "claude-profile-v2",
+        resolve(configDir),
+        keychainService,
+        ...(envSelected ? ["env-token"] : []),
+      ]),
+    )
     .digest("hex");
 }
 
+// The grant is per Keychain item, so the marker is keyed by the service the
+// value read will name, which already encodes any explicit profile directory.
 export function claudeKeychainAccessMarkerPath(
   account: string,
-  configDir?: string,
+  service: string,
 ): string {
-  const profileSuffix = configDir
-    ? `-${createHash("sha256").update(configDir).digest("hex").slice(0, 8)}`
-    : "";
+  const serviceSuffix = createHash("sha256")
+    .update(service)
+    .digest("hex")
+    .slice(0, 8);
   const accountSuffix = createHash("sha256")
     .update(account)
     .digest("hex")
     .slice(0, 16);
   return join(
     cacheDirPath(),
-    `claude-keychain-access-granted${profileSuffix}-account-${accountSuffix}`,
+    `claude-keychain-access-granted-${serviceSuffix}-account-${accountSuffix}`,
   );
 }
 
@@ -117,6 +139,34 @@ export function readJsonFileResult(file: string): JsonFileReadResult {
     return { status: "success", value: JSON.parse(text) };
   } catch {
     return { status: "invalid", error: "json_parse_error" };
+  }
+}
+
+/**
+ * Read at most `maxBytes + 1` bytes, so a caller can tell an oversized file from
+ * one that fits without ever holding more than its own limit in memory.
+ */
+export async function readBoundedFile(
+  path: string,
+  maxBytes: number,
+): Promise<Buffer> {
+  const file = await open(path, "r");
+  try {
+    const contents = new Uint8Array(maxBytes + 1);
+    let offset = 0;
+    while (offset < contents.byteLength) {
+      const { bytesRead } = await file.read(
+        contents,
+        offset,
+        contents.byteLength - offset,
+        null,
+      );
+      if (bytesRead === 0) break;
+      offset += bytesRead;
+    }
+    return Buffer.from(contents.buffer, contents.byteOffset, offset);
+  } finally {
+    await file.close();
   }
 }
 

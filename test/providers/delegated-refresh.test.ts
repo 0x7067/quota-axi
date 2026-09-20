@@ -57,6 +57,15 @@ function withUnlistableProcesses(): void {
 
 const USAGE_URL = "https://api.anthropic.com/api/oauth/usage";
 const PROFILE_URL = "https://api.anthropic.com/api/oauth/profile";
+const CLAUDE_LOGIN_KEYCHAIN = `    "/fixture/login.keychain-db"\n`;
+const CLAUDE_KEYCHAIN_METADATA = `keychain: "/fixture/login.keychain-db"
+version: 512
+class: "genp"
+attributes:
+    "acct"<blob>="fixture-user"
+    "svce"<blob>="Claude Code-credentials"
+    "mdat"<timedate>="20260701000000Z"
+`;
 const originalHome = process.env.HOME;
 const originalUserProfile = process.env.USERPROFILE;
 const originalUser = process.env.USER;
@@ -248,6 +257,7 @@ setTimeout(() => {
         source: "vendorcli-refresh",
         status: "failed",
         error: "refresh_timed_out",
+        degraded: false,
       });
 
       // The vendor ran to completion on its own: no SIGTERM/SIGINT/SIGHUP
@@ -306,6 +316,7 @@ function processGroupOf(pid) {
         source: "vendorcli-refresh",
         status: "failed",
         error: "refresh_exit_status",
+        degraded: false,
       });
     });
   },
@@ -527,15 +538,19 @@ describe.skipIf(process.platform === "win32")(
           await importOriginal<typeof import("../../src/lib/process.js")>();
         return {
           ...actual,
-          execFileText: vi.fn(async () =>
-            JSON.stringify({
-              claudeAiOauth: {
-                accessToken: "keychain-valid-token",
-                refreshToken: true,
-                expiresAt: Date.parse("2035-01-01T00:00:00.000Z"),
-                subscriptionType: "max",
-              },
-            }),
+          execFileText: vi.fn(async (_command: string, args: string[]) =>
+            args[0] === "list-keychains"
+              ? CLAUDE_LOGIN_KEYCHAIN
+              : args[0] === "dump-keychain"
+                ? CLAUDE_KEYCHAIN_METADATA
+                : JSON.stringify({
+                    claudeAiOauth: {
+                      accessToken: "keychain-valid-token",
+                      refreshToken: true,
+                      expiresAt: Date.parse("2035-01-01T00:00:00.000Z"),
+                      subscriptionType: "max",
+                    },
+                  }),
           ),
         };
       });
@@ -592,7 +607,14 @@ describe.skipIf(process.platform === "win32")(
       vi.doMock("../../src/lib/process.js", async (importOriginal) => {
         const actual =
           await importOriginal<typeof import("../../src/lib/process.js")>();
-        return { ...actual, execFileText: vi.fn(async () => "") };
+        return {
+          ...actual,
+          execFileText: vi.fn(async (_command: string, args: string[]) =>
+            args[0] === "list-keychains"
+              ? CLAUDE_LOGIN_KEYCHAIN
+              : CLAUDE_KEYCHAIN_METADATA,
+          ),
+        };
       });
 
       const { fetchQuota } = await import("../../src/providers/claude.js");
@@ -856,6 +878,7 @@ describe.skipIf(process.platform === "win32")(
         source: "claude-cli-refresh",
         status: "failed",
         error: "refresh_timed_out",
+        degraded: false,
       });
       expect(result.state.status).toBe("stale");
       expect(result.state.stale).toBe(true);
@@ -1099,7 +1122,12 @@ process.stdin.on("data", (chunk) => {
     if (!line.trim()) continue;
     const request = JSON.parse(line);
     let result = {};
-    if (request.method === "account/read") result = { account: null };
+    if (request.method === "account/read") {
+      result = {
+        account: { type: "chatgpt", email: "cli@example.invalid", planType: "plus" },
+        requiresOpenaiAuth: true
+      };
+    }
     if (request.method === "account/rateLimits/read") {
       result = {
         rateLimits: {
@@ -1126,7 +1154,12 @@ describe.skipIf(process.platform === "win32")(
     it("reports live quota through the vendor CLI when the stored token is expired", async () => {
       writeCodexAuth(jwt({ exp: Math.floor(Date.parse("2020-01-01") / 1000) }));
       stubCodexAppServer();
-      const fetchMock = vi.fn();
+      const bearers: string[] = [];
+      // The stored token really is expired, so the usage endpoint rejects it.
+      const fetchMock = vi.fn(async (_input: unknown, init?: RequestInit) => {
+        bearers.push(new Headers(init?.headers).get("authorization") ?? "");
+        return new Response(null, { status: 401 });
+      });
       vi.stubGlobal("fetch", fetchMock);
 
       const { fetchQuota } = await import("../../src/providers/codex.js");
@@ -1140,14 +1173,18 @@ describe.skipIf(process.platform === "win32")(
         state: { status: "fresh", stale: false },
       });
       expect(result.windows.length).toBeGreaterThan(0);
-      // The expired bearer is never offered to the usage endpoint, and the
-      // rotation is entirely the vendor CLI's: quota-axi made no HTTP call.
-      expect(fetchMock).not.toHaveBeenCalled();
-      expect(result.attempts).toContainEqual({
-        source: "oauth",
-        status: "skipped",
-        error: "credentials_expired",
-      });
+      // The stored bearer is probed once - stored expiry is advisory, not a
+      // verdict - and only its definitive rejection hands over to the vendor
+      // CLI, whose rotation stays entirely the vendor's.
+      expect(result.attempts).toContainEqual(
+        expect.objectContaining({
+          source: "oauth",
+          status: "failed",
+          error: "Codex sign-in required",
+        }),
+      );
+      // The refresh token is never read, and never leaves as a bearer.
+      expect(JSON.stringify(bearers)).not.toContain("refresh");
 
       // The vendor rewrote its own store, so the next run has a live bearer.
       const stored = JSON.parse(
