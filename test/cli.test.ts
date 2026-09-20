@@ -146,6 +146,7 @@ describe("CLI flag parsing", () => {
         tui: false,
         once: false,
         allowKeychainPrompt: true,
+        allowClaudeInference: false,
         noCredentialRefresh: false,
         profileOnly: false,
       },
@@ -273,6 +274,41 @@ describe("delegated credential refresh wiring", () => {
       true,
       false,
     ]);
+  });
+
+  it("passes the explicit Claude inference opt-in only when requested", async () => {
+    const seen: ProviderOptions[] = [];
+    PROVIDERS.claude = recordingProvider(seen);
+
+    await quotaCommand(["--provider", "claude"], undefined);
+    await quotaCommand(
+      ["--provider", "claude", "--allow-claude-inference"],
+      undefined,
+    );
+
+    expect(seen[0]?.allowClaudeInference).toBeUndefined();
+    expect(seen[1]?.allowClaudeInference).toBe(true);
+  });
+
+  it("rejects recurring or unrelated Claude inference opt-ins", async () => {
+    await expect(
+      quotaCommand(
+        ["--provider", "claude", "--tui", "--allow-claude-inference"],
+        undefined,
+      ),
+    ).rejects.toThrow("requires --once with --tui");
+    await expect(
+      quotaCommand(
+        ["--provider", "codex", "--allow-claude-inference"],
+        undefined,
+      ),
+    ).rejects.toThrow("requires the claude provider");
+    await expect(
+      authCommand(
+        ["--provider", "claude", "--allow-claude-inference"],
+        undefined,
+      ),
+    ).rejects.toThrow("only supported by the quota command");
   });
 
   it("never delegates a refresh from the read-only auth report", async () => {
@@ -495,6 +531,277 @@ describe("CLI quota rendering", () => {
       "codex,all_models,unmeasurable,five_hour blocks spendPriority,none",
     );
     expect(output).not.toContain("codex,all,");
+  });
+
+  it("advertises the inference opt-in when the env token's scope denial is the final Claude failure", async () => {
+    useTempCache();
+    PROVIDERS.claude = providerWithQuota(envScopeDeniedClaudeQuota());
+    const chunks: string[] = [];
+
+    await main({
+      argv: ["--provider", "claude", "--json"],
+      binPath: "quota-axi",
+      stdout: {
+        write(chunk) {
+          chunks.push(String(chunk));
+          return true;
+        },
+      },
+    });
+
+    const output = JSON.parse(chunks.join("")) as QuotaAxiResponse;
+    const claude = output.providers.find(
+      (provider) => provider.provider === "claude",
+    );
+    expect(claude?.state).toMatchObject({
+      status: "unavailable",
+      authStatus: "usable",
+      error: "claude_env_usage_scope_unavailable",
+      reason: "inference_opt_in_required",
+      remedyCommand: "quota-axi --provider claude --allow-claude-inference",
+    });
+    expect(claude?.windows).toEqual([]);
+    expect(output.help).toHaveLength(1);
+    expect(output.help?.[0]).toContain(
+      "`quota-axi --provider claude --allow-claude-inference`",
+    );
+    expect(output.help?.[0]).toMatch(/inference/);
+    expect(output.help?.[0]).toMatch(/never does this by default/);
+  });
+
+  it("prefers the inference opt-in over Keychain advice when the env scope denial ended discovery", async () => {
+    useTempCache();
+    const macos = envScopeDeniedClaudeQuota();
+    macos.state.sourcesTried = ["oauth-file", "keychain", "env"];
+    macos.attempts = [
+      {
+        source: "oauth-file",
+        status: "skipped",
+        error: "credentials_missing",
+      },
+      {
+        source: "keychain",
+        status: "skipped",
+        error: "keychain_prompt_required",
+        credentialPresent: true,
+      },
+      ...(macos.attempts ?? []),
+    ];
+    PROVIDERS.claude = providerWithQuota(macos);
+    const chunks: string[] = [];
+
+    await main({
+      argv: ["--provider", "claude", "--json"],
+      binPath: "quota-axi",
+      stdout: {
+        write(chunk) {
+          chunks.push(String(chunk));
+          return true;
+        },
+      },
+    });
+
+    const output = JSON.parse(chunks.join("")) as QuotaAxiResponse;
+    const claude = output.providers.find(
+      (provider) => provider.provider === "claude",
+    );
+    expect(claude?.state).toMatchObject({
+      reason: "inference_opt_in_required",
+      remedyCommand: "quota-axi --provider claude --allow-claude-inference",
+    });
+    expect(output.help).toHaveLength(1);
+    expect(output.help?.[0]).not.toContain("--allow-keychain-prompt");
+  });
+
+  it("never falls back to Keychain advice after the opt-in native run fails", async () => {
+    useTempCache();
+    const macos = envScopeDeniedClaudeQuota();
+    macos.state.error = "claude_native_quota_unavailable";
+    macos.state.sourcesTried = [
+      "oauth-file",
+      "keychain",
+      "env",
+      "claude-native-inference",
+    ];
+    macos.attempts = [
+      {
+        source: "oauth-file",
+        status: "skipped",
+        error: "credentials_missing",
+      },
+      {
+        source: "keychain",
+        status: "skipped",
+        error: "keychain_prompt_required",
+        credentialPresent: true,
+      },
+      ...(macos.attempts ?? []),
+      {
+        source: "claude-native-inference",
+        status: "failed",
+        error: "claude_native_quota_unavailable",
+        degraded: false,
+      },
+    ];
+    PROVIDERS.claude = providerWithQuota(macos);
+    const chunks: string[] = [];
+
+    await main({
+      argv: ["--provider", "claude", "--json"],
+      binPath: "quota-axi",
+      stdout: {
+        write(chunk) {
+          chunks.push(String(chunk));
+          return true;
+        },
+      },
+    });
+
+    const output = JSON.parse(chunks.join("")) as QuotaAxiResponse;
+    const claude = output.providers.find(
+      (provider) => provider.provider === "claude",
+    );
+    expect(claude?.state.error).toBe("claude_native_quota_unavailable");
+    expect(claude?.state.reason).toBeUndefined();
+    expect(claude?.state.remedyCommand).toBeUndefined();
+    expect(output.help).toBeUndefined();
+  });
+
+  it("renders a native 429's observed windows as quota and exhaustion rows beside the rate limit", async () => {
+    useTempCache();
+    PROVIDERS.claude = providerWithQuota(nativeRateLimitedClaudeQuota());
+
+    const toon = await capture(["--provider", "claude"]);
+    const quota = toonRows(toon, "quota");
+    expect(quota).toHaveLength(1);
+    expect(quota[0]?.slice(0, 3)).toEqual(["claude", "all_models", "0"]);
+    expect(toonRows(toon, "exhaustion").map((row) => row.slice(0, 2))).toEqual([
+      ["claude", "all_models"],
+    ]);
+    expect(toonRows(toon, "attention")).toContainEqual([
+      "claude",
+      "all",
+      "rate_limited",
+      "claude_native_rate_limited retry after 2026-09-19T06:01:00.000Z",
+      "none",
+    ]);
+
+    const json = JSON.parse(
+      await capture(["--provider", "claude", "--json", "--full"]),
+    ) as QuotaAxiResponse;
+    const claude = json.providers[0];
+    expect(claude?.source).toBe("cli");
+    expect(claude?.state).toMatchObject({
+      status: "rate_limited",
+      stale: false,
+      authStatus: "usable",
+      retryAfter: "2026-09-19T06:01:00.000Z",
+    });
+    expect(claude?.windows.map((window) => window.percentUsed)).toEqual([100]);
+    expect(
+      claude?.quotaSemantics?.effectiveAvailability[0]
+        ?.effectivePercentRemaining,
+    ).toBe(0);
+    expect(existsSync(join(process.env.XDG_CACHE_HOME!, "quota-axi"))).toBe(
+      false,
+    );
+  });
+
+  it("renders the inference opt-in remedy on the TOON attention row", async () => {
+    useTempCache();
+    PROVIDERS.claude = providerWithQuota(envScopeDeniedClaudeQuota());
+    const chunks: string[] = [];
+
+    await main({
+      argv: ["--provider", "claude"],
+      binPath: "quota-axi",
+      stdout: {
+        write(chunk) {
+          chunks.push(String(chunk));
+          return true;
+        },
+      },
+    });
+
+    const output = chunks.join("");
+    expect(output).toContain(
+      "claude,all,unavailable,claude_env_usage_scope_unavailable · reason inference_opt_in_required (auth usable),quota-axi --provider claude --allow-claude-inference",
+    );
+    expect(output).toContain(
+      "Running `quota-axi --provider claude --allow-claude-inference` once",
+    );
+    expect(output).not.toMatch(/^ {2}claude,all_models,\d/m);
+  });
+
+  it("does not re-advertise the inference opt-in once the native fallback was attempted", async () => {
+    useTempCache();
+    const attempted = envScopeDeniedClaudeQuota();
+    attempted.state.error = "claude_native_quota_unavailable";
+    attempted.attempts = [
+      ...(attempted.attempts ?? []),
+      {
+        source: "claude-native-inference",
+        status: "failed",
+        error: "claude_native_quota_unavailable",
+        degraded: false,
+      },
+    ];
+    PROVIDERS.claude = providerWithQuota(attempted);
+    const chunks: string[] = [];
+
+    await main({
+      argv: ["--provider", "claude", "--json"],
+      binPath: "quota-axi",
+      stdout: {
+        write(chunk) {
+          chunks.push(String(chunk));
+          return true;
+        },
+      },
+    });
+
+    const output = JSON.parse(chunks.join("")) as QuotaAxiResponse;
+    const claude = output.providers.find(
+      (provider) => provider.provider === "claude",
+    );
+    expect(claude?.state.reason).toBeUndefined();
+    expect(claude?.state.remedyCommand).toBeUndefined();
+    expect(output.help).toBeUndefined();
+  });
+
+  it("does not advertise the inference opt-in for a stored credential's 403", async () => {
+    useTempCache();
+    const stored = envScopeDeniedClaudeQuota();
+    stored.state.error = "Claude quota unavailable (403)";
+    stored.state.authStatus = undefined;
+    stored.attempts = [
+      {
+        source: "oauth-file",
+        status: "failed",
+        error: "Claude quota unavailable (403)",
+      },
+    ];
+    PROVIDERS.claude = providerWithQuota(stored);
+    const chunks: string[] = [];
+
+    await main({
+      argv: ["--provider", "claude", "--json"],
+      binPath: "quota-axi",
+      stdout: {
+        write(chunk) {
+          chunks.push(String(chunk));
+          return true;
+        },
+      },
+    });
+
+    const output = JSON.parse(chunks.join("")) as QuotaAxiResponse;
+    const claude = output.providers.find(
+      (provider) => provider.provider === "claude",
+    );
+    expect(claude?.state.reason).toBeUndefined();
+    expect(claude?.state.remedyCommand).toBeUndefined();
+    expect(output.help).toBeUndefined();
   });
 
   it("surfaces keychain access advice in JSON when stale quota is blocked by a skipped keychain prompt", async () => {
@@ -1291,35 +1598,50 @@ describe("default TOON decision blocks", () => {
     );
   });
 
-  it("states a raw credit balance instead of contradicting it with no_quota", async () => {
-    useTempCache();
-    PROVIDERS.commandcode = providerWithQuota({
-      provider: "commandcode",
-      label: "Command Code",
-      source: "api",
-      windows: [],
-      credits: { remaining: 12.5, unit: "credits" },
-      state: {
-        status: "fresh",
-        stale: false,
-        refreshedAt: "2026-07-06T18:10:00Z",
-        authStatus: "usable",
-        sourcesTried: ["pi:commandcode"],
-      },
-    });
+  it.each([false, true])(
+    "states a raw credit balance with expanded accounts %s",
+    async (expanded) => {
+      useTempCache();
+      PROVIDERS.commandcode = providerWithQuota({
+        provider: "commandcode",
+        label: "Command Code",
+        source: "api",
+        windows: [],
+        credits: { remaining: 12.5, unit: "credits" },
+        state: {
+          status: "fresh",
+          stale: false,
+          refreshedAt: "2026-07-06T18:10:00Z",
+          authStatus: "usable",
+          sourcesTried: ["pi:commandcode"],
+        },
+      });
 
-    const output = await capture(["--provider", "commandcode"]);
+      if (expanded) {
+        PROVIDERS.codex = providerWithAccounts([
+          ["openai-codex", pacedProvider("codex", 20, 80)],
+          ["openai-codex-work", pacedProvider("codex", 40, 60)],
+        ]);
+      }
+      const output = await capture([
+        "--provider",
+        expanded ? "commandcode,codex" : "commandcode",
+      ]);
 
-    expect(toonRows(output, "attention")).toEqual([
-      [
-        "commandcode",
-        "all",
-        "credits",
-        "remaining 12.5 credits (auth usable)",
-        "none",
-      ],
-    ]);
-  });
+      expect(
+        toonRows(output, "attention").filter((row) => row[0] === "commandcode"),
+      ).toEqual([
+        [
+          "commandcode",
+          ...(expanded ? ["default"] : []),
+          "all",
+          "credits",
+          "remaining 12.5 credits (auth usable)",
+          "none",
+        ],
+      ]);
+    },
+  );
 
   it("renders an unmeasurable spendPriority as `unknown`, never as 0", async () => {
     useTempCache();
@@ -1909,6 +2231,71 @@ function staleClaudeQuota(): ProviderQuota {
         status: "skipped",
         error: "keychain_prompt_required",
         credentialPresent: true,
+      },
+    ],
+  };
+}
+
+function envScopeDeniedClaudeQuota(): ProviderQuota {
+  return {
+    provider: "claude",
+    label: "Claude",
+    source: "unavailable",
+    windows: [],
+    state: {
+      status: "unavailable",
+      stale: false,
+      authStatus: "usable",
+      error: "claude_env_usage_scope_unavailable",
+      sourcesTried: ["env"],
+    },
+    attempts: [
+      {
+        source: "env",
+        status: "failed",
+        error: "claude_env_usage_scope_unavailable",
+        degraded: false,
+      },
+    ],
+  };
+}
+
+function nativeRateLimitedClaudeQuota(): ProviderQuota {
+  return {
+    provider: "claude",
+    label: "Claude",
+    source: "cli",
+    windows: [
+      {
+        id: "five_hour",
+        label: "session",
+        kind: "session",
+        percentUsed: 100,
+        percentRemaining: 0,
+        resetsAt: "2099-01-01T05:00:00.000Z",
+        windowSeconds: 18_000,
+      },
+    ],
+    state: {
+      status: "rate_limited",
+      stale: false,
+      authStatus: "usable",
+      error: "claude_native_rate_limited",
+      retryAfter: "2026-09-19T06:01:00.000Z",
+      sourcesTried: ["env", "claude-native-inference"],
+    },
+    attempts: [
+      {
+        source: "env",
+        status: "failed",
+        error: "claude_env_usage_scope_unavailable",
+        degraded: false,
+      },
+      {
+        source: "claude-native-inference",
+        status: "failed",
+        error: "claude_native_rate_limited",
+        degraded: false,
       },
     ],
   };
