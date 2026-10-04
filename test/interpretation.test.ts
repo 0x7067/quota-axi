@@ -603,9 +603,13 @@ describe("quota semantics", () => {
   it("keeps a Codex model exhausted when its own window is the zero", () => {
     const result = withQuotaSemantics(
       provider("codex", [
-        window("weekly", "weekly", 0),
-        window("model:codex_bengalfox:5h", "model", 92),
-        window("model:codex_bengalfox:7d", "model", 0),
+        window("weekly", "weekly", 0, { resetsAt: weeklyResetsAt(0.5) }),
+        window("model:codex_bengalfox:5h", "model", 92, {
+          resetsAt: offsetFromGeneratedAt(9_000),
+        }),
+        window("model:codex_bengalfox:7d", "model", 0, {
+          resetsAt: weeklyResetsAt(0.5),
+        }),
       ]),
       GENERATED_AT,
     );
