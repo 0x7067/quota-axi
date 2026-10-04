@@ -648,7 +648,11 @@ function isCacheExcluded(provider: ProviderQuota): boolean {
 }
 
 function excludeFromFreshReuse(provider: ProviderId): boolean {
-  return provider === "muse";
+  // Muse Keychain and Higgsfield CLI logins are not traced files, and the
+  // Higgsfield status payload we already fetch has no stable non-email
+  // account discriminator, so --max-age must never serve another seat's
+  // credits or jobs as fresh.
+  return provider === "muse" || provider === "higgsfield";
 }
 
 function cacheIdentity(provider: ProviderQuota): string {
@@ -767,6 +771,7 @@ function toCacheProvider(provider: ProviderQuota): CachedProvider | undefined {
       plan: provider.plan,
       windows: provider.windows,
       credits: provider.credits,
+      jobs: provider.jobs,
       state: {
         status: provider.state.status,
         stale: false,
@@ -932,6 +937,8 @@ function normalizeCachedProvider(
   const refreshedAt = stringValue(state.refreshedAt);
   const untrustedWindowIds = stringArrayValue(state.untrustedWindowIds);
   const credits = normalizeCachedCredits(data.credits);
+  const jobs = normalizeCachedJobs(data.jobs);
+  if (data.jobs !== undefined && !jobs) return undefined;
   if (plan) snapshot.plan = plan;
   if (refreshedAt) snapshot.state.refreshedAt = refreshedAt;
   if (untrustedWindowIds)
@@ -941,6 +948,7 @@ function normalizeCachedProvider(
   if (subscription && CREDENTIAL_CONTEXT_ID.test(subscription))
     (snapshot as SubscriptionStampedQuota)[SUBSCRIPTION_IDENTITY] =
       subscription;
+  if (jobs) snapshot.jobs = jobs;
   const credentialContext = stringValue(data.credentialContext);
   const reuse = normalizeReuseStamp(data.reuse);
   return {
@@ -1134,6 +1142,29 @@ function normalizeCachedCredits(
     unlimited,
     unit,
   };
+}
+
+function normalizeCachedJobs(raw: unknown): ProviderQuota["jobs"] | undefined {
+  const data = objectValue(raw);
+  if (!data) return undefined;
+  const sampled = numberValue(data.sampled);
+  const completed = numberValue(data.completed);
+  const failed = numberValue(data.failed);
+  const other = numberValue(data.other);
+  if (
+    sampled === undefined ||
+    completed === undefined ||
+    failed === undefined ||
+    other === undefined ||
+    ![sampled, completed, failed, other].every(Number.isSafeInteger) ||
+    sampled < 0 ||
+    completed < 0 ||
+    failed < 0 ||
+    other < 0 ||
+    sampled !== completed + failed + other
+  )
+    return undefined;
+  return { sampled, completed, failed, other };
 }
 
 function assignNumber<T extends object, K extends keyof T>(

@@ -39,6 +39,7 @@ const originalOpenRouterProvider = PROVIDERS.openrouter;
 const originalElevenLabsProvider = PROVIDERS.elevenlabs;
 const originalDevinProvider = PROVIDERS.devin;
 const originalMuseProvider = PROVIDERS.muse;
+const originalHiggsfieldProvider = PROVIDERS.higgsfield;
 const originalXdgCacheHome = process.env.XDG_CACHE_HOME;
 const originalClaudeConfigDir = process.env.CLAUDE_CONFIG_DIR;
 const originalCodexHome = process.env.CODEX_HOME;
@@ -69,6 +70,7 @@ afterEach(() => {
   PROVIDERS.elevenlabs = originalElevenLabsProvider;
   PROVIDERS.devin = originalDevinProvider;
   PROVIDERS.muse = originalMuseProvider;
+  PROVIDERS.higgsfield = originalHiggsfieldProvider;
   vi.unstubAllGlobals();
   if (originalXdgCacheHome === undefined) delete process.env.XDG_CACHE_HOME;
   else process.env.XDG_CACHE_HOME = originalXdgCacheHome;
@@ -107,6 +109,7 @@ describe("CLI flag parsing", () => {
       "elevenlabs",
       "devin",
       "muse",
+      "higgsfield",
     ]);
   });
 
@@ -182,6 +185,7 @@ describe("CLI flag parsing", () => {
           "elevenlabs",
           "devin",
           "muse",
+          "higgsfield",
         ],
         json: true,
         full: true,
@@ -1458,13 +1462,13 @@ describe("human report folding for providers that are not set up", () => {
 
     expect(output.trimEnd().split("\n").slice(-3)).toEqual([
       "  ○ not set up  cursor · copilot · grok · kimi · zai · agy · alibaba · opencode-go · commandcode",
-      "                minimax · mimo · deepseek · openrouter · elevenlabs · devin · muse",
+      "                minimax · mimo · deepseek · openrouter · elevenlabs · devin · muse · higgsfield",
       "                quota-axi auth shows where each is read",
     ]);
     expect(output).not.toMatch(/╭─ ○ (agy|alibaba|commandcode) /);
 
     expect(output).toMatch(
-      /· 1 live · 0 stale · 1 needs attention · 16 not set up\n/,
+      /· 1 live · 0 stale · 1 needs attention · 17 not set up\n/,
     );
     expect(output).toContain("╭─ ● codex ");
     expect(output).toContain("╭─ ○ claude ");
@@ -1477,9 +1481,10 @@ describe("human report folding for providers that are not set up", () => {
     stubFoldFleet();
     const output = await capture(["--tui", "--once", "--all"]);
 
-    expect(output).toContain("  ○ not set up · 16\n");
+    expect(output).toContain("  ○ not set up · 17\n");
     expect(output).toContain("╭─ ○ copilot ");
     expect(output).toContain("╭─ ○ elevenlabs ");
+    expect(output).toContain("╭─ ○ higgsfield ");
     expect(output).not.toContain("quota-axi auth shows where each is read");
   });
 
@@ -1542,7 +1547,7 @@ describe("human report folding for providers that are not set up", () => {
 
       process.stdin.emit("data", Buffer.from("a"));
       await settle("a hide not set up");
-      expect(lastFrame()).toContain("  ○ not set up · 16");
+      expect(lastFrame()).toContain("  ○ not set up · 17");
       expect(lastFrame()).toContain("╭─ ○ zai ");
 
       process.stdin.emit("data", Buffer.from("q"));
@@ -1946,6 +1951,7 @@ describe("default TOON decision blocks", () => {
     PROVIDERS.elevenlabs = providerWithQuota(freshElevenLabsQuota());
     PROVIDERS.devin = providerWithQuota(freshDevinQuota());
     PROVIDERS.muse = providerWithQuota(emptyFreshQuota("muse", "Muse"));
+    PROVIDERS.higgsfield = providerWithQuota(freshHiggsfieldQuota());
 
     const output = await capture([]);
     const named = new Set([
@@ -1965,6 +1971,7 @@ describe("default TOON decision blocks", () => {
       "devin",
       "elevenlabs",
       "grok",
+      "higgsfield",
       "kimi",
       "mimo",
       "minimax",
@@ -2773,6 +2780,7 @@ describe("CLI plumbing via the axi SDK", () => {
     PROVIDERS.mimo = providerWithAuth("mimo", "MiMo");
     PROVIDERS.deepseek = providerWithAuth("deepseek", "DeepSeek");
     PROVIDERS.openrouter = providerWithAuth("openrouter", "OpenRouter");
+    PROVIDERS.higgsfield = providerWithAuth("higgsfield", "Higgsfield");
 
     const output = await capture(["--allow-keychain-prompt", "auth"]);
     expect(output).toContain(
@@ -3695,6 +3703,33 @@ function freshElevenLabsQuota(): ProviderQuota {
       authStatus: "usable",
       refreshedAt: "2026-07-06T18:10:00Z",
       sourcesTried: ["env:ELEVENLABS_API_KEY"],
+    },
+  };
+}
+
+function freshHiggsfieldQuota(): ProviderQuota {
+  return {
+    provider: "higgsfield",
+    label: "Higgsfield",
+    source: "cli",
+    plan: "ultra",
+    windows: [
+      {
+        id: "credits",
+        label: "credits",
+        kind: "credits",
+        percentUsed: (8 / 6000) * 100,
+        percentRemaining: (5992 / 6000) * 100,
+      },
+    ],
+    credits: { remaining: 5992, unit: "credits" },
+    jobs: { sampled: 20, completed: 20, failed: 0, other: 0 },
+    state: {
+      status: "fresh",
+      stale: false,
+      authStatus: "usable",
+      refreshedAt: "2026-09-21T12:00:00Z",
+      sourcesTried: ["higgsfield-cli"],
     },
   };
 }
