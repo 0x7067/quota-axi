@@ -979,6 +979,16 @@ function hasInvalidCodexWindowIdentities(windows: QuotaWindow[]): boolean {
 function codexWindowBaseIdentity(window: QuotaWindow): string | undefined {
   const id = window.id.replace(/_[2-9]\d*$/, "");
   if (window.windowSeconds === undefined) {
+    if (
+      matchesWindowIdentity(
+        window,
+        id,
+        "spend_control",
+        "workspace credit cap",
+        "credits",
+      )
+    )
+      return id;
     if (matchesWindowIdentity(window, id, "five_hour", "session", "session"))
       return id;
     if (matchesWindowIdentity(window, id, "weekly", "week", "weekly"))
@@ -1113,6 +1123,10 @@ function normalizeCachedWindow(raw: unknown): QuotaWindow | undefined {
   assignNumber(result, "windowSeconds", data.windowSeconds);
   assignNumber(result, "spentUsd", data.spentUsd);
   assignNumber(result, "limitUsd", data.limitUsd);
+  assignNumber(result, "limitCredits", data.limitCredits);
+  assignNumber(result, "usedCredits", data.usedCredits);
+  assignNumber(result, "remainingCredits", data.remainingCredits);
+  assignString(result, "creditUnit", data.creditUnit);
   return result;
 }
 
